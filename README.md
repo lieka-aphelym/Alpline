@@ -46,6 +46,7 @@ fpv3d/
 > - **Simpler panel:** plain words ("Where do I lose the drone?", "Hidden by terrain", "No-fly zones"), a one-sentence answer at the top of the Signal, No-fly zones, Flights and Live tabs (e.g. *Video reaches about 2.1 km. Flying at 30 m, the drone stays in sight over 64% of that area*), and the less used settings under **+ Advanced** in each tab.
 > - **Four tabs instead of seven:** **[map]** (photo, camera, no-fly zones, this location), **[signal]** (where you lose the drone, radio range), **[flights]** (logs, comparison, video) and **[fly]** (training flight, live flight with the radio + warnings). The Switzerland map is now the **[locations]** link at the top.
 > - **Radio setups instead of dB fields:** *[signal] → Radio range* offers ready-made choices per link (e.g. *25 mW · stock antennas (CH / EU limit)*, *500 mW · patch on the goggles*, *1 W · directional on the radio*). They set the power and antennas; receiver sensitivity, losses and safety margin keep the location's values. The exact numbers are under *Advanced: exact radio values*.
+> - **Dark / light theme:** the *[dark] [light]* switch next to the title (viewer and map page) is remembered per browser. Dark for indoors, light for reading in sunlight at the field. Both are square-edged and data-first: numbers in a fixed-width font, section titles in small capitals with a thin rule, one accent colour (yellow in dark, blue in light) for what is selected or important.
 
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 

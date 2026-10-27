@@ -1,0 +1,133 @@
+/* fpv3d lite: dark / light themes, angular and data-oriented.
+   Chosen with the [dark] / [light] switch in the header (remembered per browser).
+   Loaded after style.css / map.css; only colours, shapes and type change, never layout logic. */
+
+:root, :root[data-theme="dark"] {
+  --t-bg: #07090c;          /* panels */
+  --t-bg2: #10141a;         /* inputs, blocks */
+  --t-bg3: #171c24;         /* hover */
+  --t-fg: #f2f5f8;          /* text */
+  --t-fg2: #a9b4c2;         /* labels */
+  --t-rule: #2a313c;        /* hairlines */
+  --t-rule2: #4a5462;       /* control borders */
+  --t-acc: #ffd60a;         /* accent: OSD yellow */
+  --t-acc-fg: #000;         /* text on accent */
+  --t-shadow: 0 2px 12px rgba(0,0,0,.45);
+  --text: var(--t-fg); --muted: var(--t-fg2); --line: var(--t-rule); --accent: var(--t-acc); --panel: var(--t-bg);
+}
+:root[data-theme="light"] {
+  --t-bg: #ffffff;
+  --t-bg2: #f1f3f6;
+  --t-bg3: #e4e8ed;
+  --t-fg: #0a0c0f;
+  --t-fg2: #3b4552;
+  --t-rule: #c9ced6;
+  --t-rule2: #7d8796;
+  --t-acc: #0050c8;
+  --t-acc-fg: #fff;
+  --t-shadow: 0 2px 14px rgba(0,0,0,.28);
+  --ok: #0a8a3a; --warn: #a86400; --bad: #c4142c;
+}
+
+:root { --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace; font-size: 13.5px; }
+
+/* ---------- surfaces: opaque, square ---------- */
+#panel, #hud, #timeline, #pick, #profile, #simLive, #videoHead, #vTimes, .leaflet-tooltip.tip {
+  background: var(--t-bg) !important; color: var(--t-fg); border: 1px solid var(--t-rule2) !important;
+  border-radius: 0 !important; backdrop-filter: none !important; box-shadow: var(--t-shadow);
+}
+#panel *, #hud *, #timeline *, #profile *, #pick * { border-radius: 0 !important; }
+.leaflet-tooltip.tip { color: var(--t-fg) !important; }
+
+/* ---------- rail: text tabs with an accent bar ---------- */
+.rail { background: var(--t-bg2) !important; border-right: 1px solid var(--t-rule) !important; padding: 0 !important; gap: 0 !important; }
+.rail button, #panel .rail button { border: 0 !important; border-left: 3px solid transparent !important; padding: 10px 0 9px !important; background: none !important; }
+.rail button span { color: var(--t-fg2) !important; font: 600 11px/1 var(--mono) !important; letter-spacing: .3px; }
+#panel .rail button:hover, .rail button:hover { background: var(--t-bg3) !important; }
+#panel .rail button.on, .rail button.on { border-left-color: var(--t-acc) !important; background: var(--t-bg) !important; }
+.rail button.on span { color: var(--t-fg) !important; }
+.rail .railCollapse { font: 10px var(--mono) !important; color: var(--t-fg2) !important; }
+
+/* ---------- type ---------- */
+#panel h1 { font: 700 15px var(--mono); letter-spacing: .5px; text-transform: uppercase; }
+#pbody h2 { display: flex; align-items: center; gap: 8px; font: 700 11px var(--mono) !important; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--t-fg) !important; margin: 0 0 8px; }
+#pbody h2::after { content: ''; flex: 1; height: 1px; background: var(--t-rule); }
+#pbody h2 .muted { font-weight: 400; color: var(--t-fg2) !important; }
+#pbody section { border-top: 0 !important; padding-top: 12px; margin-top: 4px; }
+.muted { color: var(--t-fg2) !important; }
+#sceneInfo { font-family: var(--mono); font-size: 11px; color: var(--t-fg2); border-left: 2px solid var(--t-rule2); padding-left: 7px; margin: 6px 0 2px; }
+output, .r, #lnkRange0, #lnkRange1, #lnkRange2, #lnkRange3, #clock { font-family: var(--mono) !important; font-variant-numeric: tabular-nums; }
+.lite { color: var(--t-acc) !important; border: 1px solid var(--t-acc) !important; border-radius: 0 !important; font-family: var(--mono); }
+
+/* ---------- summary = readout ---------- */
+.summary { background: var(--t-bg2) !important; border: 1px solid var(--t-rule) !important; border-left: 3px solid var(--t-acc) !important;
+  border-radius: 0 !important; color: var(--t-fg) !important; font-size: 12.5px; }
+.summary b { font-family: var(--mono); font-weight: 700; color: var(--t-acc); }
+:root[data-theme="dark"] .summary b, :root:not([data-theme]) .summary b { color: var(--t-acc); }
+
+/* ---------- controls ---------- */
+#panel select, #panel button, #panel input[type=number], #panel input:not([type]), #panel input[type=search], .renbox input,
+.mappage input, #timeline select, #timeline button, #profile button, #hud button, code {
+  background: var(--t-bg2) !important; color: var(--t-fg) !important; border: 1px solid var(--t-rule2) !important; border-radius: 0 !important;
+}
+#panel select:hover, #panel button:hover { background: var(--t-bg3) !important; }
+#panel button, #timeline button, #hud button { font-family: var(--mono); font-size: 12px; }
+#panel button.primary, .mappage button.primary { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }
+#panel button.danger { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
+.rail button { font-family: inherit; }
+input[type=checkbox], input[type=radio] { accent-color: var(--t-acc); width: 15px; height: 15px; }
+input[type=range] { accent-color: var(--t-acc); }
+:focus-visible { outline: 2px solid var(--t-acc) !important; outline-offset: 1px; }
+a, .navlink { color: var(--t-acc) !important; font-family: var(--mono); }
+details.adv { border-top: 1px dashed var(--t-rule) !important; }
+details.adv > summary { font: 600 10.5px var(--mono) !important; color: var(--t-fg2) !important; letter-spacing: .8px; }
+details.help summary { font-family: var(--mono); }
+.filebtn { background: var(--t-bg2) !important; border: 1px dashed var(--t-rule2) !important; border-radius: 0 !important; font-family: var(--mono); }
+.linkedit details.lnk, #zoneDetail, .renbox, .zonelist li:hover { background: var(--t-bg2) !important; border-radius: 0 !important; }
+
+/* legend swatches: small squares */
+.chips i, .legend i, .sw, .sw3, .linkedit .setup .sw, .linkedit summary .sw { border-radius: 0 !important; }
+.chips { font-family: var(--mono); font-size: 10.5px !important; color: var(--t-fg2) !important; }
+
+/* ---------- flight info box: instrument readout ---------- */
+#hud { font-family: var(--mono); }
+#hud .status { border-radius: 0 !important; font: 700 12px var(--mono) !important; letter-spacing: 1px; border-left: 4px solid currentColor; text-align: left !important; padding: 5px 8px !important; }
+#hud .tiles { gap: 0 !important; border: 1px solid var(--t-rule); }
+#hud .tile { background: none !important; border-right: 1px solid var(--t-rule); text-align: left !important; padding: 5px 7px !important; }
+#hud .tile:last-child { border-right: 0; }
+#hud .tile b { font: 700 19px var(--mono) !important; }
+#hud .tile span { font: 600 9.5px var(--mono) !important; letter-spacing: .8px; color: var(--t-fg2) !important; }
+#hud .sig .h { font-size: 11.5px; }
+#hud .sig .bar { background: var(--t-bg3) !important; height: 4px !important; }
+#hud table td { border-bottom: 1px solid var(--t-rule); padding: 2px 0 !important; }
+#hud table td:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+#hud button.more { border: 1px solid var(--t-rule) !important; background: none !important; color: var(--t-fg2) !important; }
+
+/* tables, compare */
+#cmpTable table, .livevals { font-family: var(--mono); font-size: 11.5px; }
+.livevals div { border-bottom: 1px solid var(--t-rule) !important; }
+
+/* timeline + profile */
+#timeline input[type=range] { accent-color: var(--t-acc); }
+#profile .profHead span { font-family: var(--mono); font-size: 11px; color: var(--t-fg2); }
+
+/* header switch */
+.themeSw { display: inline-flex; border: 1px solid var(--t-rule2); }
+#panel .themeSw button, .themeSw button { border: 0 !important; padding: 1px 6px !important; font: 600 10.5px var(--mono) !important; background: none !important; color: var(--t-fg2) !important; }
+#panel .themeSw button.on, .themeSw button.on { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; }
+
+/* light theme: a few hard-coded dark bits */
+:root[data-theme="light"] #panel .rail button.on { background: var(--t-bg) !important; }
+:root[data-theme="light"] #warnBox { box-shadow: var(--t-shadow); }
+:root[data-theme="light"] .lite { background: none; }
+:root[data-theme="light"] .mappage #map { background: #dfe3e8; }
+:root[data-theme="light"] .prog, :root[data-theme="light"] .steps li { background: var(--t-bg2) !important; color: var(--t-fg2) !important; }
+:root[data-theme="light"] .steps li.now { background: var(--t-acc) !important; color: #fff !important; }
+:root[data-theme="light"] .steps li.done { background: #d6f1df !important; color: #0a5a28 !important; }
+:root[data-theme="light"] #jobLog, :root[data-theme="light"] .joblog { background: var(--t-bg2) !important; color: var(--t-fg) !important; }
+.prog, .steps li, .loclist .badge, .bar, .bar i { border-radius: 0 !important; }
+
+/* segmented choices (map page shape, etc.): the chosen one is filled */
+#panel .shape button.on, #panel button.on:not(.rail button):not(.themeSw button) { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; }
+#panel select { min-width: 0; max-width: 100%; }

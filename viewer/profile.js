@@ -90,7 +90,10 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
     const L = 46, R = 10, T = 10, B = 22;
     const X = (d) => L + ((W - L - R) * d) / total, Y = (z) => T + ((H - T - B) * (hi - z)) / (hi - lo);
     // grid
-    ctx.font = '10px system-ui, sans-serif'; ctx.fillStyle = '#8b96a8'; ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1;
+    const light = document.documentElement.dataset.theme === 'light';
+    const ink = light ? '#0a0c0f' : '#ffffff';
+    ctx.font = '10px ui-monospace, Consolas, monospace'; ctx.fillStyle = light ? '#3b4552' : '#a9b4c2';
+    ctx.strokeStyle = light ? 'rgba(0,0,0,.12)' : 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
     const zStep = niceStep((hi - lo) / 4), dStep = niceStep(total / 6);
     for (let z = Math.ceil(lo / zStep) * zStep; z <= hi; z += zStep) {
       ctx.beginPath(); ctx.moveTo(L, Y(z)); ctx.lineTo(W - R, Y(z)); ctx.stroke(); ctx.fillText(`${Math.round(z)}`, 4, Y(z) + 3);
@@ -114,22 +117,22 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
     ctx.fillStyle = '#5b4a3a'; ctx.fill();
     line((s) => s.g, '#c8a77e', [], 1.5);
     // chosen height above ground
-    line((s) => s.g + agl, 'rgba(255,255,255,.7)', [3, 4], 1);
+    line((s) => s.g + agl, light ? 'rgba(0,0,0,.7)' : 'rgba(255,255,255,.7)', [3, 4], 1);
     // flight
     for (const q of tp) { ctx.fillStyle = q.c; ctx.fillRect(X(q.d) - 1.2, Y(q.z) - 1.2, 2.4, 2.4); }
     if (S.drone && S.track) {
       const v = S.drone.position, x = v.x + S.W / 2, y = S.H / 2 - v.z, z = v.y / S.exag + S.hBase, q = project(x, y);
-      if (q.off <= cor.width_m * 1.3) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(q.d), Y(z), 4, 0, 7); ctx.fill(); }
+      if (q.off <= cor.width_m * 1.3) { ctx.fillStyle = ink; ctx.beginPath(); ctx.arc(X(q.d), Y(z), 4, 0, 7); ctx.fill(); }
     }
     // pilot
     if (pilotOn) {
       ctx.fillStyle = '#ffd400'; ctx.beginPath(); ctx.arc(X(pp.d), Y(p.z), 4.5, 0, 7); ctx.fill();
-      ctx.fillText('pilot', X(pp.d) + 6, Y(p.z) - 5);
+      ctx.fillStyle = ink; ctx.fillText('pilot', X(pp.d) + 6, Y(p.z) - 5);
     }
     // hover
     if (hoverD != null) {
       const i = Math.round((hoverD / total) * (samples.length - 1)), s = samples[Math.max(0, Math.min(samples.length - 1, i))];
-      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(X(s.d), T); ctx.lineTo(X(s.d), H - B); ctx.stroke();
+      ctx.strokeStyle = light ? 'rgba(0,0,0,.6)' : 'rgba(255,255,255,.6)'; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(X(s.d), T); ctx.lineTo(X(s.d), H - B); ctx.stroke();
       const fmt = (v) => (v == null ? '–' : v >= 1e4 ? 'at no height' : v < 0.5 ? 'from the ground up' : `from ${Math.round(v)} m above ground`);
       el.info.innerHTML = `<b>${s.d >= 1000 ? `${(s.d / 1000).toFixed(2)} km` : `${Math.round(s.d)} m`}</b> along the route · ground ${Math.round(s.g)} m`
         + (s.los != null ? ` · line of sight ${fmt(s.los)} · signal ${fmt(s.loss)}` : '');
@@ -157,6 +160,7 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
   });
   el.canvas.addEventListener('pointerleave', () => { hoverD = null; draw(); });
   new ResizeObserver(() => draw()).observe(el.canvas);
+  addEventListener('fpv3d:theme', () => draw());
 
   let lastTick = 0;
   return {
