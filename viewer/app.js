@@ -824,7 +824,7 @@ function initUI() {
   fillTrackPickers();
   initRename();
   $('cmpPick').onchange = () => loadCompare($('cmpPick').value);
-  $('trackPick').onchange = () => loadTrack($('trackPick').value);
+  $('trackPick').onchange = () => { rememberFlight($('trackPick').value); loadTrack($('trackPick').value); };
   $('colorMode').onchange = () => S.track && buildTrackObjects();
   const vecRefresh = () => { if (!S.track) return; buildCombs(); updateDrone(); };
   $('velOn').onchange = vecRefresh; $('accOn').onchange = vecRefresh; $('combOn').onchange = vecRefresh;
@@ -898,7 +898,7 @@ const SIM = initSim({
   ensureDrone: () => { if (!S.drone) buildDrone(); },
   zonesAt: (x, y, z) => (S.zones ? S.zones.zonesAt(x, y, z) : []),
   setClutterVisible: (on) => {   // markers that only get in the way of an FPV view
-    for (const o of [S.curtain, S.pilot, S.beam, S.velComb, S.accComb, S.cmpGhost, S.velArrow, S.accArrow]) if (o) o.visible = on && (o !== S.curtain || $('curtainOn').checked);
+    for (const o of [S.curtain, S.pilot, S.beam, S.velComb, S.accComb, S.cmpGhost, S.velArrow, S.accArrow]) if (o) o.visible = on && (o !== S.curtain || $('curtainOn').checked) && (!!S.track || o === S.pilot || o === S.cmpGhost);
   },
   onStop: () => { if (S.track) updateDrone(); },
   onSaved: (file) => refreshTracks(file),
@@ -974,9 +974,9 @@ async function loadCompare(file) {
 function fillTrackPickers(selectFile) {
   const tr = S.meta.tracks;
   const label = (t) => t.name;
-  $('trackPick').innerHTML = tr.length ? tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight yet)</option>';
+  $('trackPick').innerHTML = tr.length ? '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight yet)</option>';
   if (!tr.length) $('trackInfo').innerHTML = 'No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight or record one live (both in <b>[fly]</b>).';
-  if (selectFile) $('trackPick').value = selectFile;
+  $('trackPick').value = selectFile || (S.track ? S.trackFile || '' : '');
   const cur = $('cmpPick').value;
   $('cmpPick').innerHTML = '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');
   if ([...$('cmpPick').options].some((o) => o.value === cur)) $('cmpPick').value = cur;
@@ -1062,7 +1062,7 @@ async function refreshTracks(selectFile) {
   S.meta = await getJSON(S.base + 'scene.json');
   if (S.links0) applyLinks();
   fillTrackPickers(selectFile);
-  if (selectFile) await loadTrack(selectFile);
+  if (selectFile) { rememberFlight(selectFile); await loadTrack(selectFile); }
 }
 
 // ------------------------------------------------------------------ radio link editor (antennas / power -> range)
@@ -1286,9 +1286,37 @@ function applyZones() {
   if (S.track) { const sel = $('colorMode'), prev = sel.value; sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join(''); sel.value = prev || 'status'; buildTrackObjects(); renderCompare(); }
 }
 
+// the flight picked per location is remembered ('' = none), so "no flight" stays chosen next time
+const flightKey = () => `fpv3d:flight:${S.meta?.name}`;
+function rememberFlight(file) { try { localStorage.setItem(flightKey(), file); } catch { /* private mode */ } }
+function rememberedFlight() {
+  let f = null; try { f = localStorage.getItem(flightKey()); } catch { /* private mode */ }
+  if (f === '') return '';
+  return S.meta.tracks.some((t) => t.file === f) ? f : S.meta.tracks[0]?.file || '';
+}
+
+/** no flight selected: hide the path, the drone, the flight info box and the playback bar */
+function clearTrack() {
+  if (S.playing) togglePlay();
+  S.track = null; S.trackFile = null;
+  if ($('trkRenBtn')) $('trkRenBtn').disabled = true;
+  for (const o of [S.trackObj, S.curtain, S.velComb, S.accComb]) if (o) { scene3.remove(o); o.geometry.dispose(); }
+  S.trackObj = S.curtain = S.velComb = S.accComb = null;
+  for (const o of [S.velArrow, S.accArrow, S.beam]) if (o) o.visible = false;
+  $('timeline').classList.add('hidden');
+  $('hud').innerHTML = '';
+  $('trackInfo').innerHTML = S.meta.tracks.length ? `No flight shown. Pick one above to replay it (${S.meta.tracks.length} saved).` : $('trackInfo').innerHTML;
+  if (S.cmp) { buildCompareObjects(); renderCompare(); }
+  S.prof?.redraw();
+  S.requestRender?.(300);
+}
+
 async function loadTrack(file) {
-  if (!file) { $('timeline').classList.add('hidden'); return; }
+  if (!file) { clearTrack(); return; }
   S.track = await getJSON(S.base + file);
+  S.trackFile = file;
+  if ($('trkRenBtn')) $('trkRenBtn').disabled = false;
+  if (S.beam) S.beam.visible = true;
   shiftTrackMargins(S.track);
   computeKinematics(S.track, +$('smooth').value);
   computeTrackZones(S.track);
@@ -1352,7 +1380,7 @@ async function loadScene(name) {
   controls.target.set(0, p.y, 0);
   camera.position.set(-span * 0.35, p.y + span * 0.45, span * 0.75);
   scene3.fog = new THREE.Fog(0x9fb8cf, span * 1.5, span * 6);
-  if (S.meta.tracks.length) await loadTrack(S.meta.tracks[0].file);
+  if (S.meta.tracks.length) { const f = rememberedFlight(); $('trackPick').value = f; await loadTrack(f); }
   $('loading').remove();
 }
 
@@ -1389,7 +1417,7 @@ renderer.setAnimationLoop(() => {
   if (S.pilot) { const s = Math.max(1, camera.position.distanceTo(S.pilot.position) / 600); S.pilot.userData.head.scale.setScalar(s); }
   updateArrows();
   CAM.update(dt);
-  if (S.drone) S.drone.visible = CAM.mode() !== 'drone';   // don't sit inside the marker
+  if (S.drone) S.drone.visible = CAM.mode() !== 'drone' && (!!S.track || document.body.classList.contains('sim-on'));   // don't sit inside the marker
   if (S.curtain) S.curtain.visible = $('curtainOn').checked && CAM.mode() !== 'drone';
   const orbitMoved = CAM.usesOrbit() ? controls.update() : false;
   S.detail?.update(now);
