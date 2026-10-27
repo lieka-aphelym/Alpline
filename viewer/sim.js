@@ -428,7 +428,7 @@ export function initSim(app) {
   function status() {
     const p = pad();
     $('simInput').innerHTML = p ? `[radio] <b>${p.id.slice(0, 40)}</b> (${p.axes.length} axes)` :
-      '[keyboard] (connect your radio by USB in <b>Joystick</b> mode and move a stick)';
+      'Using the keyboard. No radio found yet: plug it in (<b>Joystick</b> mode) and move a stick.';
     $('simStart').textContent = 'Start training flight';
     $('simLive').classList.toggle('hidden', !st.active);
   }

@@ -44,10 +44,10 @@ export function initCameraModes({ camera, controls, dom, groundY, sceneSpan, dro
   function hint() {
     const el = document.getElementById('camHint'); if (!el) return;
     el.innerHTML = {
-      orbit: 'Drag = rotate · right-drag = pan · wheel = zoom',
-      fly: `Drag = look · <b>W A S D</b> move · <b>E / Q</b> up / down · arrows turn · Shift fast · Alt slow · wheel = speed <b>${st.speed.toFixed(0)} m/s</b>`,
-      chase: 'Orbit around the drone; the camera follows it during playback',
-      drone: 'View from the drone, looking along its flight direction (no attitude in the log)',
+      orbit: 'Drag to turn, right-drag to move, wheel to zoom',
+      fly: `Drag to look, <b>W A S D</b> to move, <b>E / Q</b> up and down, Shift faster; wheel sets the speed (<b>${st.speed.toFixed(0)} m/s</b>)`,
+      chase: 'The camera follows the drone while a flight plays',
+      drone: 'Seen from the drone, looking where it flies',
     }[st.mode];
   }
 

@@ -43,6 +43,7 @@ fpv3d/
 >
 > - **Simpler signal display:** no separate "Fresnel" state. Signal loss covers the same idea, so the views show only *clear*, *no line of sight* and *signal loss likely*.
 > - **Cleaner flight info box:** distance, height and speed in large type; one bar per radio link (margin, plus LQ when the log has it); the drone zone only when you're in one. Everything else is under *[more]*, with plain names and units.
+> - **Simpler panel:** plain words ("Where do I lose the drone?", "Hidden by terrain", "No-fly zones"), a one-sentence answer at the top of the Signal, No-fly zones, Flights and Live tabs (e.g. *Video reaches about 2.1 km. Flying at 30 m, the drone stays in sight over 64% of that area*), and the less used settings under **+ Advanced** in each tab.
 
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 

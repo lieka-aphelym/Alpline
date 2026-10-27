@@ -263,3 +263,17 @@ body.live-on #hud, body.live-on #timeline { display: none !important; }   /* the
 #hud button.more { margin: 8px 0 0; width: 100%; padding: 2px; font-size: 11px; color: var(--muted); background: none; border-color: transparent; }
 #hud button.more:hover { color: var(--text); }
 #hud table { margin-top: 4px; font-size: 12px; }
+
+/* ---- lite panel: summaries + advanced sections ---- */
+.summary { margin: 2px 0 10px; padding: 7px 9px; font-size: 12.5px; line-height: 1.45; color: var(--text);
+  background: rgba(79,195,247,.07); border-left: 3px solid #4fc3f7; border-radius: 0 6px 6px 0; }
+.summary:empty { display: none; }
+.summary code { font-size: 11px; }
+details.adv { margin: 10px 0 2px; border-top: 1px dashed var(--line); padding-top: 6px; }
+details.adv > summary { cursor: pointer; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; list-style: none; user-select: none; }
+details.adv > summary::-webkit-details-marker { display: none; }
+details.adv > summary::before { content: '+ '; }
+details.adv[open] > summary::before { content: '− '; }
+details.adv > summary:hover { color: var(--text); }
+details.adv[open] { padding-bottom: 4px; }
+#sceneInfo { font-size: 12px; line-height: 1.4; }

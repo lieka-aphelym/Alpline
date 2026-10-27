@@ -300,9 +300,9 @@ const C_OK = new THREE.Color(0x3ddc84), C_FRES = new THREE.Color(0xffb000),
 function statusOf(i) {
   const tr = S.track, prim = S.meta.links[S.meta.primary_link].name;
   const m = tr.margin[prim]?.[i];
-  if (m != null && m < 0) return { c: C_LOST, label: 'SIGNAL LOSS LIKELY', css: '#ff2d55' };
-  if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'NO LINE OF SIGHT', css: '#ff7a1a' };
-  return { c: C_OK, label: 'CLEAR', css: '#3ddc84' };
+  if (m != null && m < 0) return { c: C_LOST, label: 'SIGNAL PROBABLY LOST', css: '#ff2d55' };
+  if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'HIDDEN BY TERRAIN', css: '#ff7a1a' };
+  return { c: C_OK, label: 'IN SIGHT', css: '#3ddc84' };
 }
 
 const RAMP = [[0, '#d7263d'], [0.35, '#f49d37'], [0.6, '#f6e05e'], [1, '#3ddc84']];
@@ -413,12 +413,12 @@ function buildCombs() {
 }
 
 function colorModes() {
-  const modes = [{ id: 'status', label: 'Link status (line of sight / signal)' }];
-  for (const l of S.meta.links) modes.push({ id: 'margin:' + l.name, label: `Predicted margin — ${l.name}`, lo: -10, hi: 20, unit: 'dB' });
+  const modes = [{ id: 'status', label: 'In sight / hidden / signal lost' }];
+  for (const l of S.meta.links) modes.push({ id: 'margin:' + l.name, label: `Signal strength · ${l.name}`, lo: -10, hi: 20, unit: 'dB' });
   modes.push({ id: 'agl', label: 'Height above ground', lo: 0, hi: null, unit: 'm', invert: false });
-  modes.push({ id: 'speed', label: 'Speed (1st derivative)', lo: 0, hi: null, unit: 'km/h' });
-  modes.push({ id: 'accel', label: 'Acceleration (2nd derivative)', lo: 0, hi: null, unit: 'g', dec: 1 });
-  if (S.zones) modes.push({ id: 'zones', label: 'Drone zones (FOCA)' });
+  modes.push({ id: 'speed', label: 'Speed', lo: 0, hi: null, unit: 'km/h' });
+  modes.push({ id: 'accel', label: 'Acceleration', lo: 0, hi: null, unit: 'g', dec: 1 });
+  if (S.zones) modes.push({ id: 'zones', label: 'No-fly zones' });
   for (const k of Object.keys(S.track?.telemetry || {})) modes.push({ id: 'tel:' + k, label: `Log: ${k}`, unit: '' });
   return modes;
 }
@@ -441,14 +441,14 @@ function trackColors() {
     const cz = [new THREE.Color('#3ddc84'), new THREE.Color(RESTRICTIONS.CONDITIONAL.color), new THREE.Color(RESTRICTIONS.REQ_AUTHORISATION.color), new THREE.Color(RESTRICTIONS.PROHIBITED.color)];
     for (let i = 0; i < n; i++) cz[Math.max(0, tr.zoneSev[i])].toArray(cols, i * 3);
     leg.className = 'legend gradient cat';
-    leg.innerHTML = [['#3ddc84', 'Outside zones / info only'], [RESTRICTIONS.CONDITIONAL.color, 'Conditional zone'], [RESTRICTIONS.REQ_AUTHORISATION.color, 'Authorisation required'], [RESTRICTIONS.PROHIBITED.color, 'Prohibited']]
+    leg.innerHTML = [['#3ddc84', 'Outside no-fly zones'], [RESTRICTIONS.CONDITIONAL.color, 'Conditions apply'], [RESTRICTIONS.REQ_AUTHORISATION.color, 'Permission needed'], [RESTRICTIONS.PROHIBITED.color, 'Forbidden']]
       .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
     return cols;
   }
   if (mode === 'status') {
     for (let i = 0; i < n; i++) statusOf(i).c.toArray(cols, i * 3);
     leg.className = 'legend gradient cat';
-    leg.innerHTML = [['#3ddc84', 'Clear'], ['#ff7a1a', 'No line of sight'], ['#ff2d55', 'Signal loss likely']]
+    leg.innerHTML = [['#3ddc84', 'In sight'], ['#ff7a1a', 'Hidden by terrain'], ['#ff2d55', 'Signal probably lost']]
       .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
     return cols;
   }
@@ -624,6 +624,7 @@ async function pickLosLayer(agl) {
     }
     S.terrainMat.uniforms.uLos.value = S.vol.overlay(h);
     S.prof?.redraw();
+    updateSignalSummary(h);
     return;
   }
   const layers = S.meta.los_layers; if (!layers.length) return;
@@ -637,6 +638,51 @@ async function pickLosLayer(agl) {
     t.magFilter = THREE.NearestFilter; return t;
   });
   S.terrainMat.uniforms.uLos.value = await S.losTex[best.file];
+  updateSignalSummary(best.agl, best);
+}
+
+// one-sentence answers at the top of the tabs
+function updateSignalSummary(agl, layer) {
+  const m = S.meta, i = m.primary_link, l = m.links[i];
+  const range = l.range_m * (S.spheres[i]?.userData.k || 1);
+  const rangeTxt = range >= 1000 ? `${(range / 1000).toFixed(1)} km` : `${Math.round(range)} m`;
+  let txt = `${l.name.split(' ')[0]} reaches about <b>${rangeTxt}</b> (open sky).`;
+  if (S.vol?.ceilAt) {                     // share of the area within range where the drone stays in sight / keeps signal
+    const cor = m.corridor, p = m.pilot, N = 90;
+    let n = 0, vis = 0, ok = 0;
+    for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) {
+      const x = ((a + 0.5) / N) * S.W, y = ((b + 0.5) / N) * S.H;
+      if (Math.hypot(x - p.x, y - p.y) > range) continue;
+      if (cor && corDistLocal(cor.points, x, y) > cor.width_m) continue;
+      const c = S.vol.ceilAt('los', x, y), c2 = S.vol.ceilAt('loss', x, y);
+      if (c == null) continue;
+      n++; if (c <= agl) vis++; if (c <= agl && (c2 == null || c2 <= agl)) ok++;
+    }
+    if (n) txt += ` Flying at ${agl} m, the drone stays <b>in sight over ${Math.round((100 * vis) / n)}%</b> of that ${cor ? 'route' : 'area'}`
+      + `, with a usable signal over ${Math.round((100 * ok) / n)}%.`;
+  } else if (layer) {
+    txt += ` Flying at ${agl} m, the drone is hidden by terrain over ${Math.round(layer.blocked * 100)}% of the map.`;
+  }
+  $('sumSignal').innerHTML = txt;
+}
+function corDistLocal(pts, x, y) {
+  let d = Infinity;
+  for (let k = 0; k < pts.length - 1; k++) {
+    const [ax, ay] = pts[k], [bx, by] = pts[k + 1], dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
+    const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / L2));
+    d = Math.min(d, Math.hypot(x - (ax + t * dx), y - (ay + t * dy)));
+  }
+  return d;
+}
+function updateZoneSummary() {
+  const z = S.zones;
+  if (!z) { $('sumZones').textContent = ''; return; }
+  const act = z.zones.filter((zn) => isActive(zn));
+  const by = (sev) => act.filter((zn) => zn.info.sev === sev).length;
+  const parts = [[by(3), 'forbidden', 'forbidden'], [by(2), 'needs permission', 'need permission'], [by(1), 'has conditions', 'have conditions']]
+    .filter(([n]) => n).map(([n, one, many]) => `${n} ${n > 1 ? many : one}`);
+  $('sumZones').innerHTML = act.length ? `<b>${act.length} no-fly zone${act.length > 1 ? 's' : ''}</b> on this map today: ${parts.join(', ')}. Click one in the list for its rules.`
+    : 'No no-fly zone on this map today.';
 }
 
 // ------------------------------------------------------------------ 2D shadow on terrain vs 3D volumes
@@ -745,15 +791,17 @@ function initGroundUi() {
 // ------------------------------------------------------------------ UI wiring
 function initUI() {
   const m = S.meta;
-  $('sceneInfo').innerHTML = m.corridor
-    ? `${m.title} · route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide · ${m.grid.res} m ${m.surface.toUpperCase()}<br>pilot: ${m.pilot.source}`
-    : `${m.title} · ${(S.W / 1000).toFixed(1)}×${(S.H / 1000).toFixed(1)} km · ${m.grid.res} m ${m.surface.toUpperCase()}<br>pilot: ${m.pilot.source}`;
+  const pilotFrom = m.pilot.source === 'config' ? 'set in the location file' : m.pilot.source === 'map centre' ? 'map centre' : m.pilot.source.replace('first fix of', 'start of the log');
+  const ground = m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
+  $('sceneInfo').innerHTML = (m.corridor
+    ? `Route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide`
+    : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}`;
   initGroundUi();
   $('orthoOn').disabled = !m.ortho;
   $('orthoOn').onchange = () => { S.terrainMat.uniforms.uUseOrtho.value = $('orthoOn').checked && m.ortho ? 1 : 0; };
   $('exag').oninput = () => setExaggeration(+$('exag').value);
-  $('losLink').textContent = `· ${m.links[m.primary_link].name}`;
-  $('losAgl').innerHTML = m.los_layers.map((l) => `<option value="${l.agl}">${l.agl} m above ground</option>`).join('');
+  $('losLink').textContent = `(${m.links[m.primary_link].name})`;
+  $('losAgl').innerHTML = m.los_layers.map((l) => `<option value="${l.agl}">${l.agl} m above the ground</option>`).join('');
   $('losAgl').onchange = () => { $('losFollow').checked = false; S.lastAgl = null; pickLosLayer(); };
   $('losOn').onchange = applyShadowMode;
   $('vol3d').onchange = applyShadowMode;
@@ -924,10 +972,11 @@ async function loadCompare(file) {
 function fillTrackPickers(selectFile) {
   const tr = S.meta.tracks;
   const label = (t) => t.name;
-  $('trackPick').innerHTML = tr.length ? tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight logs yet)</option>';
+  $('trackPick').innerHTML = tr.length ? tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight yet)</option>';
+  if (!tr.length) $('trackInfo').innerHTML = 'No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight (<b>[sim]</b>) or record one live (<b>[live]</b>).';
   if (selectFile) $('trackPick').value = selectFile;
   const cur = $('cmpPick').value;
-  $('cmpPick').innerHTML = '<option value="">(nothing)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');
+  $('cmpPick').innerHTML = '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');
   if ([...$('cmpPick').options].some((o) => o.value === cur)) $('cmpPick').value = cur;
 }
 
@@ -1175,6 +1224,7 @@ function applyZones() {
   S.terrainMat.uniforms.uZonesOn.value = $('zonesOn').checked ? 1 : 0;
   computeTrackZones(S.track); computeTrackZones(S.cmp);
   fillZoneUi();
+  updateZoneSummary();
   if (S.track) { const sel = $('colorMode'), prev = sel.value; sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join(''); sel.value = prev || 'status'; buildTrackObjects(); renderCompare(); }
 }
 
@@ -1185,7 +1235,8 @@ async function loadTrack(file) {
   computeKinematics(S.track, +$('smooth').value);
   computeTrackZones(S.track);
   const tm = S.meta.tracks.find((t) => t.file === file);
-  $('trackInfo').innerHTML = tm ? `${fmtTime(tm.duration_s)} · max ${fmtDist(tm.max_dist_m)} · max ${tm.max_agl_m} m AGL<br>no line of sight during ${tm.no_los_pct}% of the flight` : '';
+  $('trackInfo').innerHTML = tm ? `<b>${fmtTime(tm.duration_s)}</b> of flight, up to <b>${fmtDist(tm.max_dist_m)}</b> away and <b>${tm.max_agl_m} m</b> above the ground. `
+    + `Hidden by terrain ${tm.no_los_pct}% of the time.` : '';
   const sel = $('colorMode'), prev = sel.value;
   sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join('');
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
@@ -1218,7 +1269,7 @@ async function loadScene(name) {
   await pickLosLayer();
   try { S.vol = await loadVolumes({ scene3, S, demHeight }); } catch (e) { console.warn('3D volumes', e); S.vol = null; }
   if (S.vol?.overlay) {   // any height works now: offer a finer list
-    $('losAgl').innerHTML = [5, 10, 20, 30, 45, 60, 90, 120, 150, 200, 300].map((a) => `<option value="${a}" ${a === 30 ? 'selected' : ''}>${a} m above ground</option>`).join('');
+    $('losAgl').innerHTML = [5, 10, 20, 30, 45, 60, 90, 120, 150, 200, 300].map((a) => `<option value="${a}" ${a === 30 ? 'selected' : ''}>${a} m above the ground</option>`).join('');
   }
   if (S.links0) applyLinks();
   S.lastAgl = null; await pickLosLayer();
