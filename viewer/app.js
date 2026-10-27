@@ -1,0 +1,1241 @@
+// fpv3d viewer — Three.js scene for swisstopo terrain, signal shadows, range spheres and flight logs.
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/OrbitControls.js';
+import { initVideo } from './video.js';
+import { initCameraModes } from './camera.js';
+import { initSim } from './sim.js';
+import { loadVolumes } from './volume.js';
+import { initTabs } from './tabs.js';
+import { initDetail } from './detail.js';
+import { loadBuildings } from './buildings.js';
+import { initProfile } from './profile.js';
+import { initLive } from './live.js';
+import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const SCENES = '../scenes/';
+const MAX_LINKS = 4;
+
+// ------------------------------------------------------------------ renderer / camera
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+$('view').appendChild(renderer.domElement);
+
+const scene3 = new THREE.Scene();
+scene3.background = new THREE.Color(0x9fb8cf);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 1, 200000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.495;
+scene3.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2));
+// the 3D view can be full screen or a small inset (when the video is swapped to full screen)
+function fitRenderer() {
+  const el = $('view'), w = el.clientWidth || innerWidth, h = el.clientHeight || innerHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+}
+new ResizeObserver(fitRenderer).observe($('view'));
+addEventListener('resize', fitRenderer);
+
+// ------------------------------------------------------------------ state
+const S = {
+  meta: null, base: '', W: 0, H: 0, hBase: 0, exag: 1,
+  dem: null, terrain: null, terrainMat: null, spheres: [], pilot: null,
+  losTex: {}, track: null, trackObj: null, curtain: null, drone: null, beam: null,
+  time: 0, playing: false, idx: 0, following: false,
+};
+
+// world transform: local x (east), y (north), z (AMSL) -> three.js (X east, Y up, Z south)
+const toWorld = (x, y, z, out = new THREE.Vector3()) =>
+  out.set(x - S.W / 2, (z - S.hBase) * S.exag, -(y - S.H / 2));
+const toReal = (x, y, z, out = new THREE.Vector3()) =>  // same but without exaggeration
+  out.set(x - S.W / 2, z - S.hBase, -(y - S.H / 2));
+
+// ------------------------------------------------------------------ helpers
+async function getJSON(url) {
+  const r = await fetch(url, { cache: 'no-cache' });
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  return r.json();
+}
+const loadTex = (url) => new Promise((ok, err) => new THREE.TextureLoader().load(url, (t) => {
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy(); ok(t);
+}, undefined, err));
+
+function fmtTime(s) {
+  s = Math.max(0, s); const m = Math.floor(s / 60);
+  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+}
+const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coords
+  const v = S.view, d = S.dem;
+  let c = (x / v.grid.res - 0.5) / v.step, r = ((S.H - y) / v.grid.res - 0.5) / v.step;
+  c = Math.min(Math.max(c, 0), v.cols - 1.0001); r = Math.min(Math.max(r, 0), v.rows - 1.0001);
+  const c0 = c | 0, r0 = r | 0, fc = c - c0, fr = r - r0, i = r0 * v.cols + c0;
+  const top = lerp(d[i], d[i + 1], fc), bot = lerp(d[i + v.cols], d[i + v.cols + 1], fc);
+  return lerp(top, bot, fr);
+}
+
+// Overview terrain: from the local server, already decimated (a 0.5 m scene can be > 1 GB);
+// without the server (static hosting) the whole file is downloaded and decimated here.
+const API = '/api';
+async function loadOverview(which) {
+  const fileMeta = which === 'dtm' && S.meta.terrain_dtm ? S.meta.terrain_dtm : { file: S.meta.terrain, grid: S.meta.grid };
+  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || 1500);   // ?maxgrid=600 for slow GPUs
+  const step = Math.max(1, Math.ceil(Math.max(g.cols, g.rows) / maxSide));
+  let dem = null, cols, rows, api = null;
+  try {
+    const r = await fetch(`${API}/terrain?scene=${encodeURIComponent(S.meta.name)}&which=${which}&step=${step}`);
+    if (r.ok && r.headers.get('X-Cols')) {
+      dem = new Float32Array(await r.arrayBuffer()); cols = +r.headers.get('X-Cols'); rows = +r.headers.get('X-Rows'); api = API;
+    }
+  } catch { /* static hosting */ }
+  if (!dem) {
+    const full = new Float32Array(await (await fetch(S.base + fileMeta.file)).arrayBuffer());
+    cols = Math.floor((g.cols - 1) / step) + 1; rows = Math.floor((g.rows - 1) / step) + 1;
+    dem = new Float32Array(cols * rows);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) dem[r * cols + c] = full[r * step * g.cols + c * step];
+  }
+  S.dem = dem;
+  S.view = { grid: g, step, cols, rows, res: g.res * step, which, api };
+}
+
+// ------------------------------------------------------------------ terrain
+const terrainVS = /* glsl */`
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+  attribute float aH;
+  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH;
+  uniform vec2 uSize;
+  void main() {
+    vUv = uv; vNormal = normalize(normal); vH = aH;
+    vReal = vec3(position.x, aH, position.z);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    #include <logdepthbuf_vertex>
+  }`;
+const terrainFS = /* glsl */`
+  #include <logdepthbuf_pars_fragment>
+  uniform sampler2D uOrtho; uniform sampler2D uLos; uniform sampler2D uZones; uniform float uZonesOn;
+  uniform float uUseOrtho, uLosOn, uLosOpacity, uHMin, uHMax;
+  uniform vec4 uOrthoRect; uniform vec4 uHole;
+  uniform vec2 uCor[64]; uniform int uCorN; uniform float uCorW;   // route corridor (world x/z)
+  float corDist(vec2 p) {
+    float d = 1e9;
+    for (int i = 0; i < 63; i++) {
+      if (i >= uCorN - 1) break;
+      vec2 a = uCor[i], ab = uCor[i + 1] - a;
+      float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
+      d = min(d, length(p - (a + t * ab)));
+    }
+    return d;
+  }
+  uniform vec3 uPilot; uniform vec4 uRanges; uniform vec3 uColors[${MAX_LINKS}]; uniform vec4 uRangeOn;
+  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH;
+  vec3 hypso(float t) {
+    vec3 a = vec3(0.36,0.52,0.30), b = vec3(0.62,0.66,0.45), c = vec3(0.62,0.55,0.46), d = vec3(0.95,0.95,0.97);
+    return t < .4 ? mix(a,b,t/.4) : t < .8 ? mix(b,c,(t-.4)/.4) : mix(c,d,(t-.8)/.2);
+  }
+  void main() {
+    #include <logdepthbuf_fragment>
+    if (vReal.x > uHole.x && vReal.x < uHole.z && vReal.z > uHole.y && vReal.z < uHole.w) discard;  // sharp close-up drawn there
+    float cd = uCorN > 1 ? corDist(vReal.xz) : -1.0;
+    if (cd > uCorW) discard;                      // outside the route strip
+    vec3 sun = normalize(vec3(-0.5, 0.8, 0.35));
+    float ndl = max(dot(normalize(vNormal), sun), 0.0);
+    vec3 col = uUseOrtho > 0.5 ? texture2D(uOrtho, (vUv - uOrthoRect.xy) / (uOrthoRect.zw - uOrthoRect.xy)).rgb : hypso(clamp(vH / max(uHMax - uHMin, 1.0), 0.0, 1.0));
+    col *= (uUseOrtho > 0.5 ? 0.75 + 0.45 * ndl : 0.45 + 0.75 * ndl);
+    if (uLosOn > 0.5) { vec4 l = texture2D(uLos, vUv); col = mix(col, l.rgb, l.a * uLosOpacity); }
+    if (uZonesOn > 0.5) {                       // drone geozones: diagonal hatching
+      vec4 z = texture2D(uZones, vUv);
+      float hatch = 0.45 + 0.55 * step(0.5, fract((gl_FragCoord.x - gl_FragCoord.y) / 14.0));
+      col = mix(col, z.rgb, z.a * hatch);
+    }
+    float d = distance(vReal, uPilot);
+    float fw = max(fwidth(d), 0.5);
+    for (int i = 0; i < ${MAX_LINKS}; i++) {
+      if (uRangeOn[i] < 0.5) continue;
+      float r = uRanges[i];
+      float ring = 1.0 - smoothstep(0.0, 2.5 * fw, abs(d - r));
+      col = mix(col, uColors[i], ring * 0.95);
+      if (d > r) col = mix(col, col * 0.55 + uColors[i] * 0.12, 0.6);   // outside free-space range
+    }
+    if (cd >= 0.0) {                              // strip edge + the route line itself
+      float fc = max(fwidth(cd), 0.3);
+      col = mix(col, vec3(1.0), 0.55 * (1.0 - smoothstep(0.0, 2.0 * fc, uCorW - cd)));
+      col = mix(col, vec3(1.0, 0.62, 0.1), 0.85 * (1.0 - smoothstep(fc, 2.5 * fc, cd)));
+    }
+    gl_FragColor = vec4(col, 1.0);   // all colour maths done directly in sRGB space
+  }`;
+
+function buildTerrain() {
+  const { grid: g, step, cols, rows } = S.view;
+  const pos = new Float32Array(cols * rows * 3), uv = new Float32Array(cols * rows * 2), aH = new Float32Array(cols * rows);
+  let k = 0;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++, k++) {
+    const gr = r * step, gc = c * step;
+    const x = (gc + 0.5) * g.res, y = S.H - (gr + 0.5) * g.res, h = S.dem[r * cols + c];
+    pos[k * 3] = x - S.W / 2; pos[k * 3 + 1] = (h - S.hBase) * S.exag; pos[k * 3 + 2] = -(y - S.H / 2);
+    uv[k * 2] = x / S.W; uv[k * 2 + 1] = y / S.H; aH[k] = h - S.hBase;
+  }
+  const idx = new Uint32Array((cols - 1) * (rows - 1) * 6);
+  k = 0;
+  for (let r = 0; r < rows - 1; r++) for (let c = 0; c < cols - 1; c++) {
+    const a = r * cols + c, b = a + 1, d = a + cols, e = d + 1;
+    idx[k++] = a; idx[k++] = d; idx[k++] = b; idx[k++] = b; idx[k++] = d; idx[k++] = e;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  geo.setAttribute('aH', new THREE.BufferAttribute(aH, 1));
+  geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.computeVertexNormals();
+  const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1); blank.needsUpdate = true;
+  S.terrainMat = new THREE.ShaderMaterial({
+    vertexShader: terrainVS, fragmentShader: terrainFS,
+    uniforms: {
+      uOrtho: { value: blank }, uLos: { value: blank }, uUseOrtho: { value: 0 }, uLosOn: { value: 1 },
+      uLosOpacity: { value: 0.85 }, uZones: { value: blank }, uZonesOn: { value: 0 }, uHMin: { value: 0 }, uHMax: { value: S.meta.elevation.max - S.hBase },
+      uPilot: { value: new THREE.Vector3() }, uRanges: { value: new THREE.Vector4() },
+      uColors: { value: Array.from({ length: MAX_LINKS }, () => new THREE.Color()) },
+      uRangeOn: { value: new THREE.Vector4() }, uSize: { value: new THREE.Vector2(S.W, S.H) },
+      uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uHole: { value: new THREE.Vector4(1, 1, -1, -1) },
+      uCor: { value: corridorUniform() }, uCorN: { value: Math.min(64, S.meta.corridor?.points.length || 0) },
+      uCorW: { value: S.meta.corridor?.width_m || 0 },
+    },
+  });
+  S.terrain = new THREE.Mesh(geo, S.terrainMat);
+  scene3.add(S.terrain);
+}
+
+function corridorUniform() {
+  const out = Array.from({ length: 64 }, () => new THREE.Vector2());
+  (S.meta.corridor?.points || []).slice(0, 64).forEach(([x, y], i) => out[i].set(x - S.W / 2, -(y - S.H / 2)));
+  return out;
+}
+
+function setExaggeration(e) {
+  S.exag = e;
+  if (S.terrain) {
+    const pos = S.terrain.geometry.attributes.position, aH = S.terrain.geometry.attributes.aH;
+    for (let i = 0; i < pos.count; i++) pos.setY(i, aH.getX(i) * e);
+    pos.needsUpdate = true; S.terrain.geometry.computeVertexNormals();
+  }
+  S.detail?.rebuild();
+  S.bld?.set({ exag: e });
+  S.prof?.setExag();
+  S.spheres.forEach((s) => { const k = s.userData.k || 1; s.scale.set(k, k * e, k); });
+  placePilot();
+  if (S.track) buildTrackObjects();
+  if (S.cmp) buildCompareObjects();
+  S.vol?.set({ exag: e });
+  S.zones?.rebuild();
+  $('exagOut').textContent = `${e.toFixed(1)}×`;
+}
+
+// ------------------------------------------------------------------ pilot + spheres
+function buildPilot() {
+  const grp = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 1, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const head = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd400 }));
+  grp.add(pole, head); grp.userData = { pole, head };
+  S.pilot = grp; scene3.add(grp);
+
+  S.meta.links.forEach((l, i) => {
+    const color = new THREE.Color(l.color);
+    const grpS = new THREE.Group();
+    const fill = new THREE.Mesh(new THREE.SphereGeometry(l.range_m, 64, 32),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.06, depthWrite: false, side: THREE.FrontSide }));
+    const wire = new THREE.LineSegments(new THREE.WireframeGeometry(new THREE.SphereGeometry(l.range_m, 24, 12)),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.18, depthWrite: false }));
+    grpS.add(fill, wire); grpS.userData = { fill, wire, link: l };
+    grpS.visible = i === S.meta.primary_link;
+    scene3.add(grpS); S.spheres.push(grpS);
+    if (i < MAX_LINKS) {
+      S.terrainMat.uniforms.uColors.value[i].set(l.color);
+      S.terrainMat.uniforms.uRanges.value.setComponent(i, l.range_m);
+    }
+  });
+  placePilot();
+  updateRangeUniforms();
+}
+
+function placePilot() {
+  if (!S.pilot) return;
+  const p = S.meta.pilot;
+  const top = toWorld(p.x, p.y, p.z), bottom = toWorld(p.x, p.y, p.ground);
+  const h = Math.max(top.y - bottom.y, 1) + 25;
+  S.pilot.userData.pole.scale.y = h; S.pilot.userData.pole.position.set(0, h / 2, 0);
+  S.pilot.userData.head.position.set(0, h, 0);
+  S.pilot.position.copy(bottom);
+  S.spheres.forEach((s) => s.position.copy(top));
+  S.terrainMat.uniforms.uPilot.value.copy(toReal(p.x, p.y, p.z));
+}
+
+function updateRangeUniforms() {
+  const v = S.terrainMat.uniforms.uRangeOn.value;
+  S.spheres.forEach((s, i) => i < MAX_LINKS && v.setComponent(i, s.visible ? 1 : 0));
+}
+
+// ------------------------------------------------------------------ track
+const C_OK = new THREE.Color(0x3ddc84), C_FRES = new THREE.Color(0xffb000),
+  C_BLOCK = new THREE.Color(0xff7a1a), C_LOST = new THREE.Color(0xff2d55);
+
+function statusOf(i) {
+  const tr = S.track, prim = S.meta.links[S.meta.primary_link].name;
+  const m = tr.margin[prim]?.[i];
+  if (m != null && m < 0) return { c: C_LOST, label: 'SIGNAL LOSS LIKELY', css: '#ff2d55' };
+  if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'NO LINE OF SIGHT', css: '#ff7a1a' };
+  if (tr.fresnel[i] < S.meta.fresnel_clearance) return { c: C_FRES, label: 'FRESNEL OBSTRUCTED', css: '#ffb000' };
+  return { c: C_OK, label: 'CLEAR', css: '#3ddc84' };
+}
+
+const RAMP = [[0, '#d7263d'], [0.35, '#f49d37'], [0.6, '#f6e05e'], [1, '#3ddc84']];
+const rampColor = (t, out = new THREE.Color()) => {
+  t = Math.min(Math.max(t, 0), 1);
+  for (let i = 1; i < RAMP.length; i++) if (t <= RAMP[i][0]) {
+    const [a, ca] = RAMP[i - 1], [b, cb] = RAMP[i];
+    return out.set(ca).lerp(new THREE.Color(cb), (t - a) / (b - a));
+  }
+  return out.set(RAMP[RAMP.length - 1][1]);
+};
+
+// ------------------------------------------------------------------ kinematics (1st / 2nd derivative)
+const G = 9.80665;
+const C_VEL = 0x22d3ee, C_ACC = 0xc084fc;
+
+// position at time t, linearly interpolated between log samples
+function sampleAt(tr, keyX, keyY, keyZ, t) {
+  const a = tr.t, n = a.length;
+  if (t <= a[0]) return [tr[keyX][0], tr[keyY][0], tr[keyZ][0]];
+  if (t >= a[n - 1]) return [tr[keyX][n - 1], tr[keyY][n - 1], tr[keyZ][n - 1]];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (a[m] <= t) lo = m; else hi = m; }
+  const f = (t - a[lo]) / Math.max(a[hi] - a[lo], 1e-9);
+  return [lerp(tr[keyX][lo], tr[keyX][hi], f), lerp(tr[keyY][lo], tr[keyY][hi], f), lerp(tr[keyZ][lo], tr[keyZ][hi], f)];
+}
+
+// Central differences over a time window: GPS updates at ~5-10 Hz and has
+// metre-level noise, so differentiating sample-to-sample would be pure noise.
+// v(t) = [p(t+h) - p(t-h)] / 2h,  a(t) = [v(t+h) - v(t-h)] / 2h,  h = window / 2
+function computeKinematics(tr, windowS) {
+  const n = tr.n, h = windowS / 2, t0 = tr.t[0], t1 = tr.t[n - 1];
+  const deriv = (kx, ky, kz, outX, outY, outZ) => {
+    tr[outX] = new Float32Array(n); tr[outY] = new Float32Array(n); tr[outZ] = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const ta = Math.max(t0, tr.t[i] - h), tb = Math.min(t1, tr.t[i] + h), dt = tb - ta;
+      if (dt < 1e-3) continue;
+      const pa = sampleAt(tr, kx, ky, kz, ta), pb = sampleAt(tr, kx, ky, kz, tb);
+      tr[outX][i] = (pb[0] - pa[0]) / dt; tr[outY][i] = (pb[1] - pa[1]) / dt; tr[outZ][i] = (pb[2] - pa[2]) / dt;
+    }
+  };
+  deriv('x', 'y', 'z', 'vx', 'vy', 'vz');
+  deriv('vx', 'vy', 'vz', 'ax', 'ay', 'az');
+  tr.speed = Array.from(tr.vx, (_, i) => Math.hypot(tr.vx[i], tr.vy[i], tr.vz[i]) * 3.6);   // km/h
+  tr.accG = Array.from(tr.ax, (_, i) => Math.hypot(tr.ax[i], tr.ay[i], tr.az[i]) / G);      // g
+}
+
+const velScale = () => 2 * +$('vecScale').value;   // arrow = where the drone is in 2 s
+const accScale = () => 4 * +$('vecScale').value;   // 4 m of arrow per m/s²
+
+// solid arrow (shaft + head) so it stays readable at any zoom; drawn on top of everything
+const _Y = new THREE.Vector3(0, 1, 0);
+function makeArrow(color) {
+  const mat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 10).translate(0, 0.5, 0), mat);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(1, 1, 14).translate(0, 0.5, 0), mat);
+  const a = new THREE.Group(); a.add(shaft, head); a.userData = { shaft, head };
+  shaft.renderOrder = head.renderOrder = 10; a.visible = false; scene3.add(a); return a;
+}
+
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _d = new THREE.Vector3();
+function placeArrow(arrow, i, kx, ky, kz, scale, on) {
+  const tr = S.track;
+  if (!on || !tr.vx) { arrow.visible = false; return; }
+  const x = tr.x[i], y = tr.y[i], z = tr.z[i];
+  toWorld(x + tr[kx][i] * scale, y + tr[ky][i] * scale, z + tr[kz][i] * scale, _b);
+  toWorld(x, y, z, _d); _b.sub(_d);             // vector in world units (incl. vertical exaggeration)
+  const len = _b.length();
+  if (len < 0.3) { arrow.visible = false; return; }
+  const r = Math.max(0.15, camera.position.distanceTo(S.drone.position) / 320);   // ~constant on-screen thickness
+  const headLen = Math.min(len * 0.4, 7 * r);
+  const { shaft, head } = arrow.userData;
+  shaft.scale.set(r, Math.max(len - headLen, 0.001), r);
+  head.scale.set(2.6 * r, headLen, 2.6 * r);
+  head.position.set(0, len - headLen, 0);
+  arrow.visible = true;
+  arrow.position.copy(S.drone.position);
+  arrow.quaternion.setFromUnitVectors(_Y, _b.divideScalar(len));
+}
+
+function updateArrows() {
+  if (!S.track || !S.velArrow) return;
+  placeArrow(S.velArrow, S.idx, 'vx', 'vy', 'vz', velScale(), $('velOn').checked);
+  placeArrow(S.accArrow, S.idx, 'ax', 'ay', 'az', accScale(), $('accOn').checked);
+}
+
+// short vector "combs" along the whole flight, one every `everyS` seconds
+function buildCombs() {
+  for (const o of [S.velComb, S.accComb]) if (o) { scene3.remove(o); o.geometry.dispose(); }
+  S.velComb = S.accComb = null;
+  const tr = S.track;
+  if (!tr?.vx || !$('combOn').checked) return;
+  const everyS = Math.max(0.5, tr.t[tr.n - 1] / 400);
+  const make = (kx, ky, kz, scale, color) => {
+    const pts = []; let next = tr.t[0];
+    for (let i = 0; i < tr.n; i++) {
+      if (tr.t[i] < next) continue; next = tr.t[i] + everyS;
+      toWorld(tr.x[i], tr.y[i], tr.z[i], _a);
+      toWorld(tr.x[i] + tr[kx][i] * scale, tr.y[i] + tr[ky][i] * scale, tr.z[i] + tr[kz][i] * scale, _b);
+      pts.push(_a.x, _a.y, _a.z, _b.x, _b.y, _b.z);
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const o = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.75 }));
+    scene3.add(o); return o;
+  };
+  if ($('velOn').checked) S.velComb = make('vx', 'vy', 'vz', velScale(), C_VEL);
+  if ($('accOn').checked) S.accComb = make('ax', 'ay', 'az', accScale(), C_ACC);
+}
+
+function colorModes() {
+  const modes = [{ id: 'status', label: 'Link status (LOS / Fresnel / margin)' }];
+  for (const l of S.meta.links) modes.push({ id: 'margin:' + l.name, label: `Predicted margin — ${l.name}`, lo: -10, hi: 20, unit: 'dB' });
+  modes.push({ id: 'agl', label: 'Height above ground', lo: 0, hi: null, unit: 'm', invert: false });
+  modes.push({ id: 'speed', label: 'Speed (1st derivative)', lo: 0, hi: null, unit: 'km/h' });
+  modes.push({ id: 'accel', label: 'Acceleration (2nd derivative)', lo: 0, hi: null, unit: 'g', dec: 1 });
+  if (S.zones) modes.push({ id: 'zones', label: 'Drone zones (FOCA)' });
+  for (const k of Object.keys(S.track?.telemetry || {})) modes.push({ id: 'tel:' + k, label: `Log: ${k}`, unit: '' });
+  return modes;
+}
+
+function seriesFor(mode) {
+  const tr = S.track;
+  if (mode.startsWith('margin:')) return tr.margin[mode.slice(7)];
+  if (mode === 'agl') return tr.agl;
+  if (mode === 'speed') return tr.speed;
+  if (mode === 'accel') return tr.accG;
+  if (mode.startsWith('tel:')) return tr.telemetry[mode.slice(4)];
+  return null;
+}
+
+function trackColors() {
+  const tr = S.track, n = tr.n, mode = $('colorMode').value || 'status';
+  const cols = new Float32Array(n * 3), c = new THREE.Color();
+  const leg = $('colorLegend');
+  if (mode === 'zones' && tr.zoneSev) {
+    const cz = [new THREE.Color('#3ddc84'), new THREE.Color(RESTRICTIONS.CONDITIONAL.color), new THREE.Color(RESTRICTIONS.REQ_AUTHORISATION.color), new THREE.Color(RESTRICTIONS.PROHIBITED.color)];
+    for (let i = 0; i < n; i++) cz[Math.max(0, tr.zoneSev[i])].toArray(cols, i * 3);
+    leg.className = 'legend gradient cat';
+    leg.innerHTML = [['#3ddc84', 'Outside zones / info only'], [RESTRICTIONS.CONDITIONAL.color, 'Conditional zone'], [RESTRICTIONS.REQ_AUTHORISATION.color, 'Authorisation required'], [RESTRICTIONS.PROHIBITED.color, 'Prohibited']]
+      .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
+    return cols;
+  }
+  if (mode === 'status') {
+    for (let i = 0; i < n; i++) statusOf(i).c.toArray(cols, i * 3);
+    leg.className = 'legend gradient cat';
+    leg.innerHTML = [['#3ddc84', 'Clear'], ['#ffb000', 'Fresnel obstructed'], ['#ff7a1a', 'No line of sight'], ['#ff2d55', 'Signal loss likely']]
+      .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
+    return cols;
+  }
+  const s = seriesFor(mode), m = colorModes().find((x) => x.id === mode) || {};
+  const finite = s.filter((v) => v != null && isFinite(v));
+  let lo = m.lo ?? Math.min(...finite), hi = m.hi ?? Math.max(...finite);
+  if (hi - lo < 1e-6) hi = lo + 1;
+  for (let i = 0; i < n; i++) {
+    const v = s[i];
+    if (v == null) c.set(0x888888);
+    else if (mode === 'speed' || mode === 'accel') c.setHSL(0.62 - 0.62 * Math.min(Math.max((v - lo) / (hi - lo), 0), 1), 0.85, 0.55);
+    else rampColor((v - lo) / (hi - lo), c);
+    c.toArray(cols, i * 3);
+  }
+  leg.className = 'gradient';
+  leg.style.background = (mode === 'speed' || mode === 'accel')
+    ? 'linear-gradient(90deg, hsl(223,85%,55%), hsl(112,85%,55%), hsl(0,85%,55%))'
+    : `linear-gradient(90deg, ${RAMP.map(([p, k]) => `${k} ${p * 100}%`).join(',')})`;
+  const dp = m.dec ?? 0;
+  leg.innerHTML = `<span style="left:0">${lo.toFixed(dp)} ${m.unit || ''}</span><span style="right:0">${hi.toFixed(dp)} ${m.unit || ''}</span>`;
+  return cols;
+}
+
+function buildTrackObjects() {
+  for (const o of [S.trackObj, S.curtain]) if (o) { scene3.remove(o); o.geometry.dispose(); }
+  const tr = S.track, n = tr.n;
+  const pos = new Float32Array(n * 3), v = new THREE.Vector3();
+  for (let i = 0; i < n; i++) toWorld(tr.x[i], tr.y[i], tr.z[i], v).toArray(pos, i * 3);
+  const cols = trackColors();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  S.trackObj = new THREE.Line(g, new THREE.LineBasicMaterial({ vertexColors: true }));
+  scene3.add(S.trackObj);
+
+  // translucent "curtain" from the track down to the ground helps judge height
+  const cp = new Float32Array(n * 6), cc = new Float32Array(n * 6), idx = [];
+  for (let i = 0; i < n; i++) {
+    toWorld(tr.x[i], tr.y[i], tr.z[i], v).toArray(cp, i * 6);
+    toWorld(tr.x[i], tr.y[i], tr.z[i] - tr.agl[i], v).toArray(cp, i * 6 + 3);
+    cc.set(cols.subarray(i * 3, i * 3 + 3), i * 6); cc.set(cols.subarray(i * 3, i * 3 + 3), i * 6 + 3);
+    if (i < n - 1) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); }
+  }
+  const cg = new THREE.BufferGeometry();
+  cg.setAttribute('position', new THREE.BufferAttribute(cp, 3));
+  cg.setAttribute('color', new THREE.BufferAttribute(cc, 3));
+  cg.setIndex(idx);
+  S.curtain = new THREE.Mesh(cg, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }));
+  S.curtain.visible = $('curtainOn').checked;
+  scene3.add(S.curtain);
+  buildCombs();
+  updateDrone();
+}
+
+function buildDrone() {
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.OctahedronGeometry(7), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(14, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false }));
+  grp.add(body, halo); grp.userData = { body, halo };
+  S.drone = grp; scene3.add(grp);
+  S.velArrow = makeArrow(C_VEL); S.accArrow = makeArrow(C_ACC);
+  const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  S.beam = new THREE.Line(bg, new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 12, gapSize: 8 }));
+  scene3.add(S.beam);
+}
+
+function findIndex(t) {
+  const a = S.track.t; let lo = 0, hi = a.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (a[mid] <= t) lo = mid; else hi = mid - 1; }
+  return lo;
+}
+
+const _v = new THREE.Vector3(), _prev = new THREE.Vector3();
+function updateDrone() {
+  const tr = S.track; if (!tr || !S.drone) return;
+  const i = findIndex(S.time), j = Math.min(i + 1, tr.n - 1);
+  const f = j > i ? (S.time - tr.t[i]) / Math.max(tr.t[j] - tr.t[i], 1e-6) : 0;
+  S.idx = f > 0.5 ? j : i;
+  S.prof?.tick();
+  _prev.copy(S.drone.position);
+  toWorld(lerp(tr.x[i], tr.x[j], f), lerp(tr.y[i], tr.y[j], f), lerp(tr.z[i], tr.z[j], f), S.drone.position);
+  const st = statusOf(S.idx);
+  S.drone.userData.halo.material.color.copy(st.c);
+  const p = S.meta.pilot, b = S.beam.geometry.attributes.position;
+  toWorld(p.x, p.y, p.z, _v); b.setXYZ(0, _v.x, _v.y, _v.z);
+  b.setXYZ(1, S.drone.position.x, S.drone.position.y, S.drone.position.z); b.needsUpdate = true;
+  S.beam.computeLineDistances(); S.beam.material.color.copy(st.c);
+  if (S.following) {
+    _v.subVectors(S.drone.position, _prev);
+    if (_v.lengthSq() < 1e6) { camera.position.add(_v); controls.target.add(_v); }
+    else controls.target.copy(S.drone.position);
+  }
+  updateArrows();
+  if ($('losFollow').checked) pickLosLayer(tr.agl[S.idx]);
+  $('scrub').value = Math.round((S.time / tr.t[tr.n - 1]) * 1000);
+  $('clock').textContent = `${fmtTime(S.time)} / ${fmtTime(tr.t[tr.n - 1])}`;
+  renderHud(st);
+  placeGhost();
+}
+
+function renderHud(st) {
+  const tr = S.track, i = S.idx, rows = [];
+  rows.push(['Distance (3D)', fmtDist(tr.dist[i])]);
+  rows.push(['Height AGL', `${tr.agl[i]?.toFixed(0)} m`]);
+  rows.push(['Altitude', `${tr.z[i]?.toFixed(0)} m`]);
+  if (tr.vx) {
+    const hs = Math.hypot(tr.vx[i], tr.vy[i]) * 3.6, ah = Math.hypot(tr.ax[i], tr.ay[i]) / G;
+    rows.push(['<span style="color:#22d3ee">●</span> Speed', `${tr.speed[i].toFixed(0)} km/h <span class="muted">(${(tr.speed[i] / 3.6).toFixed(1)} m/s)</span>`]);
+    rows.push(['Ground / vertical', `${hs.toFixed(0)} km/h · ${tr.vz[i] >= 0 ? '+' : ''}${tr.vz[i].toFixed(1)} m/s`]);
+    rows.push(['<span style="color:#c084fc">●</span> Acceleration', `${tr.accG[i].toFixed(2)} g <span class="muted">(${(tr.accG[i] * G).toFixed(1)} m/s²)</span>`]);
+    rows.push(['Horiz. / vertical', `${ah.toFixed(2)} g · ${tr.az[i] >= 0 ? '+' : ''}${(tr.az[i] / G).toFixed(2)} g`]);
+  }
+  rows.push(['LOS clearance', tr.clearance[i] < 0 ? `blocked by ${(-tr.clearance[i]).toFixed(0)} m` : `${Math.min(tr.clearance[i], 9999).toFixed(0)} m`]);
+  const fz = tr.fresnel[i];
+  rows.push(['Fresnel clearance', tr.clearance[i] < 0 ? '–' : fz > 1 ? '> 100 %' : `${(fz * 100).toFixed(0)} %`]);
+  if (S.zones && tr.zoneSev) {
+    const zs = tr.zoneIdx[i] >= 0 ? S.zones.zones[tr.zoneIdx[i]] : null;
+    rows.push(['Drone zone', zs ? `<b style="color:${zs.info.color}">${zs.info.label}</b><br><span class="muted">${zs.name}</span>` : '<span class="muted">none (FOCA data)</span>']);
+  }
+  const marg = Object.entries(tr.margin).map(([k, v]) => [`Margin · ${k}`, `${v[i]?.toFixed(1)} dB`]);
+  const tel = Object.entries(tr.telemetry).map(([k, v]) => [k, v[i] == null ? '–' : String(v[i])]);
+  const tbl = (r, cls = '') => r.map(([a, b], n) => `<tr class="${n === 0 ? cls : ''}"><td class="muted">${a}</td><td>${b}</td></tr>`).join('');
+  $('hud').innerHTML = `<div class="status" style="background:${st.css}22;color:${st.css}">${st.label}</div>
+    <table>${tbl(rows)}${tbl(marg, 'sep')}${tbl(tel, 'sep')}</table>`;
+}
+
+// ------------------------------------------------------------------ LOS layers
+async function pickLosLayer(agl) {
+  if (S.vol?.overlay) {                    // 2D shadow computed live from the 3D ceilings (any height, follows radio edits)
+    const h = agl != null ? agl : +$('losAgl').value;
+    if (S.lastAgl != null && Math.abs(h - S.lastAgl) < 2) return;
+    S.lastAgl = h;
+    if (agl != null) {                     // show the nearest listed height in the dropdown
+      const opts = [...$('losAgl').options].map((o) => +o.value);
+      $('losAgl').value = String(opts.reduce((a, b) => (Math.abs(b - h) < Math.abs(a - h) ? b : a), opts[0]));
+    }
+    S.terrainMat.uniforms.uLos.value = S.vol.overlay(h);
+    S.prof?.redraw();
+    return;
+  }
+  const layers = S.meta.los_layers; if (!layers.length) return;
+  let best = layers.find((l) => String(l.agl) === $('losAgl').value) || layers[0];
+  if (agl != null) {
+    best = layers[0];
+    for (const l of layers) if (Math.abs(l.agl - agl) < Math.abs(best.agl - agl)) best = l;
+  }
+  if (agl != null) $('losAgl').value = String(best.agl);
+  if (!S.losTex[best.file]) S.losTex[best.file] = loadTex(S.base + best.file).then((t) => {
+    t.magFilter = THREE.NearestFilter; return t;
+  });
+  S.terrainMat.uniforms.uLos.value = await S.losTex[best.file];
+}
+
+// ------------------------------------------------------------------ 2D shadow on terrain vs 3D volumes
+function applyShadowMode() {
+  const want3d = $('vol3d').checked && !!S.vol;
+  $('volOpts').classList.toggle('hidden', !want3d);
+  $('volMissing').classList.toggle('hidden', !($('vol3d').checked && !S.vol));
+  const on2d = $('losOn').checked && (!want3d || $('vol2dToo').checked);
+  S.terrainMat.uniforms.uLosOn.value = on2d ? 1 : 0;
+  if (S.vol) {
+    const show = {}; document.querySelectorAll('.volLayer').forEach((cb) => { show[cb.dataset.l] = cb.checked; });
+    S.vol.set({ visible: want3d, show, cap: +$('volCap').value, opacity: +$('volOpacity').value, exag: S.exag });
+  }
+}
+
+// ------------------------------------------------------------------ click-to-inspect
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function setRay(ev) {
+  const rc = renderer.domElement.getBoundingClientRect();
+  ndc.set(((ev.clientX - rc.left) / rc.width) * 2 - 1, -((ev.clientY - rc.top) / rc.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+}
+function terrainHit(ev) {
+  const rc = renderer.domElement.getBoundingClientRect();
+  ndc.set(((ev.clientX - rc.left) / rc.width) * 2 - 1, -((ev.clientY - rc.top) / rc.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const o = ray.ray.origin, d = ray.ray.direction, p = new THREE.Vector3();
+  for (let s = 0; s < 80000; s += Math.max(2, s * 0.004)) {   // march along the ray
+    p.copy(o).addScaledVector(d, s);
+    const x = p.x + S.W / 2, y = -p.z + S.H / 2;
+    if (x < 0 || y < 0 || x > S.W || y > S.H) continue;
+    const h = demHeight(x, y);
+    if (p.y <= (h - S.hBase) * S.exag) return { x, y, h };
+  }
+  return null;
+}
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  const pk = $('pick');
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
+  setRay(e);
+  const bh = S.bld?.pick(ray.ray);
+  if (bh) {
+    const b = bh.item, p = S.meta.pilot;
+    const cx = b.p.reduce((s, q) => s + q[0], 0) / b.p.length, cy = b.p.reduce((s, q) => s + q[1], 0) / b.p.length;
+    pk.innerHTML = `<b>${b.name || 'Building'}</b> · ${(b.t - b.b).toFixed(1)} m high<br>roof ${b.t.toFixed(0)} m · ${fmtDist(Math.hypot(cx - p.x, cy - p.y, b.t - p.z))} from pilot`
+      + `<br><span class="muted">${b.k !== 'yes' ? `${b.k} · ` : ''}height ${b.src === 'dsm' ? 'measured (swissSURFACE3D)' : 'estimated (OSM tags)'}</span>`;
+    pk.style.left = `${e.clientX + 14}px`; pk.style.top = `${e.clientY + 10}px`;
+    pk.classList.remove('hidden');
+    return;
+  }
+  const h = terrainHit(e);
+  if (!h) { pk.classList.add('hidden'); return; }
+  const p = S.meta.pilot, g = S.meta.grid;
+  const d = Math.hypot(h.x - p.x, h.y - p.y, h.h - p.z);
+  const zh = S.zones ? S.zones.zonesAt(h.x, h.y) : [];
+  pk.innerHTML = `<b>${h.h.toFixed(0)} m</b> · ${fmtDist(d)} from pilot<br><span class="muted">LV95 ${(g.min_e + h.x).toFixed(0)} / ${(g.min_n + h.y).toFixed(0)}</span>` +
+    zh.map(({ zone: z }) => `<br><b style="color:${z.info.color}">${z.info.label}</b> · ${z.name}<br><span class="muted">${fmtLimits(z)}</span>`).join('');
+  pk.style.left = `${e.clientX + 14}px`; pk.style.top = `${e.clientY + 10}px`;
+  pk.classList.remove('hidden');
+});
+
+// ------------------------------------------------------------------ ground model, buildings, close-up
+function groundChoice() {
+  const can = !!S.meta.terrain_dtm;
+  let pref = params.get('ground');
+  try { pref ||= localStorage.getItem(`fpv3d:ground:${S.meta.name}`); } catch { /* private mode */ }
+  if (pref === 'bare' && can) return 'bare';
+  if (pref === 'surface') return 'surface';
+  return can && S.meta.buildings?.count ? 'bare' : 'surface';   // default: clean buildings when we have them
+}
+function initGroundUi() {
+  const m = S.meta, v = S.view;
+  const sel = $('groundMode');
+  const opts = [];
+  if (m.surface === 'dsm') opts.push(['surface', 'Surface model (trees + buildings as measured)']);
+  if (m.terrain_dtm || m.surface === 'dtm') opts.push(['bare', m.buildings?.count ? 'Bare ground + 3D buildings' : 'Bare ground']);
+  sel.innerHTML = opts.map(([k, l]) => `<option value="${k}" ${k === (m.surface === 'dtm' ? 'bare' : S.ground) ? 'selected' : ''}>${l}</option>`).join('');
+  sel.disabled = opts.length < 2;
+  sel.onchange = () => {
+    try { localStorage.setItem(`fpv3d:ground:${m.name}`, sel.value); } catch { /* private mode */ }
+    const u = new URL(location.href); u.searchParams.set('ground', sel.value); location.href = u.toString();
+  };
+  $('bldRow').classList.toggle('hidden', !S.bld);
+  const bm = m.buildings;
+  const why = S.bld ? '' : !bm ? 'No 3D buildings in this scene yet (built before buildings existed).'
+    : bm.error ? `No 3D buildings: the OpenStreetMap download failed (${bm.when || ''}): ${bm.error}`
+      : bm.count === 0 ? 'No buildings in this area on OpenStreetMap.' : '';
+  $('bldMissing').classList.toggle('hidden', !why);
+  if (why) $('bldMissing').innerHTML = `${why}${bm && bm.count === 0 && !bm.error ? '' : '<br>Fix: <code>python -m fpv3d buildings</code> or Map → [saved] → Buildings.'}`;
+  if (S.bld) {
+    $('bldOn').checked = S.ground === 'bare' || m.surface === 'dtm';
+    S.bld.set({ visible: $('bldOn').checked });
+    $('bldOn').onchange = () => S.bld.set({ visible: $('bldOn').checked });
+    $('bldCount').textContent = `${S.bld.count} · ${m.buildings.heights_from_dsm || 0} measured`;
+  }
+  $('detailRow').classList.toggle('hidden', !S.detail?.enabled);
+  $('detailOn').onchange = () => S.detail.set($('detailOn').checked);
+  const full = v.grid.res;
+  $('meshInfo').textContent = S.detail?.enabled ? `Mesh: ${S.detail.info}${m.detail ? ` · sharp photo ${m.detail.res} m near the pilot` : ''}`
+    : `Mesh: ${full} m everywhere${v.step > 1 ? '' : ''}`;
+}
+
+// ------------------------------------------------------------------ UI wiring
+function initUI() {
+  const m = S.meta;
+  $('sceneInfo').innerHTML = m.corridor
+    ? `${m.title} · route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide · ${m.grid.res} m ${m.surface.toUpperCase()}<br>pilot: ${m.pilot.source}`
+    : `${m.title} · ${(S.W / 1000).toFixed(1)}×${(S.H / 1000).toFixed(1)} km · ${m.grid.res} m ${m.surface.toUpperCase()}<br>pilot: ${m.pilot.source}`;
+  initGroundUi();
+  $('orthoOn').disabled = !m.ortho;
+  $('orthoOn').onchange = () => { S.terrainMat.uniforms.uUseOrtho.value = $('orthoOn').checked && m.ortho ? 1 : 0; };
+  $('exag').oninput = () => setExaggeration(+$('exag').value);
+  $('losLink').textContent = `· ${m.links[m.primary_link].name}`;
+  $('losAgl').innerHTML = m.los_layers.map((l) => `<option value="${l.agl}">${l.agl} m above ground</option>`).join('');
+  $('losAgl').onchange = () => { $('losFollow').checked = false; S.lastAgl = null; pickLosLayer(); };
+  $('losOn').onchange = applyShadowMode;
+  $('vol3d').onchange = applyShadowMode;
+  $('vol2dToo').onchange = applyShadowMode;
+  document.querySelectorAll('.volLayer').forEach((cb) => cb.onchange = applyShadowMode);
+  $('volCap').oninput = () => { $('volCapOut').textContent = `${$('volCap').value} m`; applyShadowMode(); };
+  $('volOpacity').oninput = applyShadowMode;
+  $('losOpacity').oninput = () => { S.terrainMat.uniforms.uLosOpacity.value = +$('losOpacity').value; };
+  $('linkList').innerHTML = m.links.map((l, i) => `<label class="link"><input type="checkbox" data-i="${i}" ${i === m.primary_link ? 'checked' : ''}>
+      <span class="sw" style="background:${l.color}"></span>${l.name}<span class="r" id="lnkRange${i}">${fmtDist(l.range_m)}</span></label>`).join('');
+  initLinkEditor();
+  $('linkList').querySelectorAll('input[data-i]').forEach((cb) => cb.onchange = () => {
+    S.spheres[+cb.dataset.i].visible = cb.checked; updateRangeUniforms();
+  });
+  $('sphereOpacity').oninput = () => S.spheres.forEach((s) => {
+    s.userData.fill.material.opacity = +$('sphereOpacity').value;
+    s.userData.wire.material.opacity = Math.min(1, +$('sphereOpacity').value * 2.5);
+  });
+  fillTrackPickers();
+  initRename();
+  $('cmpPick').onchange = () => loadCompare($('cmpPick').value);
+  $('trackPick').onchange = () => loadTrack($('trackPick').value);
+  $('colorMode').onchange = () => S.track && buildTrackObjects();
+  const vecRefresh = () => { if (!S.track) return; buildCombs(); updateDrone(); };
+  $('velOn').onchange = vecRefresh; $('accOn').onchange = vecRefresh; $('combOn').onchange = vecRefresh;
+  $('vecScale').oninput = () => { $('vecScaleOut').textContent = `${(+$('vecScale').value).toFixed(2)}×`; vecRefresh(); };
+  $('smooth').oninput = () => {
+    $('smoothOut').textContent = `${(+$('smooth').value).toFixed(1)} s`;
+    if (!S.track) return; computeKinematics(S.track, +$('smooth').value);
+    const m = $('colorMode').value; if (m === 'speed' || m === 'accel') buildTrackObjects(); else vecRefresh();
+  };
+  $('curtainOn').onchange = () => S.curtain && (S.curtain.visible = $('curtainOn').checked);
+  $('camMode').onchange = () => {
+    const m = $('camMode').value;
+    CAM.setMode(m);
+    S.following = m === 'chase';
+    if (m === 'chase' && S.drone) { controls.target.copy(S.drone.position); camera.position.copy(S.drone.position).add(new THREE.Vector3(-150, 90, 150)); }
+    $('camMode').blur();   // so W/A/S/D go to the camera, not the dropdown
+  };
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyC' || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+    const sel = $('camMode'); sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length; sel.onchange();
+  });
+  $('play').onclick = togglePlay;
+  $('scrub').oninput = () => { if (!S.track) return; S.time = ($('scrub').value / 1000) * S.track.t[S.track.n - 1]; updateDrone(); V.seekToLog(S.time); };
+  $('speed').onchange = () => V.setRate(+$('speed').value);
+  S.tabs = initTabs($('panel'), { storageKey: 'fpv3d:tab', fallback: 'view' });
+  $('panel').querySelector('h1').onclick = () => S.tabs.toggle();
+  // keys 1..6 jump to a panel tab
+  addEventListener('keydown', (e) => {
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey || document.body.classList.contains('sim-on')) return;
+    const b = $('panel').querySelectorAll('.rail button[data-tab]')[+e.key - 1];
+    if (b && /^[1-9]$/.test(e.key)) b.click();
+  });
+  setTimeout(() => S.tabs.refreshDim(), 0);
+  addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); togglePlay(); } });
+}
+
+function setPlayingUi(on) { S.playing = on; $('play').textContent = on ? '[pause]' : '[play]'; }
+function togglePlay() {
+  if (!S.track) return;
+  if (S.playing) { V.pause(); setPlayingUi(false); return; }
+  if (S.time >= S.track.t[S.track.n - 1]) { S.time = 0; V.seekToLog(0); }
+  if (V.active()) V.play();          // the video becomes the master clock
+  setPlayingUi(true);
+}
+
+const _dv = { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1) };
+const CAM = initCameraModes({
+  camera, controls, dom: renderer.domElement,
+  sceneSpan: () => Math.max(S.W, S.H) || 2000,
+  groundY: (wx, wz) => {
+    const x = wx + S.W / 2, y = -wz + S.H / 2;
+    if (!S.dem || x < 0 || y < 0 || x > S.W || y > S.H) return null;
+    return (demHeight(x, y) - S.hBase) * S.exag;
+  },
+  droneView: () => {
+    if (!S.drone || !S.track) return null;
+    const tr = S.track, i = S.idx;
+    _dv.pos.copy(S.drone.position); _dv.pos.y += 2 * S.exag;
+    if (tr.vx && Math.hypot(tr.vx[i], tr.vy[i]) > 1) {   // keep the last heading when hovering
+      toWorld(tr.x[i] + tr.vx[i], tr.y[i] + tr.vy[i], tr.z[i] + tr.vz[i], _a);
+      toWorld(tr.x[i], tr.y[i], tr.z[i], _d);
+      _dv.dir.subVectors(_a, _d).normalize();
+    }
+    return _dv;
+  },
+});
+
+const SIM = initSim({
+  THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration,
+  ensureDrone: () => { if (!S.drone) buildDrone(); },
+  zonesAt: (x, y, z) => (S.zones ? S.zones.zonesAt(x, y, z) : []),
+  setClutterVisible: (on) => {   // markers that only get in the way of an FPV view
+    for (const o of [S.curtain, S.pilot, S.beam, S.velComb, S.accComb, S.cmpGhost, S.velArrow, S.accArrow]) if (o) o.visible = on && (o !== S.curtain || $('curtainOn').checked);
+  },
+  onStop: () => { if (S.track) updateDrone(); },
+  onSaved: (file) => refreshTracks(file),
+  onSimTick: (st) => S.live?.simTick(st),
+  onSimStop: () => S.live?.simStop(),
+});
+
+const V = initVideo({
+  getTime: () => S.time,
+  duration: () => (S.track ? S.track.t[S.track.n - 1] : 0),
+  keyPrefix: () => `${S.meta?.name}:${S.track?.name}`,
+  onLayout: () => requestAnimationFrame(fitRenderer),
+  setPlayingUi,
+});
+
+// ------------------------------------------------------------------ compare two flights (e.g. training vs real)
+function trackStats(tr) {
+  const n = tr.n, prim = S.meta.links[S.meta.primary_link]?.name, m = tr.margin?.[prim] || [];
+  const fin = (a) => a.filter((v) => v != null && isFinite(v));
+  const pick = (re) => { const k = Object.keys(tr.telemetry || {}).find((x) => re.test(x)); return k ? fin(tr.telemetry[k]) : null; };
+  const rssi = pick(/^1RSS|RSSI/i), lq = pick(/RQly|(^|_)LQ/i);
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  return {
+    'Duration': fmtTime(tr.t[n - 1] - tr.t[0]),
+    'Max distance': fmtDist(Math.max(...fin(tr.dist))),
+    'Max height AGL': `${Math.max(...fin(tr.agl)).toFixed(0)} m`,
+    'Max speed': tr.speed ? `${Math.max(...tr.speed).toFixed(0)} km/h` : '–',
+    'Time without LOS': `${(100 * tr.clearance.filter((c) => c < 0).length / n).toFixed(0)} %`,
+    'Time in restricted zones': tr.zoneSev ? `${(100 * tr.zoneSev.filter((v) => v >= 2).length / n).toFixed(0)} %` : '–',
+    'Time predicted loss': m.length ? `${(100 * fin(m).filter((v) => v < 0).length / n).toFixed(0)} %` : '–',
+    'Worst predicted margin': m.length ? `${Math.min(...fin(m)).toFixed(1)} dB` : '–',
+    'Logged RSSI min / avg': rssi?.length ? `${Math.min(...rssi).toFixed(0)} / ${mean(rssi).toFixed(0)}` : '–',
+    'Logged LQ min': lq?.length ? `${Math.min(...lq).toFixed(0)} %` : '–',
+  };
+}
+
+function renderCompare() {
+  const el = $('cmpTable');
+  if (!S.track || !S.cmp) { el.innerHTML = ''; return; }
+  const a = trackStats(S.track), b = trackStats(S.cmp);
+  el.innerHTML = `<table class="cmp"><tr><th></th><th>${S.track.name}</th><th style="color:#e6e6e6">${S.cmp.name}</th></tr>` +
+    Object.keys(a).map((k) => `<tr><td>${k}</td><td>${a[k]}</td><td>${b[k]}</td></tr>`).join('') + '</table>' +
+    '<p class="muted small">White dashed line + ghost = compared flight (ghost at the same elapsed time).</p>';
+}
+
+function buildCompareObjects() {
+  for (const o of [S.cmpLine, S.cmpGhost]) if (o) { scene3.remove(o); o.geometry?.dispose(); }
+  S.cmpLine = S.cmpGhost = null;
+  const tr = S.cmp; if (!tr) return;
+  const pos = new Float32Array(tr.n * 3), v = new THREE.Vector3();
+  for (let i = 0; i < tr.n; i++) toWorld(tr.x[i], tr.y[i], tr.z[i], v).toArray(pos, i * 3);
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  S.cmpLine = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 6, gapSize: 4, transparent: true, opacity: 0.85 }));
+  S.cmpLine.computeLineDistances(); scene3.add(S.cmpLine);
+  S.cmpGhost = new THREE.Mesh(new THREE.OctahedronGeometry(6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }));
+  scene3.add(S.cmpGhost);
+  placeGhost();
+}
+function placeGhost() {
+  const tr = S.cmp; if (!tr || !S.cmpGhost) return;
+  const t = Math.min(S.time + tr.t[0], tr.t[tr.n - 1]);
+  let lo = 0, hi = tr.n - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (tr.t[mid] <= t) lo = mid; else hi = mid - 1; }
+  toWorld(tr.x[lo], tr.y[lo], tr.z[lo], S.cmpGhost.position);
+  if (S.drone) S.cmpGhost.scale.copy(S.drone.scale);
+}
+
+async function loadCompare(file) {
+  S.cmp = file ? await getJSON(S.base + file) : null;
+  if (S.cmp) { shiftTrackMargins(S.cmp); computeKinematics(S.cmp, +$('smooth').value); computeTrackZones(S.cmp); }
+  buildCompareObjects(); renderCompare();
+}
+
+function fillTrackPickers(selectFile) {
+  const tr = S.meta.tracks;
+  const label = (t) => t.name;
+  $('trackPick').innerHTML = tr.length ? tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight logs yet)</option>';
+  if (selectFile) $('trackPick').value = selectFile;
+  const cur = $('cmpPick').value;
+  $('cmpPick').innerHTML = '<option value="">(nothing)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');
+  if ([...$('cmpPick').options].some((o) => o.value === cur)) $('cmpPick').value = cur;
+}
+
+// ------------------------------------------------------------------ rename location / log (clean ASCII file names)
+const slugify = (s) => s.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9-]+/g, '_').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, '').slice(0, 60);
+const noEmoji = (s) => s.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '').replace(/\s{2,}/g, ' ').trim();
+async function postRename(body) {
+  const r = await fetch('/api/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  let j = {}; try { j = await r.json(); } catch { /* not the fpv3d server */ }
+  if (!r.ok || j.error) throw new Error(j.error || `server answered ${r.status} (start it with python -m fpv3d serve)`);
+  return j;
+}
+function initRename() {
+  const msg = (id, text, cls = '') => { $(id).textContent = text; $(id).className = 'small ' + cls; };
+  // flight log
+  $('trkRenBtn').onclick = () => {
+    if (!S.track) return;
+    $('trkRen').classList.toggle('hidden'); $('trkRenName').value = S.track.name; msg('trkRenMsg', ''); $('trkRenName').select();
+  };
+  $('trkRenCancel').onclick = () => $('trkRen').classList.add('hidden');
+  $('trkRenName').oninput = () => msg('trkRenMsg', slugify($('trkRenName').value) ? `→ ${slugify($('trkRenName').value)}` : '', 'muted');
+  $('trkRenName').onkeydown = (e) => { if (e.key === 'Enter') $('trkRenOk').click(); };
+  $('trkRenOk').onclick = async () => {
+    const old = S.track?.name, nn = slugify($('trkRenName').value);
+    if (!old || !nn) return;
+    if (nn === old) { $('trkRen').classList.add('hidden'); return; }
+    msg('trkRenMsg', 'renaming…', 'muted');
+    try {
+      const j = await postRename({ kind: 'log', scene: S.meta.name, old, new: nn });
+      try {   // keep the video sync saved for this log
+        const pre = `fpv3d:sync:${S.meta.name}:${old}:`;
+        for (const k of Object.keys(localStorage)) if (k.startsWith(pre)) { localStorage.setItem(`fpv3d:sync:${S.meta.name}:${j.name}:` + k.slice(pre.length), localStorage.getItem(k)); localStorage.removeItem(k); }
+      } catch { /* private mode */ }
+      const cmp = $('cmpPick').value;
+      await refreshTracks(j.file);
+      if (cmp && cmp !== `tracks/${old}.json`) $('cmpPick').value = cmp;
+      $('trkRen').classList.add('hidden');
+    } catch (e) { msg('trkRenMsg', e.message, 'err'); }
+  };
+  // location
+  const showLoc = () => { $('locNameShow').innerHTML = `<b>${S.meta.title}</b> <span class="muted">(${S.meta.name})</span>`; };
+  showLoc();
+  $('locRenBtn').onclick = () => {
+    $('locRen').classList.toggle('hidden'); $('locRenTitle').value = S.meta.title; $('locRenName').value = S.meta.name;
+    delete $('locRenName').dataset.touched; msg('locRenMsg', '');
+  };
+  $('locRenCancel').onclick = () => $('locRen').classList.add('hidden');
+  $('locDelBtn').onclick = () => { $('locDel').classList.toggle('hidden'); $('locRen').classList.add('hidden'); };
+  $('locDelCancel').onclick = () => $('locDel').classList.add('hidden');
+  $('locDelOk').onclick = async () => {
+    msg('locDelMsg', 'deleting…', 'muted');
+    try {
+      const r = await fetch('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: S.meta.name }) });
+      let j = {}; try { j = await r.json(); } catch { /* not the fpv3d server */ }
+      if (!r.ok || j.error) throw new Error(j.error || `server answered ${r.status}`);
+      location.href = 'map.html';
+    } catch (e) { msg('locDelMsg', e.message, 'err'); }
+  };
+  $('locRenTitle').oninput = () => { if (!$('locRenName').dataset.touched) $('locRenName').value = slugify($('locRenTitle').value); };
+  $('locRenName').oninput = () => { $('locRenName').dataset.touched = '1'; };
+  $('locRenOk').onclick = async () => {
+    const nn = slugify($('locRenName').value), title = noEmoji($('locRenTitle').value);
+    if (!nn) { msg('locRenMsg', 'file name is empty', 'err'); return; }
+    msg('locRenMsg', 'renaming…', 'muted');
+    try {
+      const old = S.meta.name;
+      const j = await postRename({ kind: 'location', old, new: nn, title });
+      try {   // move this browser's saved antenna edits / video sync along
+        for (const k of Object.keys(localStorage)) {
+          const nk = k === `fpv3d:links:${old}` ? `fpv3d:links:${j.name}`
+            : k.startsWith(`fpv3d:sync:${old}:`) ? `fpv3d:sync:${j.name}:` + k.slice(`fpv3d:sync:${old}:`.length) : null;
+          if (nk && nk !== k) { localStorage.setItem(nk, localStorage.getItem(k)); localStorage.removeItem(k); }
+        }
+      } catch { /* private mode */ }
+      location.search = `?scene=${encodeURIComponent(j.name)}`;
+    } catch (e) { msg('locRenMsg', e.message, 'err'); }
+  };
+}
+
+async function refreshTracks(selectFile) {
+  S.meta = await getJSON(S.base + 'scene.json');
+  if (S.links0) applyLinks();
+  fillTrackPickers(selectFile);
+  if (selectFile) await loadTrack(selectFile);
+}
+
+// ------------------------------------------------------------------ radio link editor (antennas / power -> range)
+const fsplDb = (d, f) => 20 * Math.log10(Math.max(d, 1) / 1000) + 20 * Math.log10(f) + 32.44;
+const LINK_KEYS = ['tx_power_dbm', 'tx_gain_dbi', 'rx_gain_dbi', 'rx_sensitivity_dbm', 'misc_losses_db', 'fade_margin_db'];
+const MW = [25, 50, 100, 200, 250, 350, 400, 500, 600, 700, 800, 1000, 1200, 1600, 2000];
+const ANT = [
+  ['', 'custom'], [2, 'dipole / pagoda / lollipop (2 dBi)'], [3, 'stubby or omni+ (3 dBi)'], [5, 'small patch (5 dBi)'],
+  [8, 'patch (8 dBi)'], [10, 'helical / moxon (10 dBi)'], [12, 'big helical (12 dBi)'], [14, 'yagi / tracker (14 dBi)'],
+];
+const linkKey = () => `fpv3d:links:${S.meta.name}`;
+const linkBudget = (l) => l.tx_power_dbm + l.tx_gain_dbi + l.rx_gain_dbi - l.misc_losses_db - l.rx_sensitivity_dbm - l.fade_margin_db;
+const hasParams = (l) => LINK_KEYS.every((k) => typeof l[k] === 'number');
+
+function loadLinkOverrides() { try { return JSON.parse(localStorage.getItem(linkKey()) || '{}'); } catch { return {}; } }
+function saveLinkOverrides(ov) { try { localStorage.setItem(linkKey(), JSON.stringify(ov)); } catch { /* ignore */ } }
+
+/** Apply edited radio values: sphere sizes, terrain rings, simulator, and track margins (shifted by the budget change). */
+function applyLinks() {
+  const ov = loadLinkOverrides();
+  S.linkDelta = {};
+  S.links0.forEach((l0, i) => {
+    const l = { ...l0, ...(ov[l0.name] || {}) };
+    const b0 = hasParams(l0) ? linkBudget(l0) : fsplDb(l0.range_m, l0.freq_mhz);
+    const b = hasParams(l) ? linkBudget(l) : b0;
+    l.range_m = Math.pow(10, (b - 20 * Math.log10(l.freq_mhz) - 32.44) / 20) * 1000;
+    S.meta.links[i] = l;
+    S.linkDelta[l.name] = b - b0;
+    const sp = S.spheres[i]; if (sp) { sp.userData.k = l.range_m / l0.range_m; sp.scale.set(sp.userData.k, sp.userData.k * S.exag, sp.userData.k); }
+    if (i < MAX_LINKS) S.terrainMat.uniforms.uRanges.value.setComponent(i, l.range_m);
+    const r = $(`lnkRange${i}`);
+    if (r) r.innerHTML = Math.abs(b - b0) > 0.05 ? `<b style="color:var(--warn)">${fmtDist(l.range_m)}</b> <span class="muted">(${b > b0 ? '+' : ''}${(b - b0).toFixed(1)} dB)</span>` : fmtDist(l.range_m);
+  });
+  const dirty = Object.values(S.linkDelta).some((d) => Math.abs(d) > 0.05);
+  $('lnkDirty')?.classList.toggle('hidden', !dirty);
+  if (S.vol) {                            // predicted-loss shadows (2D + 3D) follow the edited budget
+    const name = S.vol.link || S.meta.links[S.meta.primary_link].name, want = S.linkDelta[name] || 0;
+    const r = S.vol.setLossDelta(want);
+    S.lastAgl = null; pickLosLayer();
+    const note = $('lnkShadowNote');
+    if (note) note.innerHTML = !S.vol.live ? 'The “predicted loss” shadows follow edits after a refresh of this scene (<code>python -m fpv3d refresh-all</code>).'
+      : r.exact ? 'Everything follows live, including the 2D / 3D “predicted loss” shadows. Save to keep it.'
+        : `Shadows are shown for ${r.delta > 0 ? '+' : ''}${r.delta} dB (the precomputed limit); save &amp; rebuild for the exact ${want > 0 ? '+' : ''}${want.toFixed(1)} dB.`;
+  }
+  for (const tr of [S.track, S.cmp]) shiftTrackMargins(tr);
+  if (S.track) { buildTrackObjects(); renderCompare(); }
+}
+function shiftTrackMargins(tr) {
+  if (!tr || !tr.margin || !S.linkDelta) return;
+  if (!tr.margin0) tr.margin0 = structuredClone(tr.margin);
+  for (const [name, arr] of Object.entries(tr.margin0)) {
+    const d = S.linkDelta[name] || 0;
+    tr.margin[name] = arr.map((v) => (v == null ? null : v + d));
+  }
+}
+
+function initLinkEditor() {
+  S.links0 = structuredClone(S.meta.links);
+  const box = $('linkEdit');
+  if (!S.links0.every(hasParams)) {
+    box.innerHTML = '<p class="muted small">To edit antennas and power here, refresh this scene once (<code>python -m fpv3d refresh-all</code>).</p>';
+    return;
+  }
+  const ov = loadLinkOverrides();
+  const opt = (arr, v) => arr.map(([val, lab]) => `<option value="${val}" ${String(val) === String(v) ? 'selected' : ''}>${lab}</option>`).join('');
+  box.innerHTML = S.links0.map((l0, i) => {
+    const l = { ...l0, ...(ov[l0.name] || {}) }, mw = Math.round(10 ** (l.tx_power_dbm / 10));
+    const ant = (v) => (ANT.some(([a]) => a === v) ? v : '');
+    return `<details class="lnk" data-name="${l0.name}"><summary><span class="sw" style="background:${l0.color}"></span> ${l0.name}</summary>
+      <label class="row">TX power <select data-k="mw">${MW.map((w) => `<option value="${w}" ${w === mw ? 'selected' : ''}>${w} mW (${(10 * Math.log10(w)).toFixed(1)} dBm)</option>`).join('')}${MW.includes(mw) ? '' : `<option selected value="${mw}">${mw} mW</option>`}</select></label>
+      <label class="row">Drone antenna <select data-k="tx_ant">${opt(ANT, ant(l.tx_gain_dbi))}</select><input type="number" step="0.5" data-k="tx_gain_dbi" value="${l.tx_gain_dbi}"> dBi</label>
+      <label class="row">Ground antenna <select data-k="rx_ant">${opt(ANT, ant(l.rx_gain_dbi))}</select><input type="number" step="0.5" data-k="rx_gain_dbi" value="${l.rx_gain_dbi}"> dBi</label>
+      <label class="row">Receiver sensitivity <input type="number" step="1" data-k="rx_sensitivity_dbm" value="${l.rx_sensitivity_dbm}"> dBm</label>
+      <label class="row">Cable / misc losses <input type="number" step="0.5" data-k="misc_losses_db" value="${l.misc_losses_db}"> dB</label>
+      <label class="row">Safety (fade) margin <input type="number" step="1" data-k="fade_margin_db" value="${l.fade_margin_db}"> dB</label>
+    </details>`;
+  }).join('') + `<div id="lnkDirty" class="small hidden"><span style="color:var(--warn)">Edited (not saved yet).</span> <span id="lnkShadowNote">Spheres, rings, flight margins and the simulator use the new values.</span></div>
+    <div class="row btns"><button id="lnkReset">Reset</button><button id="lnkSave" class="primary">Save to location &amp; rebuild</button></div>
+    <div id="lnkMsg" class="small muted"></div>`;
+  box.querySelectorAll('details.lnk').forEach((d) => {
+    const name = d.dataset.name, q = (k) => d.querySelector(`[data-k="${k}"]`);
+    const write = () => {
+      const o = loadLinkOverrides();
+      o[name] = { tx_power_dbm: +(10 * Math.log10(+q('mw').value)).toFixed(2), tx_gain_dbi: +q('tx_gain_dbi').value, rx_gain_dbi: +q('rx_gain_dbi').value,
+        rx_sensitivity_dbm: +q('rx_sensitivity_dbm').value, misc_losses_db: +q('misc_losses_db').value, fade_margin_db: +q('fade_margin_db').value };
+      saveLinkOverrides(o); applyLinks();
+    };
+    q('tx_ant').onchange = () => { if (q('tx_ant').value !== '') q('tx_gain_dbi').value = q('tx_ant').value; write(); };
+    q('rx_ant').onchange = () => { if (q('rx_ant').value !== '') q('rx_gain_dbi').value = q('rx_ant').value; write(); };
+    d.querySelectorAll('input, select[data-k="mw"]').forEach((el) => el.addEventListener('input', () => {
+      if (el.dataset.k === 'tx_gain_dbi') q('tx_ant').value = ANT.some(([a]) => String(a) === el.value) ? el.value : '';
+      if (el.dataset.k === 'rx_gain_dbi') q('rx_ant').value = ANT.some(([a]) => String(a) === el.value) ? el.value : '';
+      write();
+    }));
+  });
+  $('lnkReset').onclick = () => { saveLinkOverrides({}); initLinkEditor(); applyLinks(); };
+  $('lnkSave').onclick = saveLinksToLocation;
+  applyLinks();
+}
+
+async function saveLinksToLocation() {
+  const msg = $('lnkMsg');
+  const links = S.meta.links.map((l) => Object.fromEntries([['name', l.name], ...LINK_KEYS.map((k) => [k, l[k]])]));
+  try {
+    const r = await fetch('/api/links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name, links }) });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.statusText);
+    msg.textContent = `Saved to locations/${d.file} - recomputing the signal shadows…`;
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 1000));
+      const j = await (await fetch(`/api/jobs/${d.job}`)).json();
+      msg.textContent = j.lines.at(-1) || '…';
+      if (j.status !== 'running') {
+        if (j.status === 'done') { saveLinkOverrides({}); msg.textContent = 'Done - reloading…'; setTimeout(() => location.reload(), 600); }
+        else msg.textContent = 'Rebuild failed: ' + j.lines.slice(-3).join(' ');
+        break;
+      }
+    }
+  } catch (e) { msg.textContent = `Could not save (${e.message}). Is the fpv3d server running?`; }
+}
+
+// ------------------------------------------------------------------ drone geozones
+function computeTrackZones(tr) {
+  if (!S.zones || !tr) return;
+  tr.zoneSev = new Int8Array(tr.n).fill(-1); tr.zoneIdx = new Int32Array(tr.n).fill(-1);
+  for (let i = 0; i < tr.n; i++) {
+    const hit = S.zones.zonesAt(tr.x[i], tr.y[i], tr.z[i]).find((h) => h.inBand);
+    if (hit) { tr.zoneSev[i] = hit.zone.info.sev; tr.zoneIdx[i] = hit.zone.idx; }
+  }
+}
+
+function fillZoneUi() {
+  const z = S.zones;
+  $('zonesMissing').classList.toggle('hidden', !!z);
+  $('zonesBody').classList.toggle('hidden', !z);
+  if (!z) return;
+  $('zonesSource').textContent = `FOCA geographical UAS zones, data from ${z.meta.fetched}.`;
+  const list = z.zones.filter((zn) => z.state.showInactive || isActive(zn)).sort((a, b) => b.info.sev - a.info.sev);
+  $('zoneList').innerHTML = list.length ? list.map((zn) => `<li data-i="${zn.idx}">
+      <i style="background:${zn.info.color}"></i><span class="t">${zn.name}</span>
+      <span class="muted">${zn.info.label}${isActive(zn) ? '' : ' · not active now'}</span></li>`).join('')
+    : '<li class="muted">No zone in this map area (per FOCA data).</li>';
+  $('zoneList').querySelectorAll('li[data-i]').forEach((li) => li.onclick = () => showZone(z.zones[+li.dataset.i]));
+}
+
+function showZone(zn) {
+  const [cx, cy] = zn.centroid, [x0, y0, x1, y1] = zn.bbox, span = Math.max(x1 - x0, y1 - y0, 300);
+  const c = toWorld(cx, cy, demHeight(Math.min(Math.max(cx, 0), S.W), Math.min(Math.max(cy, 0), S.H)));
+  if (CAM.usesOrbit()) { controls.target.copy(c); camera.position.copy(c).add(new THREE.Vector3(-span * 0.6, span * 0.8, span * 0.9)); }
+  const when = zn.permanent ? 'permanent' : `${zn.start ? zn.start.slice(0, 16).replace('T', ' ') : '…'} → ${zn.end ? zn.end.slice(0, 16).replace('T', ' ') : '…'}`;
+  $('zoneDetail').innerHTML = `<b style="color:${zn.info.color}">${zn.info.label}</b> · ${zn.name}<br>
+    <span class="muted">Height:</span> ${fmtLimits(zn)}<br><span class="muted">Valid:</span> ${when}${isActive(zn) ? '' : ' <b>(not active now)</b>'}<br>
+    ${zn.conditions ? `<span class="muted">Rule:</span> ${zn.conditions}<br>` : ''}${zn.message ? `${zn.message}<br>` : ''}
+    ${zn.authority ? `<span class="muted">Authority:</span> ${zn.authority}<br>` : ''}${zn.url ? `<a href="${zn.url}" target="_blank" rel="noopener">More information / permits</a>` : ''}`;
+  $('zoneDetail').classList.remove('hidden');
+}
+
+function applyZones() {
+  if (!S.zones) { S.terrainMat.uniforms.uZonesOn.value = 0; fillZoneUi(); return; }
+  S.zones.set({ walls: $('zonesWalls').checked && $('zonesOn').checked, showInactive: $('zonesInactive').checked });
+  S.terrainMat.uniforms.uZonesOn.value = $('zonesOn').checked ? 1 : 0;
+  computeTrackZones(S.track); computeTrackZones(S.cmp);
+  fillZoneUi();
+  if (S.track) { const sel = $('colorMode'), prev = sel.value; sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join(''); sel.value = prev || 'status'; buildTrackObjects(); renderCompare(); }
+}
+
+async function loadTrack(file) {
+  if (!file) { $('timeline').classList.add('hidden'); return; }
+  S.track = await getJSON(S.base + file);
+  shiftTrackMargins(S.track);
+  computeKinematics(S.track, +$('smooth').value);
+  computeTrackZones(S.track);
+  const tm = S.meta.tracks.find((t) => t.file === file);
+  $('trackInfo').innerHTML = tm ? `${fmtTime(tm.duration_s)} · max ${fmtDist(tm.max_dist_m)} · max ${tm.max_agl_m} m AGL<br>no LOS ${tm.no_los_pct}% · Fresnel ${tm.fresnel_pct}% of samples` : '';
+  const sel = $('colorMode'), prev = sel.value;
+  sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join('');
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  if (!S.drone) buildDrone();
+  S.time = 0;
+  buildTrackObjects();
+  $('timeline').classList.remove('hidden');
+  V.trackChanged();
+  S.prof?.redraw();
+  if (S.cmp) { buildCompareObjects(); renderCompare(); }
+}
+
+// ------------------------------------------------------------------ boot
+async function loadScene(name) {
+  S.base = `${SCENES}${name}/`;
+  S.meta = await getJSON(S.base + 'scene.json');
+  const g = S.meta.grid;
+  S.W = g.max_e - g.min_e; S.H = g.max_n - g.min_n; S.hBase = S.meta.elevation.min;
+  S.ground = groundChoice();
+  await loadOverview(S.ground === 'bare' ? 'dtm' : 'surface');
+  buildTerrain();
+  if (S.meta.ortho) {
+    const t = await loadTex(S.base + S.meta.ortho);
+    S.terrainMat.uniforms.uOrtho.value = t; S.terrainMat.uniforms.uUseOrtho.value = 1;
+  }
+  try { S.bld = await loadBuildings({ S, scene3 }); } catch (e) { console.warn('buildings', e); S.bld = null; }
+  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api: S.view.api, which: S.view.which });
+  buildPilot();
+  initUI();
+  await pickLosLayer();
+  try { S.vol = await loadVolumes({ scene3, S, demHeight }); } catch (e) { console.warn('3D volumes', e); S.vol = null; }
+  if (S.vol?.overlay) {   // any height works now: offer a finer list
+    $('losAgl').innerHTML = [5, 10, 20, 30, 45, 60, 90, 120, 150, 200, 300].map((a) => `<option value="${a}" ${a === 30 ? 'selected' : ''}>${a} m above ground</option>`).join('');
+  }
+  if (S.links0) applyLinks();
+  S.lastAgl = null; await pickLosLayer();
+  S.prof = initProfile({ S, scene3, toWorld, demHeight, el: { box: $('profile'), canvas: $('profCanvas'), info: $('profInfo') } });
+  $('profBtn').classList.toggle('hidden', !S.prof);
+  if (S.prof) {
+    $('profBtn').onclick = () => S.prof.show(!S.prof.open);
+    $('profClose').onclick = () => S.prof.show(false);
+    S.prof.show(true);
+  }
+  try {
+    S.live = initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved: (file) => refreshTracks(file),
+      onStart: () => { if (S.playing) togglePlay(); } });
+  } catch (e) { console.warn('live', e); }
+  try { S.zones = await loadZones({ S, scene3, toWorld, demHeight }); } catch (e) { console.warn('geozones', e); S.zones = null; }
+  if (S.zones) S.terrainMat.uniforms.uZones.value = S.zones.texture;
+  ['zonesOn', 'zonesWalls', 'zonesInactive'].forEach((id) => { $(id).onchange = applyZones; });
+  applyZones();
+  applyShadowMode();
+  const span = Math.max(S.W, S.H);
+  const p = toWorld(S.meta.pilot.x, S.meta.pilot.y, S.meta.pilot.z);
+  controls.target.set(0, p.y, 0);
+  camera.position.set(-span * 0.35, p.y + span * 0.45, span * 0.75);
+  scene3.fog = new THREE.Fog(0x9fb8cf, span * 1.5, span * 6);
+  if (S.meta.tracks.length) await loadTrack(S.meta.tracks[0].file);
+  $('loading').remove();
+}
+
+async function boot() {
+  let list = [];
+  try { list = await getJSON(SCENES + 'index.json'); } catch { /* none yet */ }
+  if (!list.length) throw new Error('No scenes found.\nBuild one first:  python -m fpv3d build locations/moleson.yaml');
+  const name = params.get('scene') || list[0].name;
+  $('scenePick').innerHTML = list.map((s) => `<option value="${s.name}" ${s.name === name ? 'selected' : ''}>${s.title}</option>`).join('');
+  $('scenePick').onchange = () => { location.search = `?scene=${encodeURIComponent($('scenePick').value)}`; };
+  await loadScene(name);
+}
+
+let lastT = performance.now();
+renderer.setAnimationLoop(() => {
+  const now = performance.now(), dt = Math.min((now - lastT) / 1000, 0.1); lastT = now;
+  if (SIM.update(dt)) {                 // training-flight simulator owns camera + drone
+    S.detail?.update(now);
+    S.live?.tick(now);
+    if (!SIM.frozen()) renderer.render(scene3, camera);   // frozen = simulated video loss
+    return;
+  }
+  if (S.playing && S.track) {
+    const end = S.track.t[S.track.n - 1];
+    if (V.drivesClock()) S.time = Math.min(Math.max(V.logTime(), 0), end);   // follow the video
+    else {
+      S.time += dt * +$('speed').value;
+      if (S.time >= end) { S.time = end; setPlayingUi(false); }
+    }
+    updateDrone();
+  }
+  V.tick();
+  if (S.drone) { const s = Math.max(1, camera.position.distanceTo(S.drone.position) / 500); S.drone.scale.setScalar(s); }
+  if (S.pilot) { const s = Math.max(1, camera.position.distanceTo(S.pilot.position) / 600); S.pilot.userData.head.scale.setScalar(s); }
+  updateArrows();
+  CAM.update(dt);
+  if (S.drone) S.drone.visible = CAM.mode() !== 'drone';   // don't sit inside the marker
+  if (S.curtain) S.curtain.visible = $('curtainOn').checked && CAM.mode() !== 'drone';
+  if (CAM.usesOrbit()) controls.update();
+  S.detail?.update(now);
+  S.live?.tick(now);
+  renderer.render(scene3, camera);
+});
+
+window.fpv3d = { S, camera, controls, THREE, SIM };
+boot().catch((e) => { console.error(e); const l = $('loading'); l.classList.add('err'); l.textContent = e.message; });

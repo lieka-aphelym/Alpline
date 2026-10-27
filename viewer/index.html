@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fpv3d viewer</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/OrbitControls.js": "./vendor/OrbitControls.js"
+} }
+</script>
+</head>
+<body>
+<div id="view"></div>
+
+<aside id="panel">
+  <nav class="rail">
+    <button data-tab="view" title="View: map, camera"><span>[view]</span></button>
+    <button data-tab="signal" title="Signal: shadows, range, radios"><span>[signal]</span></button>
+    <button data-tab="zones" title="Drone zones (FOCA)"><span>[zones]</span></button>
+    <button data-tab="flight" title="Flights: logs, compare, motion"><span>[flight]</span></button>
+    <button data-tab="sim" title="Training flight simulator"><span>[sim]</span></button>
+    <button data-tab="video" title="Flight video"><span>[video]</span></button>
+    <button data-tab="live" title="Live telemetry from the radio + warnings"><span>[live]</span></button>
+    <button class="railCollapse" title="Hide / show the panel (or click the active tab)"></button>
+  </nav>
+  <div id="pbody">
+  <header>
+    <h1>fpv3d</h1>
+    <select id="scenePick" title="Scene"></select>
+    <a class="navlink" href="map.html" title="Switzerland map: cached areas, new locations">[map]</a>
+  </header>
+  <div id="sceneInfo" class="muted"></div>
+
+  <section data-tab="view">
+    <h2>Map</h2>
+    <label class="row"><input type="checkbox" id="orthoOn" checked> Aerial photo (SWISSIMAGE)</label>
+    <label class="row">Ground</label>
+    <select id="groundMode"></select>
+    <label class="row hidden" id="bldRow"><input type="checkbox" id="bldOn" checked> 3D buildings <output id="bldCount"></output></label>
+    <p id="bldMissing" class="small muted hidden"></p>
+    <label class="row hidden" id="detailRow"><input type="checkbox" id="detailOn" checked> Sharp close-up (full resolution near the view centre)</label>
+    <p id="meshInfo" class="muted small"></p>
+    <label class="row">Vertical exaggeration <output id="exagOut">1.0×</output></label>
+    <input type="range" id="exag" min="1" max="3" step="0.1" value="1">
+    <label class="row">Camera</label>
+    <select id="camMode">
+      <option value="orbit">Orbit</option>
+      <option value="fly">Free fly</option>
+      <option value="chase">Chase the drone</option>
+      <option value="drone">Drone view (flight direction)</option>
+    </select>
+    <p class="muted small"><span id="camHint"></span> · click terrain = info · <b>C</b> = cycle camera</p>
+  </section>
+
+  <section data-tab="view">
+    <h2>This location</h2>
+    <div class="row"><span id="locNameShow" class="small"></span><span><button id="locRenBtn" class="iconbtn" title="Rename this location">[rename]</button> <button id="locDelBtn" class="iconbtn" title="Delete this location (restorable)">[delete]</button></span></div>
+    <div id="locDel" class="renbox hidden">
+      <div class="small">Delete this location? Its file, 3D scene and training flights move to the <code>deleted/</code> folder; you can restore them from the map page ([saved]).</div>
+      <div class="row"><button id="locDelOk" class="danger">Delete</button><button id="locDelCancel">Cancel</button><span id="locDelMsg" class="small"></span></div>
+    </div>
+    <div id="locRen" class="renbox hidden">
+      <label class="row small">Title <input id="locRenTitle" placeholder="Moléson east ridge"></label>
+      <label class="row small">File name <input id="locRenName" spellcheck="false" placeholder="moleson_east"></label>
+      <div class="row"><span class="muted small">file name: lowercase, digits, _ and -. Title: anything but emoji.</span></div>
+      <div class="row"><button id="locRenOk" class="primary">Rename</button><button id="locRenCancel">Cancel</button><span id="locRenMsg" class="small"></span></div>
+    </div>
+  </section>
+
+  <section data-tab="signal">
+    <button id="profBtn" class="hidden wide" title="Side view along the route: where you lose line of sight and how high to fly">Route profile</button>
+    <h2>Signal shadow <span class="muted" id="losLink"></span></h2>
+    <label class="row"><input type="checkbox" id="losOn" checked> Show shadow at</label>
+    <div class="row">
+      <select id="losAgl"></select>
+      <label><input type="checkbox" id="losFollow"> follow drone AGL</label>
+    </div>
+    <label class="row">Opacity</label>
+    <input type="range" id="losOpacity" min="0" max="1" step="0.05" value="0.85">
+    <label class="row"><input type="checkbox" id="vol3d"> Show as 3D volume</label>
+    <div id="volOpts" class="hidden">
+      <label class="row"><input type="checkbox" class="volLayer" data-l="los" checked> <i class="sw3" style="background:#5b4bd6"></i> No line of sight</label>
+      <label class="row"><input type="checkbox" class="volLayer" data-l="fresnel"> <i class="sw3" style="background:#ffb000"></i> Fresnel zone obstructed</label>
+      <label class="row"><input type="checkbox" class="volLayer" data-l="loss"> <i class="sw3" style="background:#ff2d55"></i> Predicted signal loss</label>
+      <label class="row">Show up to <output id="volCapOut">150 m</output> above ground</label>
+      <input type="range" id="volCap" min="20" max="600" step="10" value="150">
+      <label class="row">Volume opacity</label>
+      <input type="range" id="volOpacity" min="0.1" max="0.9" step="0.05" value="0.45">
+      <label class="row"><input type="checkbox" id="vol2dToo"> keep the 2D shadow on the terrain too</label>
+      <details class="help"><summary>How to read the volumes</summary><p class="muted small">Everything between the ground and the coloured lid is blind: fly above the lid to keep the link. Faint lines on the lid every 25 m of height. A lighter flat top means the zone goes higher than the limit.</p></details>
+    </div>
+    <p id="volMissing" class="muted small hidden">3D volumes need a rebuild of this scene: <code>python -m fpv3d build locations/&lt;name&gt;.yaml --reuse-terrain</code></p>
+    <div class="chips">
+      <span><i style="background:#ffb000"></i>Fresnel</span><span><i style="background:#3a2e7a"></i>No LOS</span>
+      <span><i style="background:#05050c"></i>No LOS + loss</span><span><i style="border:1px solid #ff4fd8"></i>Range edge</span>
+    </div>
+  </section>
+
+  <section data-tab="zones">
+    <h2>Drone zones (FOCA)</h2>
+    <div id="zonesBody" class="hidden">
+      <label class="row"><input type="checkbox" id="zonesOn" checked> Show restricted zones</label>
+      <label class="row"><input type="checkbox" id="zonesWalls" checked> Show their height (3D walls)</label>
+      <label class="row"><input type="checkbox" id="zonesInactive"> Include zones not active today</label>
+      <div class="chips">
+        <span><i style="background:#ff3b30"></i>Prohibited</span><span><i style="background:#ff9500"></i>Authorisation</span><span><i style="background:#ffd60a"></i>Conditional</span>
+      </div>
+      <ul id="zoneList" class="zonelist"></ul>
+      <div id="zoneDetail" class="small hidden"></div>
+      <p class="muted small"><span id="zonesSource"></span> Informative only: zones change (events, temporary bans). Always check <a href="https://map.geo.admin.ch/?topic=aviation&layers=ch.bazl.einschraenkungen-drohnen" target="_blank" rel="noopener">map.geo.admin.ch</a> or an official app before flying.</p>
+    </div>
+    <p id="zonesMissing" class="muted small hidden">No zone data in this scene yet: <code>python -m fpv3d zones locations/&lt;name&gt;.yaml</code></p>
+  </section>
+
+  <section data-tab="signal">
+    <h2>Range &amp; radios</h2>
+    <div id="linkList"></div>
+    <div id="linkEdit" class="linkedit"></div>
+    <label class="row">Sphere opacity</label>
+    <input type="range" id="sphereOpacity" min="0" max="0.4" step="0.01" value="0.06">
+  </section>
+
+  <section data-tab="flight">
+    <h2>Flight</h2>
+    <div class="pickrow"><select id="trackPick"></select><button id="trkRenBtn" class="iconbtn" title="Rename this log (file name too)">[rename]</button></div>
+    <div id="trkRen" class="renbox hidden">
+      <input id="trkRenName" spellcheck="false" placeholder="e.g. teysachaux_2026-10-11_ridge">
+      <div class="row"><span class="muted small">letters, digits, _ and - (accents and emoji are removed)</span></div>
+      <div class="row"><button id="trkRenOk" class="primary">Rename</button><button id="trkRenCancel">Cancel</button><span id="trkRenMsg" class="small"></span></div>
+    </div>
+    <div id="trackInfo" class="muted"></div>
+    <label class="row">Colour by</label>
+    <select id="colorMode"></select>
+    <div id="colorLegend" class="gradient"></div>
+    <label class="row">Compare with</label>
+    <select id="cmpPick"><option value="">(nothing)</option></select>
+    <div id="cmpTable"></div>
+    <label class="row"><input type="checkbox" id="curtainOn" checked> Height curtain</label>
+  </section>
+  <section data-tab="flight">
+    <h2>Motion vectors</h2>
+    <label class="row"><input type="checkbox" id="velOn"> <span class="sw" style="background:#22d3ee"></span> Velocity (1st derivative)</label>
+    <label class="row"><input type="checkbox" id="accOn"> <span class="sw" style="background:#c084fc"></span> Acceleration (2nd derivative)</label>
+    <label class="row"><input type="checkbox" id="combOn"> Show along the whole track</label>
+    <label class="row">Vector length <output id="vecScaleOut">1.00×</output></label>
+    <input type="range" id="vecScale" min="0.25" max="5" step="0.25" value="1">
+    <label class="row">Smoothing window <output id="smoothOut">1.0 s</output></label>
+    <input type="range" id="smooth" min="0.2" max="3" step="0.1" value="1">
+    <details class="help"><summary>Arrow scale</summary><p class="muted small">At 1×: velocity arrow = where the drone will be in 2 s; acceleration arrow = 4 m per m/s². Derived from GPS positions, so short spikes are smoothed out.</p></details>
+  </section>
+  <section id="simSection" data-tab="sim">
+    <h2>Training flight (simulator)</h2>
+    <div id="simInput" class="small"></div>
+    <div class="row btns"><button id="simStart" class="primary">Start training flight</button><button id="simMapBtn">Radio setup</button></div>
+    <details class="simset"><summary class="small">Flight model &amp; camera</summary>
+      <label class="row">Quad <select id="simPreset"></select></label>
+      <label class="row">Top speed <output id="simTopOut"></output> km/h</label><input type="range" id="simTop" min="30" max="250" step="5">
+      <label class="row">Responsiveness <output id="simRespOut"></output> ms</label><input type="range" id="simResp" min="10" max="120" step="5">
+      <label class="row">Mode <select id="simMode"><option value="angle">Angle (self-level)</option><option value="acro">Acro</option></select></label>
+      <label class="row">Center rate <output id="simCenterOut"></output> °/s</label><input type="range" id="simCenter" min="50" max="400" step="10">
+      <label class="row">Max rate <output id="simMaxOut"></output> °/s</label><input type="range" id="simMax" min="200" max="1200" step="10">
+      <label class="row">Expo <output id="simExpoOut"></output></label><input type="range" id="simExpo" min="0" max="1" step="0.05">
+      <label class="row">Max angle (angle mode) <output id="simAngleOut"></output>°</label><input type="range" id="simAngle" min="20" max="80" step="5">
+      <label class="row">Thrust / weight <output id="simTwrOut"></output></label><input type="range" id="simTwr" min="2" max="12" step="0.5">
+      <div id="simHover" class="muted small"></div>
+      <label class="row">Wind <output id="simWindOut"></output> km/h</label><input type="range" id="simWind" min="0" max="60" step="1">
+      <label class="row">Wind from <output id="simWindDirOut"></output></label><input type="range" id="simWindDir" min="0" max="355" step="5">
+      <label class="row">Gusts <output id="simGustOut"></output> %</label><input type="range" id="simGust" min="0" max="100" step="5">
+      <label class="row">Camera uptilt <output id="simUptiltOut"></output>°</label><input type="range" id="simUptilt" min="0" max="60" step="1">
+      <label class="row">Field of view <output id="simFovOut"></output>°</label><input type="range" id="simFov" min="60" max="130" step="5">
+      <label class="row"><input type="checkbox" id="simFx"> Simulate link loss (video breakup, failsafe)</label>
+    </details>
+  </section>
+  <section data-tab="video">
+    <h2>Video</h2>
+    <label class="filebtn">Load video (+ .srt)…<input type="file" id="vFile" accept="video/*,.mp4,.mov,.mkv,.srt" multiple hidden></label>
+    <div id="videoTools" class="hidden">
+      <div id="vSync" class="muted small"></div>
+      <div class="row btns">
+        <button data-nudge="-1">−1 s</button><button data-nudge="-0.1">−0.1</button>
+        <button data-nudge="0.1">+0.1</button><button data-nudge="1">+1 s</button>
+      </div>
+      <div class="row btns"><button id="vReset">Reset sync</button><button id="vShow">Show player</button></div>
+      <label class="row"><input type="checkbox" id="srtOn" checked> Show .srt data on video</label>
+      <div id="srtInfo" class="muted small"></div>
+      <details class="help"><summary>How to sync</summary><p class="muted small">To sync: click <b>Linked</b> to unlink, pause the video on a clear event (props starting at arm, a sharp flip), move the timeline to the same moment in the log, then <b>Sync here</b>. A 2nd point later in the flight also corrects drift.</p></details>
+    </div>
+  </section>
+
+  <section data-tab="live" id="liveSection" >
+    <h2>Live telemetry</h2>
+    <label class="row">Source <select id="liveSrc">
+      <option value="serial">Radio (USB serial)</option>
+      <option value="replay">Replay a flight log (test)</option>
+    </select></label>
+    <div id="liveSerialRow">
+      <div class="pickrow"><select id="livePort"></select><button id="livePortRefresh" class="iconbtn">[refresh]</button></div>
+      <div id="livePortMsg" class="small muted"></div>
+    </div>
+    <div id="liveReplayRow" class="hidden">
+      <select id="liveTrack"></select>
+      <label class="row">Speed <select id="liveSpeed"><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+    </div>
+    <label class="row"><input type="checkbox" id="liveSave" checked> Save the flight as a log when disconnecting</label>
+    <label class="row"><input type="checkbox" id="liveFollow" checked> Keep the drone in view</label>
+    <div class="row btns"><button id="liveConnect" class="primary">[connect]</button></div>
+    <div id="liveStatus" class="small muted"></div>
+    <div id="liveMsg" class="small"></div>
+    <div id="liveVals" class="livevals"></div>
+    <p id="liveCalibInfo" class="small muted"></p>
+    <label class="row small">Altitude correction (m, empty = automatic) <input id="liveCalib" type="number" step="1" style="width:70px"></label>
+    <div id="liveLost" class="renbox delbox hidden">
+      <b>Signal lost</b>
+      <div id="liveLostText" class="small"></div>
+      <div class="row btns"><button id="liveZoom">[zoom]</button><button id="liveCopy">[copy GPS]</button><a id="liveGeoAdmin" target="_blank" rel="noopener" class="navlink">[map.geo.admin]</a></div>
+    </div>
+    <h2 style="margin-top:12px">Warnings</h2>
+    <label class="row"><input type="checkbox" id="warnVoice" checked> Voice (laptop speaker / earbud)</label>
+    <label class="row"><input type="checkbox" id="warnBeeps" checked> Beeps (faster = closer)</label>
+    <label class="row">Look ahead <output id="warnLookOut"></output></label>
+    <input type="range" id="warnLook" min="3" max="10" step="1" value="5">
+    <label class="row"><input type="checkbox" id="warnSim" checked> Also warn during training flights</label>
+    <div class="row btns"><button id="warnTest">[test sound]</button></div>
+    <details class="help"><summary>Radio setup (EdgeTX, TX15)</summary><p class="muted small">
+      On the radio: <b>SYS → Hardware → USB-VCP</b> = <b>Telemetry mirror</b> (EdgeTX 2.9+; the menu name can differ slightly).
+      Plug the USB cable and choose <b>USB Serial (VCP)</b> when the radio asks. Then [refresh] here, pick the port and [connect],
+      ideally while the drone is still on the ground so its GPS altitude gets calibrated.
+      Warnings are computed from the 3D shadows of this scene (Signal tab): the path of the next seconds is checked against the
+      height below which there is no line of sight to the pilot. Directions use the clock: 12 = ahead, 3 = right, 6 = behind, 9 = left.</p></details>
+  </section>
+  </div>
+</aside>
+
+<div id="hud"></div>
+
+<div id="videoBox" class="hidden">
+  <div id="videoHead">
+    <span id="vName" class="muted"></span>
+    <button id="vLink" title="Link / unlink video and log">[linked]</button>
+    <button id="vSyncHere" title="This video frame = current log time" disabled>Sync here</button>
+    <button id="vSwap" title="Swap: video full screen / 3D full screen">[swap]</button>
+    <button id="vClose" title="Hide player">[x]</button>
+  </div>
+  <div class="vwrap">
+    <video id="video" playsinline preload="auto"></video>
+    <pre id="srtLine" hidden></pre>
+  </div>
+  <div id="vTimes" class="muted small"></div>
+</div>
+<div id="pick" class="hidden"></div>
+
+<div id="simLive" class="hidden">
+  <p class="muted small">Arm with your arm switch (or <b>Enter</b>), throttle up and fly. <b>R</b> reset · <b>V</b> FPV / chase view · <b>Esc</b> exit.
+    Keyboard: W/S throttle, A/D yaw, arrows pitch/roll.</p>
+  <div class="row btns"><button id="simReset">Reset (R)</button><button id="simExit">Exit (Esc)</button></div>
+  <label class="row">Save as <input id="simName" placeholder="training 1" style="flex:1;min-width:0"></label>
+  <div class="row btns"><button id="simSave" class="primary">Save training flight</button></div>
+  <div id="simMsg" class="small muted"></div>
+    </div>
+
+<div id="simVideoFx"><span>NO SIGNAL</span></div>
+<div id="simOsd"></div>
+<div id="simMapDlg" class="hidden">
+  <div class="dlg">
+    <h2>Radio setup</h2>
+    <p class="small muted">Plug your radio in by USB and choose <b>Joystick</b> (EdgeTX/OpenTX: “USB Joystick (HID)”). Move each stick or switch and press <b>detect</b>, or pick the axis by hand. Use <b>invert</b> if a bar moves the wrong way (throttle low = bar left, stick right/up = bar right).</p>
+    <div id="simMapPad" class="small"></div>
+    <table id="simMapRows" class="maptbl"></table>
+    <div class="row btns"><button id="simMapClose" class="primary">Done</button></div>
+  </div>
+</div>
+
+<div id="warnBox" class="hidden">
+  <div id="warnDial" class="dial hidden"><i id="warnHand"></i><span>12</span></div>
+  <div><div id="warnTitle"></div><div id="warnText"></div><div id="warnDetail"></div></div>
+</div>
+<div id="profile" class="hidden">
+  <div class="profHead"><span id="profInfo" class="small"></span><button id="profClose" title="Close">[x]</button></div>
+  <canvas id="profCanvas"></canvas>
+</div>
+<footer id="timeline" class="hidden">
+  <button id="play" title="Play / pause (space)">[play]</button>
+  <input type="range" id="scrub" min="0" max="1000" value="0" step="1">
+  <span id="clock">0:00</span>
+  <select id="speed" title="Playback speed">
+    <option value="0.5">0.5×</option><option value="1" selected>1×</option>
+    <option value="2">2×</option><option value="5">5×</option><option value="10">10×</option>
+  </select>
+</footer>
+
+<div id="loading">Loading…</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

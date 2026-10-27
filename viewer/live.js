@@ -1,0 +1,236 @@
+// fpv3d — [live] tab: telemetry from the radio (EdgeTX USB "Telemetry mirror", CRSF) on the 3D map,
+// warnings for the pilot, and the last known position + likely impact zone when the link is lost.
+import * as THREE from 'three';
+import { createWarner } from './warn.js';
+
+const $ = (id) => document.getElementById(id);
+function toLV95(lat, lon) {
+  const p = (lat * 3600 - 169028.66) / 10000, l = (lon * 3600 - 26782.5) / 10000;
+  return [2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l ** 3,
+    1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p ** 3];
+}
+const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
+
+export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved, onStart }) {
+  const W = createWarner({ S, demHeight, el: { box: $('warnBox'), title: $('warnTitle'), text: $('warnText'), detail: $('warnDetail'), dial: $('warnDial'), hand: $('warnHand') } });
+  const st = { on: false, seq: 0, poll: null, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [], fps: 0 };
+
+  // ------------------------------------------------------------ 3D objects
+  const drone = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.ConeGeometry(6, 16, 4), new THREE.MeshBasicMaterial({ color: 0x22d3ee }));
+  body.rotation.x = Math.PI / 2;
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(13, 16, 12), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.25, depthWrite: false }));
+  drone.add(body, halo); drone.visible = false; scene3.add(drone);
+  const MAXP = 6000;
+  const tGeo = new THREE.BufferGeometry();
+  tGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAXP * 3), 3));
+  tGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(MAXP * 3), 3));
+  tGeo.setDrawRange(0, 0);
+  const trail = new THREE.Line(tGeo, new THREE.LineBasicMaterial({ vertexColors: true }));
+  trail.frustumCulled = false; scene3.add(trail);
+  const pred = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+    new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 6, gapSize: 4 }));
+  pred.visible = false; scene3.add(pred);
+  const lostPin = new THREE.Group();
+  const pinPole = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 1, 8), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+  const pinHead = new THREE.Mesh(new THREE.SphereGeometry(7, 14, 10), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+  lostPin.add(pinPole, pinHead); lostPin.visible = false; scene3.add(lostPin);
+  let zoneMesh = null;
+
+  // ------------------------------------------------------------ UI
+  const srcSel = $('liveSrc');
+  async function fillPorts() {
+    try {
+      const r = await (await fetch('/api/live/ports')).json();
+      $('livePort').innerHTML = r.ports.length ? r.ports.map((p) => `<option value="${p.device}">${p.device} · ${p.description}${p.likely ? ' (radio?)' : ''}</option>`).join('')
+        : '<option value="">no serial port found</option>';
+      $('livePortMsg').textContent = r.error || (r.ports.length ? '' : 'Plug the radio in USB and choose "USB Serial (VCP)" on the radio, then [refresh].');
+    } catch { $('livePortMsg').textContent = 'needs the fpv3d server (python -m fpv3d serve)'; }
+  }
+  function fillTracks() {
+    $('liveTrack').innerHTML = (S.meta.tracks || []).map((t) => `<option value="${t.file}">${t.name}</option>`).join('') || '<option value="">(no flight logs in this scene)</option>';
+  }
+  srcSel.onchange = () => {
+    $('liveSerialRow').classList.toggle('hidden', srcSel.value !== 'serial');
+    $('liveReplayRow').classList.toggle('hidden', srcSel.value !== 'replay');
+    if (srcSel.value === 'serial') fillPorts(); else fillTracks();
+  };
+  $('livePortRefresh').onclick = fillPorts;
+  $('liveConnect').onclick = () => (st.on ? disconnect() : connect());
+  for (const [id, key] of [['warnVoice', 'voice'], ['warnBeeps', 'beeps']]) {
+    $(id).checked = W.cfg[key]; $(id).onchange = () => { W.cfg[key] = $(id).checked; W.save(); };
+  }
+  $('warnLook').value = W.cfg.lookahead; $('warnLookOut').textContent = `${W.cfg.lookahead} s`;
+  $('warnLook').oninput = () => { W.cfg.lookahead = +$('warnLook').value; $('warnLookOut').textContent = `${W.cfg.lookahead} s`; W.save(); };
+  $('warnTest').onclick = () => W.test();
+  $('liveCalib').onchange = () => { st.manual = $('liveCalib').value === '' ? null : +$('liveCalib').value; };
+  srcSel.onchange();
+
+  // ------------------------------------------------------------ connect / poll
+  async function connect() {
+    $('liveMsg').textContent = 'connecting…'; $('liveMsg').className = 'small muted';
+    W.unlock();                                 // a click is needed before the browser plays sound
+    const body = { scene: S.meta.name, source: srcSel.value };
+    if (srcSel.value === 'serial') body.port = $('livePort').value;
+    else { body.track = $('liveTrack').value; body.speed = +$('liveSpeed').value; }
+    try {
+      const r = await fetch('/api/live/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok || j.error) throw new Error(j.error || r.status);
+    } catch (e) { $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err'; return; }
+    Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
+    tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
+    $('liveConnect').textContent = '[disconnect]'; $('liveConnect').classList.add('danger');
+    document.body.classList.add('live-on');
+    onStart?.();
+    st.poll = setInterval(poll, 200);
+  }
+  async function disconnect() {
+    clearInterval(st.poll); st.on = false;
+    $('liveConnect').textContent = '[connect]'; $('liveConnect').classList.remove('danger');
+    document.body.classList.remove('live-on');
+    W.stop(); pred.visible = false;
+    try {
+      const r = await fetch('/api/live/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: $('liveSave').checked }) });
+      const j = await r.json();
+      $('liveMsg').textContent = j.file ? `Saved as a flight log: ${j.track}` : j.warning || `Stopped (${j.gps_count} GPS points${j.gps_count < 10 ? ', too few to save' : ''}).`;
+      $('liveMsg').className = `small ${j.warning ? 'err' : 'ok'}`;
+      if (j.file) onSaved?.(j.file);
+    } catch { /* server gone */ }
+  }
+  async function poll() {
+    if (st.busy) return;                         // one request at a time
+    st.busy = true;
+    try { await pollOnce(); } finally { st.busy = false; }
+  }
+  async function pollOnce() {
+    let j;
+    try { j = await (await fetch(`/api/live/state?since=${st.seq}`)).json(); } catch { return; }
+    if (!st.on) return;
+    j.samples = j.samples.filter((s) => s.seq > st.seq);
+    if (j.status === 'error') { $('liveMsg').textContent = j.error; $('liveMsg').className = 'small err'; disconnect(); return; }
+    if (j.samples.length && $('liveMsg').textContent === 'connecting…') $('liveMsg').textContent = '';
+    j.samples.forEach((s, i) => ingest(s, i === j.samples.length - 1));   // warnings only for the newest point
+    if (j.samples.length) st.seq = j.samples.at(-1).seq;
+    status(j);
+    // link loss: no GPS frame for 1.5 s while we had a position
+    if (st.last && j.gps_age != null && j.gps_age > 1.5 && !st.lost) markLost(j);
+    if (st.lost && j.gps_age != null && j.gps_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); }
+    if (j.status === 'ended' && !st.endedShown) { st.endedShown = true; $('liveMsg').textContent = 'Replay finished.'; }
+  }
+
+  function ingest(s, newest = true) {
+    if (s.lat == null || Math.abs(s.lat) < 1e-6) return;
+    const g = S.meta.grid, [e, n] = toLV95(s.lat, s.lon), x = e - g.min_e, y = n - g.min_n;
+    const ground = demHeight(x, y), spd = (s.speed_kmh || 0) / 3.6;
+    // altitude: GPS, corrected by an offset measured while the drone sits on the ground
+    if (st.manual == null && st.calibN < 5 && spd < 0.8 && Math.abs(s.vspeed || 0) < 0.5 && s.alt != null) {
+      st.calibSum += ground + 0.2 - s.alt; st.calibN++; st.calib = st.calibSum / st.calibN;
+    }
+    const off = st.manual ?? st.calib ?? 0;
+    const z = (s.alt ?? ground) + off;
+    const h = (s.heading || 0) * Math.PI / 180;
+    let vz = s.vspeed;
+    if (vz == null && st.last) vz = (z - st.last.z) / Math.max(s.t - st.last.t, 0.05);
+    const cur = { t: s.t, x, y, z, agl: z - ground, vx: spd * Math.sin(h), vy: spd * Math.cos(h), vz: vz || 0, heading: s.heading || 0, lq: s.lq, raw: s };
+    st.prev = st.last; st.last = cur;
+    // drone + trail
+    drone.visible = true;
+    toWorld(x, y, z, drone.position);
+    drone.rotation.y = -h;
+    const col = new THREE.Color(s.lq == null ? 0x22d3ee : s.lq >= 80 ? 0x2ecc71 : s.lq >= 60 ? 0xffb000 : 0xff3b30);
+    body.material.color.copy(col); halo.material.color.copy(col);
+    const i = st.trail.length % MAXP;
+    st.trail.push(1);
+    tGeo.attributes.position.setXYZ(i, drone.position.x, drone.position.y, drone.position.z);
+    tGeo.attributes.color.setXYZ(i, col.r, col.g, col.b);
+    tGeo.attributes.position.needsUpdate = tGeo.attributes.color.needsUpdate = true;
+    tGeo.setDrawRange(0, Math.min(st.trail.length, MAXP));
+    // predicted path
+    const L = W.cfg.lookahead, a = toWorld(x, y, z), b = toWorld(x + cur.vx * L, y + cur.vy * L, z + cur.vz * L);
+    pred.geometry.setFromPoints([a, b]); pred.computeLineDistances(); pred.visible = spd > 1.5;
+    if (!newest) return;
+    if ($('liveFollow').checked) controls.target.lerp(drone.position, 0.5);
+    const r = W.update(cur);
+    pred.material.color.set(r.level === 'ok' ? 0xffffff : r.level === 'caution' ? 0xffb000 : 0xff3b30);
+    values(cur, s);
+  }
+
+  function values(c, s) {
+    const p = S.meta.pilot, d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
+    const cell = (k, v) => `<div><span class="muted">${k}</span><b>${v ?? '–'}</b></div>`;
+    $('liveVals').innerHTML = [
+      cell('LQ', s.lq != null ? `${s.lq}%` : null), cell('RSSI', s.rssi1 != null ? `${s.rssi1} dBm` : null), cell('SNR', s.snr),
+      cell('TX power', s.tx_power != null ? `${s.tx_power} mW` : null), cell('battery', s.voltage != null ? `${s.voltage.toFixed(1)} V` : null),
+      cell('mode', s.mode), cell('height', `${Math.round(c.agl)} m AGL`), cell('speed', `${Math.round(s.speed_kmh || 0)} km/h`),
+      cell('distance', fmtDist(d)), cell('sats', s.sats),
+    ].join('');
+    $('liveCalibInfo').textContent = st.manual != null ? `manual correction ${st.manual} m`
+      : st.calib != null ? `GPS altitude corrected by ${st.calib >= 0 ? '+' : ''}${st.calib.toFixed(1)} m (measured on the ground)`
+        : 'GPS altitude uncorrected (connect while the drone is on the ground to calibrate)';
+  }
+  function status(j) {
+    const s = j.status === 'live' ? (j.gps_age != null && j.gps_age < 1.5 ? 'receiving' : j.frame_age != null && j.frame_age < 1.5 ? 'link, waiting for GPS' : 'no data')
+      : j.status;
+    $('liveStatus').innerHTML = `<b>${s}</b> · ${j.gps_count} GPS points · ${j.frames} frames${j.bad ? ` (${j.bad} bad)` : ''}`;
+  }
+
+  // ------------------------------------------------------------ lost: last known position + likely impact zone
+  function markLost(j) {
+    st.lost = true;
+    const c = st.last, p = S.meta.pilot;
+    toWorld(c.x, c.y, demHeight(c.x, c.y), lostPin.position);
+    const hgt = 40 * S.exag; pinPole.scale.y = hgt; pinPole.position.y = hgt / 2; pinHead.position.y = hgt;
+    lostPin.visible = true;
+    // free fall from the last fix, still moving forward and slowed by drag: min..max reach along the course
+    const v = Math.hypot(c.vx, c.vy), hAgl = Math.max(c.agl, 0);
+    const tf = (c.vz + Math.sqrt(c.vz * c.vz + 19.6 * hAgl)) / 9.81;
+    const dMin = 0.3 * v * tf, dMax = Math.max(v * tf, 10), half = Math.max(15, 0.3 * dMax) + 5;
+    drawZone(c, dMin, dMax, half);
+    const dx = c.x - p.x, dy = c.y - p.y, dist = Math.hypot(dx, dy), brg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+    const lat = c.raw.lat.toFixed(6), lon = c.raw.lon.toFixed(6);
+    $('liveLost').classList.remove('hidden');
+    $('liveLostText').innerHTML = `Last fix <b>${fmtDist(dist)}</b> ${COMPASS[Math.round(brg / 45) % 8]} of the pilot (${Math.round(brg)}°), ${Math.round(hAgl)} m above ground, ${Math.round(v * 3.6)} km/h.<br>`
+      + `Likely impact: ${Math.round(dMin)}–${Math.round(dMax)} m further along its course (red area).<br><span class="muted">GPS ${lat}, ${lon}</span>`;
+    $('liveCopy').onclick = () => navigator.clipboard?.writeText(`${lat}, ${lon}`);
+    $('liveGeoAdmin').href = `https://map.geo.admin.ch/?swisssearch=${lat},${lon}&zoom=10`;
+    $('liveZoom').onclick = () => { controls.target.copy(lostPin.position); camera.position.copy(lostPin.position).add(new THREE.Vector3(-120, 150, 160)); };
+    W.lost(`Last fix ${fmtDist(dist)} ${COMPASS[Math.round(brg / 45) % 8]} of the pilot`);
+  }
+  function drawZone(c, dMin, dMax, half) {
+    if (zoneMesh) { scene3.remove(zoneMesh); zoneMesh.geometry.dispose(); }
+    const h = c.heading * Math.PI / 180, fx = Math.sin(h), fy = Math.cos(h), rx = Math.cos(h), ry = -Math.sin(h);
+    const N = 24, M = 8, pos = [], idx = [];
+    const L0 = Math.max(0, dMin - 10), L1 = dMax + 10;
+    for (let i = 0; i <= N; i++) {              // ellipse along the course, draped on the terrain
+      const u = i / N, along = L0 + (L1 - L0) * u, w = half * Math.sqrt(Math.max(0, 1 - (2 * u - 1) ** 2));
+      for (let j = 0; j <= M; j++) {
+        const across = w * (2 * j / M - 1), x = c.x + fx * along + rx * across, y = c.y + fy * along + ry * across;
+        const v = toWorld(x, y, demHeight(x, y) + 1.5); pos.push(v.x, v.y, v.z);
+      }
+    }
+    for (let i = 0; i < N; i++) for (let j = 0; j < M; j++) {
+      const a = i * (M + 1) + j, b = a + 1, d = a + M + 1, e2 = d + 1; idx.push(a, d, b, b, d, e2);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+    zoneMesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide }));
+    zoneMesh.renderOrder = 6;
+    scene3.add(zoneMesh);
+  }
+
+  // ------------------------------------------------------------ simulator hook (warnings while training)
+  function simTick(sim) {
+    if (!$('warnSim').checked || st.on) return;
+    const x = sim.pos.x + S.W / 2, y = -sim.pos.z + S.H / 2, z = sim.pos.y + S.hBase;
+    const hd = (Math.atan2(sim.vel.x, -sim.vel.z) * 180 / Math.PI + 360) % 360;
+    W.update({ x, y, z, vx: sim.vel.x, vy: -sim.vel.z, vz: sim.vel.y, heading: hd, lq: null });
+  }
+
+  return {
+    simTick, simStop: () => { if (!st.on) W.stop(); },
+    tick(now) { W.tick(now); },
+    setExag() { if (st.last) { toWorld(st.last.x, st.last.y, st.last.z, drone.position); } },
+  };
+}

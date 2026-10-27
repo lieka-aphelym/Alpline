@@ -1,0 +1,11 @@
+cache/
+scenes/
+.venv/
+__pycache__/
+*.pyc
+deleted/
+# your data: shared by all branches, never switched with the code
+locations/
+logs/
+# editor
+.idea/

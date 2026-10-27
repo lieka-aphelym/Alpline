@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fpv3d map</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="map.css">
+</head>
+<body class="mappage">
+<div id="map"></div>
+
+<aside id="panel">
+  <nav class="rail">
+    <button data-tab="new" title="Create a location: search, click the map, build (key 1)"><span>[new]</span></button>
+    <button data-tab="locs" title="Your locations and update all scenes (key 2)"><span>[saved]</span></button>
+    <button data-tab="layers" title="Map layers and terrain cache (key 3)"><span>[layers]</span></button>
+    <button class="railCollapse" title="Hide / show the panel"></button>
+  </nav>
+  <div id="pbody">
+  <header>
+    <h1>fpv3d</h1>
+    <a class="navlink" href="index.html" id="open3d">[3d viewer]</a>
+  </header>
+
+  <section data-tab="new">
+    <h2>Find a place</h2>
+    <div class="row"><input id="search" type="search" placeholder="Moléson, Gantrisch, 1630 Bulle…" autocomplete="off"></div>
+    <ul id="results" class="results"></ul>
+  </section>
+
+  <section data-tab="new">
+    <h2>Shape</h2>
+    <div class="shape" id="shapePick">
+      <button data-shape="square" class="on" title="A square around a centre point">Square</button>
+      <button data-shape="route" title="A strip along a line: pilot → summit, along a ridge…">Route</button>
+    </div>
+    <h2>Click on the map sets</h2>
+    <div class="seg" id="clickMode">
+      <label class="sq"><input type="radio" name="cm" value="both" checked> Pilot + area</label>
+      <label><input type="radio" name="cm" value="pilot"> Pilot only</label>
+      <label class="sq"><input type="radio" name="cm" value="center"> Area only</label>
+      <label class="rt hidden"><input type="radio" name="cm" value="route"> Route points</label>
+    </div>
+    <p class="muted small sq">Drag [pilot] and [+] (area centre) to adjust.</p>
+    <div class="rt hidden">
+      <p class="muted small">Click to add points along the route (the first one is also the pilot until you move [pilot]). Drag the white dots to adjust.</p>
+      <div class="row btns"><button id="bUndoPt">Undo point</button><button id="bClearRt">Clear route</button></div>
+    </div>
+  </section>
+
+  <section id="form" data-tab="new">
+    <h2>New location</h2>
+    <label class="row">Name <input id="fName" placeholder="moleson_east" spellcheck="false"></label>
+    <label class="row">Title <input id="fTitle" placeholder="Moléson east ridge"></label>
+    <div class="sq">
+      <label class="row">Map size <output id="fHalfOut"></output></label>
+      <input type="range" id="fHalf" min="250" max="6000" step="250" value="2000">
+    </div>
+    <div class="rt hidden">
+      <label class="row">Width each side of the line <output id="fWidthOut"></output></label>
+      <input type="range" id="fWidth" min="100" max="2000" step="50" value="500">
+    </div>
+    <div class="row">
+      <label>Detail <select id="fRes">
+        <option>0.5</option><option>1</option><option selected>2</option><option>2.5</option><option>5</option><option>10</option><option>20</option>
+      </select> m</label>
+      <label>Surface <select id="fSurface">
+        <option value="dtm">bare ground</option><option value="dsm">trees + buildings</option>
+      </select></label>
+    </div>
+    <div class="row">
+      <label>Antenna <input id="fAnt" type="number" value="1.8" step="0.1" min="0" style="width:60px"> m</label>
+      <label>Radio from <select id="fRadio"><option value="">defaults</option></select></label>
+    </div>
+    <table class="kv">
+      <tr><td>Pilot</td><td id="oPilot">click the map</td></tr>
+      <tr><td>Ground at pilot</td><td id="oHeight">–</td></tr>
+      <tr><td>Area</td><td id="oArea">–</td></tr>
+      <tr><td>Tiles</td><td id="oTiles">–</td></tr>
+    </table>
+    <label class="row"><input type="checkbox" id="fOverwrite"> overwrite if the name exists</label>
+    <div class="row btns">
+      <button id="bSave">Save location</button>
+      <button id="bBuild" class="primary">Save &amp; build</button>
+    </div>
+    <div id="msg" class="small"></div>
+    <div id="prog" class="prog hidden">
+      <div class="progHead"><b id="progTitle">Building…</b><span id="progPct"></span></div>
+      <ol id="progSteps" class="steps"></ol>
+      <div class="bar"><i id="progBar"></i></div>
+      <div id="progNow" class="small"></div>
+      <div id="progStats" class="small muted"></div>
+      <div class="chips">
+        <span><i class="lg lg-pending"></i>to get</span><span><i class="lg lg-dl"></i>downloading</span>
+        <span><i style="background:#2ecc71"></i>new</span><span><i style="background:#2ecc7155"></i>cached</span>
+        <span><i style="background:#1abc9c"></i>from earlier download</span><span><i style="background:#7f8c8d66"></i>no data</span>
+      </div>
+      <details class="help"><summary>Technical details</summary><pre id="jobLog"></pre></details>
+    </div>
+  </section>
+
+  <section data-tab="layers">
+    <h2>Layers</h2>
+    <label class="row"><input type="checkbox" class="lyr" data-l="lod_dtm" checked> <i class="sw" style="background:#2ecc71"></i> Elevation, bare ground (cached)</label>
+    <label class="row"><input type="checkbox" class="lyr" data-l="lod_dsm" checked> <i class="sw" style="background:#16a085"></i> Elevation, trees + buildings</label>
+    <label class="row"><input type="checkbox" class="lyr" data-l="lod_ortho"> <i class="sw" style="background:#f1c40f"></i> Aerial photo tiles</label>
+    <label class="row"><input type="checkbox" class="lyr" data-l="raw" checked> <i class="sw" style="background:#95a5a6"></i> Raw downloads only</label>
+    <label class="row"><input type="checkbox" class="lyr" data-l="locs" checked> <i class="sw" style="background:#4fc3f7"></i> Your locations</label>
+    <div id="cacheSummary" class="muted small"></div>
+  </section>
+
+  <section data-tab="locs">
+    <h2>Your locations</h2>
+    <ul id="locList" class="loclist"></ul>
+    <div id="locMsg" class="small"></div>
+    <details id="binBox" class="help hidden"><summary>Recently deleted</summary><ul id="binList" class="loclist"></ul>
+      <p class="muted small">Deleted locations are kept in the <code>deleted/</code> folder until you empty it (<code>python -m fpv3d deleted --purge</code>).</p></details>
+    <p class="muted small">Click a name to zoom there and load it into [new] (edit / rebuild).</p>
+  </section>
+
+  <section data-tab="locs">
+    <h2>Update all scenes</h2>
+    <div class="row btns">
+      <button id="bRefreshAll" class="primary" title="Rebuild every scene with the latest features, zones and your tracks (terrain reused)">Refresh all</button>
+      <button id="bZonesAll" title="Only re-download the drone zones for every scene (fastest)">Zones only</button>
+      <button id="bBldAll" title="Add the 3D buildings to every scene that has none yet (or whose download failed)">Buildings</button>
+    </div>
+    <label class="row"><input type="checkbox" id="fMissing"> also build locations never built</label>
+    <div id="allMsg" class="small"></div>
+    <pre id="allLog" class="joblog hidden"></pre>
+  </section>
+
+  </div>
+</aside>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script type="module" src="map.js"></script>
+</body>
+</html>

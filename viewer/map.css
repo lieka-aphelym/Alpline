@@ -1,0 +1,94 @@
+body.mappage { overflow: hidden; }
+#map { position: fixed; inset: 0; background: #1a1f29; }
+.mappage #panel { z-index: 1000; }
+.mappage #pbody { width: 330px; }
+.navlink { margin-left: auto; color: var(--accent); text-decoration: none; font-size: 12px; }
+.mappage input[type=search], .mappage input:not([type]), .mappage input[type=number] {
+  background: #1b2230; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit;
+}
+.mappage input[type=search] { width: 100%; }
+.mappage label.row input:not([type]) { flex: 1; min-width: 0; }
+.results, .loclist { list-style: none; margin: 4px 0 0; padding: 0; max-height: 180px; overflow-y: auto; }
+.results li, .loclist li { padding: 4px 6px; border-radius: 6px; cursor: pointer; display: flex; gap: 6px; align-items: center; }
+.results li:hover, .loclist li:hover { background: #1b2230; }
+.loclist .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loclist a { color: var(--accent); text-decoration: none; font-size: 12px; }
+.loclist .badge { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #253041; color: var(--muted); }
+.loclist .badge.ok { color: var(--ok); }
+.seg { display: flex; gap: 10px; flex-wrap: wrap; }
+.seg label { display: flex; align-items: center; gap: 4px; }
+i.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+table.kv { width: 100%; font-size: 12px; margin: 6px 0; border-collapse: collapse; }
+table.kv td { padding: 2px 0; }
+table.kv td:first-child { color: var(--muted); width: 40%; }
+button.primary { background: #1f6f9e; border-color: #2b8ac2; }
+#msg { margin-top: 6px; }
+#msg.err { color: var(--bad); }
+#msg.ok { color: var(--ok); }
+#jobLog, .joblog { max-height: 180px; overflow: auto; background: #0b0f15; border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px; font: 11px/1.35 ui-monospace, Consolas, monospace; white-space: pre-wrap; margin: 6px 0 0; }
+.pin { font-size: 22px; line-height: 22px; text-align: center; text-shadow: 0 0 3px #000, 0 0 6px #000; }
+.tag { font: 600 11px/16px ui-monospace, Consolas, monospace; color: #fff; text-align: center; white-space: nowrap;
+  background: rgba(16,20,28,.85); border: 1px solid #ffffff55; border-radius: 4px; box-sizing: border-box; }
+.tag.tagpilot { color: #ffd400; border-color: #ffd40099; cursor: grab; }
+.tag.tagpilot::after, .tag.tagloc::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -1px; width: 2px; height: 6px; background: currentColor; }
+.tag.tagloc { line-height: 14px; font-size: 10px; color: #4fc3f7; border-color: #4fc3f799; }
+.leaflet-tooltip.tip { background: var(--panel); color: var(--text); border: 1px solid var(--line); box-shadow: none; }
+.leaflet-container { font: inherit; }
+.mappage .row > label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.mappage .row > label select { width: auto !important; }
+#allMsg.err { color: var(--bad); }
+#allMsg.ok { color: var(--ok); }
+.loclist .iconbtn { padding: 1px 6px; font-size: 12px; }
+.loclist + .renbox, .loclist .renbox { margin: 4px 0 8px; }
+
+/* ---- live build progress ---- */
+.prog { margin: 8px 0 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.22); }
+.prog.ok { border-color: #2ecc7166; }
+.prog.err { border-color: #e74c3c88; }
+.progHead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.progHead b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#progPct { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+.steps { display: flex; gap: 4px; list-style: none; padding: 0; margin: 8px 0 6px; }
+.steps li { flex: 1; text-align: center; font-size: 10px; white-space: nowrap; overflow: hidden; padding: 3px 0; border-radius: 5px; background: #1b2230; color: var(--muted); }
+.steps li.now { background: #1f6f9e; color: #fff; animation: stepPulse 1.4s ease-in-out infinite; }
+.steps li.done { background: #1e4d36; color: #9ff0c4; }
+
+.steps li.skip { opacity: .35; text-decoration: line-through; }
+@keyframes stepPulse { 50% { filter: brightness(1.35); } }
+.bar { height: 6px; border-radius: 3px; background: #1b2230; overflow: hidden; margin-bottom: 6px; }
+.bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #2b8ac2, #4fc3f7); transition: width .4s ease; }
+.prog.ok .bar i { background: #2ecc71; }
+.prog.err .bar i { background: #e74c3c; }
+#progNow { margin-bottom: 2px; }
+#progStats { line-height: 1.45; }
+.prog .chips { margin-top: 6px; }
+.prog .chips i.lg { width: 11px; height: 8px; border-radius: 2px; }
+.lg-pending { border: 1px dashed #9aa7b8; }
+.lg-dl { border: 2px solid #4fc3f7; }
+.prog #jobLog { max-height: 200px; }
+/* tiles on the map (SVG renderer) */
+path.tp { transition: stroke .3s; }
+path.tp-query { animation: tpBlink 1s ease-in-out infinite; }
+path.tp-dl { animation: tpPulse .9s ease-in-out infinite; filter: drop-shadow(0 0 4px #4fc3f7); }
+path.tp-pop { animation: tpPop .7s ease-out; }
+path.tp-scan { animation: tpScan 2.2s ease-in-out infinite; }
+@keyframes tpBlink { 50% { stroke-opacity: .25; } }
+@keyframes tpPulse { 50% { stroke-opacity: .35; } }
+@keyframes tpPop { 0% { fill-opacity: .95; filter: brightness(1.8); } 100% { fill-opacity: .5; filter: none; } }
+@keyframes tpScan { 50% { fill-opacity: .15; } }
+
+/* ---- shape picker + route ---- */
+.shape { display: flex; gap: 6px; margin-bottom: 10px; }
+.shape button { flex: 1; padding: 6px 0; }
+.shape button.on { background: #1f6f9e; border-color: #2b8ac2; color: #fff; }
+.rtpt { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #ff9f1a; box-shadow: 0 0 3px #000; }
+.rtpt.first { border-color: #4fc3f7; }
+.warn { color: var(--warn, #ffb000); }
+button.danger { background: #8e2b2b; border-color: #b33a3a; color: #fff; }
+.delbox { border-color: #b33a3a66; }
+#locMsg.ok { color: var(--ok); } #locMsg.err { color: var(--bad); }
+#locMsg a { color: var(--accent); }
+#binBox { margin-top: 8px; }
+#locList { max-height: 340px; }
+.loclist .renbox .row { justify-content: flex-start; gap: 8px; }
