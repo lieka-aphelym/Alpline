@@ -277,3 +277,11 @@ details.adv[open] > summary::before { content: '− '; }
 details.adv > summary:hover { color: var(--text); }
 details.adv[open] { padding-bottom: 4px; }
 #sceneInfo { font-size: 12px; line-height: 1.4; }
+
+/* ---- lite: 4 tabs ---- */
+.rail button { width: 64px; }
+#panel header h1 { white-space: nowrap; }
+#panel header select { min-width: 0; }
+#panel header { flex-wrap: wrap; row-gap: 6px; }
+#panel header .navlink { margin-left: auto; }
+#panel header select { order: 3; flex: 1 1 100%; }

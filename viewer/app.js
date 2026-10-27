@@ -848,7 +848,7 @@ function initUI() {
   $('play').onclick = togglePlay;
   $('scrub').oninput = () => { if (!S.track) return; S.time = ($('scrub').value / 1000) * S.track.t[S.track.n - 1]; updateDrone(); V.seekToLog(S.time); };
   $('speed').onchange = () => V.setRate(+$('speed').value);
-  S.tabs = initTabs($('panel'), { storageKey: 'fpv3d:tab', fallback: 'view' });
+  S.tabs = initTabs($('panel'), { storageKey: 'fpv3d:tab4', fallback: 'map' });
   $('panel').querySelector('h1').onclick = () => S.tabs.toggle();
   // keys 1..6 jump to a panel tab
   addEventListener('keydown', (e) => {
@@ -973,7 +973,7 @@ function fillTrackPickers(selectFile) {
   const tr = S.meta.tracks;
   const label = (t) => t.name;
   $('trackPick').innerHTML = tr.length ? tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight yet)</option>';
-  if (!tr.length) $('trackInfo').innerHTML = 'No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight (<b>[sim]</b>) or record one live (<b>[live]</b>).';
+  if (!tr.length) $('trackInfo').innerHTML = 'No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight or record one live (both in <b>[fly]</b>).';
   if (selectFile) $('trackPick').value = selectFile;
   const cur = $('cmpPick').value;
   $('cmpPick').innerHTML = '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');

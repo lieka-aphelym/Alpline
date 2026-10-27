@@ -18,24 +18,21 @@
 
 <aside id="panel">
   <nav class="rail">
-    <button data-tab="view" title="View: map, camera"><span>[view]</span></button>
-    <button data-tab="signal" title="Signal: shadows, range, radios"><span>[signal]</span></button>
-    <button data-tab="zones" title="Drone zones (FOCA)"><span>[zones]</span></button>
-    <button data-tab="flight" title="Flights: logs, compare, motion"><span>[flight]</span></button>
-    <button data-tab="sim" title="Training flight simulator"><span>[sim]</span></button>
-    <button data-tab="video" title="Flight video"><span>[video]</span></button>
-    <button data-tab="live" title="Live telemetry from the radio + warnings"><span>[live]</span></button>
+    <button data-tab="map" title="Map: photo, camera, no-fly zones, this location"><span>[map]</span></button>
+    <button data-tab="signal" title="Signal: where do I lose the drone, radio range"><span>[signal]</span></button>
+    <button data-tab="flights" title="Flights: your logs, comparison, video"><span>[flights]</span></button>
+    <button data-tab="fly" title="Fly: training flight, live flight with the radio + warnings"><span>[fly]</span></button>
     <button class="railCollapse" title="Hide / show the panel (or click the active tab)"></button>
   </nav>
   <div id="pbody">
   <header>
     <h1>fpv3d <small class="lite">lite</small></h1>
     <select id="scenePick" title="Scene"></select>
-    <a class="navlink" href="map.html" title="Switzerland map: cached areas, new locations">[map]</a>
+    <a class="navlink" href="map.html" title="Switzerland map: all your locations, create new ones">[locations]</a>
   </header>
   <div id="sceneInfo" class="muted"></div>
 
-  <section data-tab="view">
+  <section data-tab="map">
     <h2>Map</h2>
     <label class="row"><input type="checkbox" id="orthoOn" checked> Aerial photo</label>
     <label class="row">Camera</label>
@@ -58,7 +55,26 @@
     </details>
   </section>
 
-  <section data-tab="view">
+  <section data-tab="map">
+    <h2>No-fly zones</h2>
+    <p class="summary" id="sumZones"></p>
+    <div id="zonesBody" class="hidden">
+      <label class="row"><input type="checkbox" id="zonesOn" checked> Show them on the map</label>
+      <div class="chips">
+        <span><i style="background:#ff3b30"></i>Forbidden</span><span><i style="background:#ff9500"></i>Permission needed</span><span><i style="background:#ffd60a"></i>Conditions apply</span>
+      </div>
+      <ul id="zoneList" class="zonelist"></ul>
+      <div id="zoneDetail" class="small hidden"></div>
+      <details class="adv"><summary>Advanced</summary>
+        <label class="row"><input type="checkbox" id="zonesWalls" checked> Show their height limits as walls</label>
+        <label class="row"><input type="checkbox" id="zonesInactive"> Also show zones not active today</label>
+      </details>
+      <p class="muted small"><span id="zonesSource"></span> For information only: zones change (events, temporary bans). Always check <a href="https://map.geo.admin.ch/?topic=aviation&layers=ch.bazl.einschraenkungen-drohnen" target="_blank" rel="noopener">map.geo.admin.ch</a> or an official app before flying.</p>
+    </div>
+    <p id="zonesMissing" class="muted small hidden">No zone data in this scene yet: <code>python -m fpv3d zones locations/&lt;name&gt;.yaml</code></p>
+  </section>
+
+  <section data-tab="map">
     <h2>This location</h2>
     <div class="row"><span id="locNameShow" class="small"></span><span><button id="locRenBtn" class="iconbtn" title="Rename this location">[rename]</button> <button id="locDelBtn" class="iconbtn" title="Delete this location (restorable)">[delete]</button></span></div>
     <div id="locDel" class="renbox hidden">
@@ -112,26 +128,7 @@
     </details>
   </section>
 
-  <section data-tab="zones">
-    <h2>No-fly zones</h2>
-    <p class="summary" id="sumZones"></p>
-    <div id="zonesBody" class="hidden">
-      <label class="row"><input type="checkbox" id="zonesOn" checked> Show them on the map</label>
-      <div class="chips">
-        <span><i style="background:#ff3b30"></i>Forbidden</span><span><i style="background:#ff9500"></i>Permission needed</span><span><i style="background:#ffd60a"></i>Conditions apply</span>
-      </div>
-      <ul id="zoneList" class="zonelist"></ul>
-      <div id="zoneDetail" class="small hidden"></div>
-      <details class="adv"><summary>Advanced</summary>
-        <label class="row"><input type="checkbox" id="zonesWalls" checked> Show their height limits as walls</label>
-        <label class="row"><input type="checkbox" id="zonesInactive"> Also show zones not active today</label>
-      </details>
-      <p class="muted small"><span id="zonesSource"></span> For information only: zones change (events, temporary bans). Always check <a href="https://map.geo.admin.ch/?topic=aviation&layers=ch.bazl.einschraenkungen-drohnen" target="_blank" rel="noopener">map.geo.admin.ch</a> or an official app before flying.</p>
-    </div>
-    <p id="zonesMissing" class="muted small hidden">No zone data in this scene yet: <code>python -m fpv3d zones locations/&lt;name&gt;.yaml</code></p>
-  </section>
-
-  <section data-tab="flight">
+  <section data-tab="flights">
     <h2>Flights</h2>
     <div class="pickrow"><select id="trackPick"></select><button id="trkRenBtn" class="iconbtn" title="Rename this log (file name too)">[rename]</button></div>
     <div id="trkRen" class="renbox hidden">
@@ -159,7 +156,7 @@
     </details>
   </section>
 
-  <section id="simSection" data-tab="sim">
+  <section id="simSection" data-tab="fly">
     <h2>Training flight</h2>
     <p class="summary">Practise over this terrain before the real flight, with your radio (plugged in by USB, joystick mode) or the keyboard. The signal is simulated with the same model.</p>
     <div id="simInput" class="small"></div>
@@ -184,7 +181,7 @@
     </details>
   </section>
 
-  <section data-tab="video">
+  <section data-tab="flights">
     <h2>Flight video</h2>
     <p class="summary">Watch your goggles recording next to the 3D view, in sync with the flight.</p>
     <label class="filebtn">Load video (+ .srt)…<input type="file" id="vFile" accept="video/*,.mp4,.mov,.mkv,.srt" multiple hidden></label>
@@ -201,7 +198,7 @@
     </div>
   </section>
 
-  <section data-tab="live" id="liveSection">
+  <section data-tab="fly" id="liveSection">
     <h2>Live flight</h2>
     <p class="summary" id="sumLive">See the real drone on the map from your radio's telemetry, with voice warnings before it flies out of sight.</p>
     <label class="row">Source <select id="liveSrc">
@@ -242,7 +239,7 @@
       On the radio: <b>SYS → Hardware → USB-VCP</b> = <b>Telemetry mirror</b> (EdgeTX 2.9+; the menu name can differ slightly).
       Plug the USB cable and choose <b>USB Serial (VCP)</b> when the radio asks. Then [refresh] here, pick the port and [connect],
       ideally while the drone is still on the ground so its GPS altitude gets calibrated.
-      Warnings are computed from the 3D shadows of this scene (Signal tab): the path of the next seconds is checked against the
+      Warnings are computed from the 3D shadows of this scene ([signal] tab): the path of the next seconds is checked against the
       height below which there is no line of sight to the pilot. Directions use the clock: 12 = ahead, 3 = right, 6 = behind, 9 = left.</p></details>
   </section>
   </div>

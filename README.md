@@ -44,6 +44,7 @@ fpv3d/
 > - **Simpler signal display:** no separate "Fresnel" state. Signal loss covers the same idea, so the views show only *clear*, *no line of sight* and *signal loss likely*.
 > - **Cleaner flight info box:** distance, height and speed in large type; one bar per radio link (margin, plus LQ when the log has it); the drone zone only when you're in one. Everything else is under *[more]*, with plain names and units.
 > - **Simpler panel:** plain words ("Where do I lose the drone?", "Hidden by terrain", "No-fly zones"), a one-sentence answer at the top of the Signal, No-fly zones, Flights and Live tabs (e.g. *Video reaches about 2.1 km. Flying at 30 m, the drone stays in sight over 64% of that area*), and the less used settings under **+ Advanced** in each tab.
+> - **Four tabs instead of seven:** **[map]** (photo, camera, no-fly zones, this location), **[signal]** (where you lose the drone, radio range), **[flights]** (logs, comparison, video) and **[fly]** (training flight, live flight with the radio + warnings). The Switzerland map is now the **[locations]** link at the top.
 
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 
@@ -74,19 +75,19 @@ python -m fpv3d serve
 
 **Motion vectors**: in the viewer's *Motion vectors* section you can toggle the velocity arrow (1st derivative of position, cyan) and the acceleration arrow (2nd derivative, violet). They are drawn on the drone, or along the whole track if you tick the option. Both are computed from the GPS positions with a central difference over a smoothing window (default 1 s). The track can also be coloured by speed or acceleration, and the HUD shows total, horizontal and vertical values.
 
-**Flight video**: *Video → Load video (+ .srt)* plays your DVR (e.g. DJI O4 goggles recording plus its .srt) next to the 3D view. Use ⇄ to swap which one is full screen, and drag or resize the player. To sync, unlink, pause both on the same event, then press *Sync here* (add a 2nd point later in the flight to correct drift). The sync is remembered per flight. If the browser can't play H.265, run `python -m fpv3d video-convert DJI_xxxx.mp4` (needs ffmpeg).
+**Flight video**: *[flights] → Load video (+ .srt)* plays your DVR (e.g. DJI O4 goggles recording plus its .srt) next to the 3D view. Use ⇄ to swap which one is full screen, and drag or resize the player. To sync, unlink, pause both on the same event, then press *Sync here* (add a 2nd point later in the flight to correct drift). The sync is remembered per flight. If the browser can't play H.265, run `python -m fpv3d video-convert DJI_xxxx.mp4` (needs ffmpeg).
 
 Viewer controls: drag to rotate, right-drag to pan, scroll to zoom, click the terrain to read elevation and distance to the pilot, space to play/pause. If your GPU struggles, open `http://127.0.0.1:8000/viewer/?maxgrid=500`.
 
 ## Live telemetry from the radio + warnings for the pilot
 
-The *[live]* tab shows the drone live on the 3D map from your radio's telemetry (ELRS / CRSF), warns the pilot before he flies into a zone without line of sight, and marks the last known position plus a likely impact zone if the link is lost.
+The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map from your radio's telemetry (ELRS / CRSF), warns the pilot before he flies into a zone without line of sight, and marks the last known position plus a likely impact zone if the link is lost.
 
 **Setup (EdgeTX, e.g. RadioMaster TX15)**
 1. Install the serial library once: `pip install pyserial`.
 2. On the radio, set *SYS → Hardware → USB-VCP* to **Telemetry mirror** (EdgeTX 2.9+; the menu name can differ slightly between versions).
 3. Plug the radio in USB and choose **USB Serial (VCP)** when it asks.
-4. In the viewer, open *[live]*, click *[refresh]*, pick the port and click *[connect]*. Connect while the drone is still on the ground: its GPS altitude is then calibrated against the terrain. You can also type an altitude correction yourself.
+4. In the viewer, open *[fly]*, click *[refresh]*, pick the port and click *[connect]*. Connect while the drone is still on the ground: its GPS altitude is then calibrated against the terrain. You can also type an altitude correction yourself.
 
 **What you get**
 - **Live drone:** the drone moves on the map with a trail coloured by LQ, a dashed line shows where it will be in a few seconds, and you see LQ, RSSI, SNR, TX power, battery, flight mode, height above ground, speed, distance and satellites.
@@ -110,7 +111,7 @@ The *[live]* tab shows the drone live on the 3D map from your radio's telemetry 
 
 ## Deleting locations
 
-On the map page, *[saved] → [delete]* next to a location (or *View → This location → [delete]* in the 3D viewer) deletes it after a confirmation. Nothing is destroyed right away: the location file, its 3D scene and its training flights move to the `deleted/` folder.
+On the map page, *[saved] → [delete]* next to a location (or *[map] → This location → [delete]* in the 3D viewer) deletes it after a confirmation. Nothing is destroyed right away: the location file, its 3D scene and its training flights move to the `deleted/` folder.
 - **Undo:** use *Undo* just after deleting, *[restore]* under *Recently deleted*, or `python -m fpv3d restore <name>`.
 - **Kept:** the terrain cache (shared by all locations) and your own flight logs outside `logs/sim/` are never touched.
 
@@ -136,7 +137,7 @@ Sometimes you only fly along a line: from your takeoff spot to a summit, or alon
   ```
   (instead of `center` / `half_size_m`; the pilot defaults to the first point).
 - **Build:** only the tiles the strip touches are downloaded in full detail. The signal from the pilot to the strip can cross terrain outside it, so the area between the pilot and the route gets a coarse 10 m bare-ground model; it's small and only used for the signal analysis. Shadows, 3D volumes and buildings are computed for the strip only.
-- **Viewer:** only the strip is drawn, with the route as an orange line. *[signal] → Route profile* shows a side view along the route:
+- **Viewer:** only the strip is drawn, with the route as an orange line. *[signal] → Side view along the route* shows a side view along the route:
   - the ground
   - the height below which you have **no line of sight** to the pilot (indigo band)
   - the Fresnel line (amber) and the predicted signal-loss line (red, dashed)
@@ -154,7 +155,7 @@ A browser can't draw a 0.5 m terrain of several km (an 8 km scene at 0.5 m is 16
 - **Sharp close-up:** a patch of about 770 × 770 cells at the scene's full resolution. It follows the point you look at (orbit target, or the chased drone).
 - **Sharp photo:** when the scene's resolution is 1 m or finer, the build also downloads the aerial photo at 0.5 m within `detail_radius_m` of the pilot, and the close-up uses it.
 
-*View → Mesh* shows what you're looking at. Turn the close-up off with *Sharp close-up*.
+*[map] → + Advanced* shows the mesh detail. Turn the close-up off with *Extra detail near the centre of the view*.
 
 **3D buildings:** footprints come from OpenStreetMap (very complete in Switzerland). The ground under each building is the lowest swissALTI3D height under it. On surface-model (`dsm`) scenes, the roof is the median swissSURFACE3D height inside the footprint. Otherwise the height comes from the OSM tags (`height`, `building:levels`) or a default. With *View → Ground → Bare ground + 3D buildings* you get clean blocks on the bare terrain instead of the blurry "blobs" a surface model gives. Click a building for its height. The signal analysis still uses the surface model, which also contains trees.
 
@@ -194,7 +195,7 @@ Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. 
 
 ## Training flight (simulator)
 
-In the 3D viewer: *Training flight → Start*. You fly over the real swisstopo terrain with your radio, plugged in by USB in **Joystick** mode, or with the keyboard. The link to your pilot position is computed live with the same model as the build, and shown in an OSD (margin, RSSI and LQ estimate, line of sight). With *Simulate link loss* on:
+In the 3D viewer: *[fly] → Start training flight*. You fly over the real swisstopo terrain with your radio, plugged in by USB in **Joystick** mode, or with the keyboard. The link to your pilot position is computed live with the same model as the build, and shown in an OSD (margin, RSSI and LQ estimate, line of sight). With *Simulate link loss* on:
 - the video gets blocky, then freezes on "NO SIGNAL"
 - losing the control link triggers failsafe (stage 1, then the quad drops)
 
@@ -230,7 +231,7 @@ The same thing is available as buttons on the map page (*Update all scenes*). On
 
 File names are kept plain: lowercase letters, digits, `_` and `-`, with no spaces, accents or emoji. That makes them easy to type, sort and copy. Display titles can contain accents (emoji are removed).
 
-- **In the viewer:** use *[view] → This location → [rename]* to change the title and file name of the location, or *[flight] → [rename]* next to the log picker to rename the selected log.
+- **In the viewer:** use *[map] → This location → [rename]* to change the title and file name of the location, or *[flights] → [rename]* next to the log picker to rename the selected log.
 - **On the map page:** use *[saved] → [rename]* next to a location.
 
 ```bash
