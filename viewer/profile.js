@@ -153,6 +153,7 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
   }
 
   el.canvas.addEventListener('pointermove', (e) => {
+    S.requestRender?.(300);                  // the 3D marker follows the hover
     const r = el.canvas.getBoundingClientRect();
     hoverD = Math.max(0, Math.min(total, ((e.clientX - r.left - 46) / (r.width - 56)) * total));
     draw();

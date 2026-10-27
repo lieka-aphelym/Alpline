@@ -4,7 +4,7 @@
 // patch a 0.5 m scene looks like a 2-8 m one.
 import * as THREE from 'three';
 
-const N = 768;                 // cells per side of the patch
+const N = 384;                 // cells per side of the patch (lite: 384, full version 768)
 
 export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which }) {
   const g = S.view.grid;                      // full-resolution grid of the displayed ground
@@ -59,6 +59,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
       st.tex?.dispose(); st.tex = tex;
       mat.uniforms.uOrtho.value = tex;
       mat.uniforms.uOrthoRect.value.set(x0 / S.W, y0 / S.H, x1 / S.W, y1 / S.H);
+      S.requestRender?.(400);
     } catch (e) { console.warn('sharp photo', e); }
   }
 
@@ -105,6 +106,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
       st.mesh = new THREE.Mesh(geo, mat); st.mesh.renderOrder = -1; scene3.add(st.mesh);
     }
     st.mesh.visible = st.enabled;
+    S.requestRender?.(400);
   }
 
   function hide() {

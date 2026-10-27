@@ -30,14 +30,15 @@ terrain:
   resolution_m: {res:g}          # 0.5,1,2,2.5,4,5,8,10,20,25,40,50
   surface: {surface}             # dtm = bare ground (swissALTI3D), dsm = incl. trees/buildings (swissSURFACE3D)
   ortho: true
-  ortho_resolution_m: 2
-  buildings: true          # 3D buildings: OpenStreetMap footprints, heights from swisstopo
-  ortho_detail_m: auto     # sharp photo near the pilot: auto (0.5 m if resolution_m <= 1), a value, or off
+  ortho_resolution_m: auto       # lite: sharpest photo that stays <= 2048 px (or a value in m, e.g. 2)
+  buildings: false         # lite: off. true = 3D buildings (OpenStreetMap footprints, swisstopo heights)
+  ortho_detail_m: off      # lite: off. auto = sharp 0.5 m photo near the pilot when resolution_m <= 1
   detail_radius_m: 600
 
-analysis:
-  los_agl_m: [10, 30, 60, 120]
-  los_resolution_m: 10
+analysis:                  # lite defaults (full version: [10, 30, 60, 120], 10 m, 11 loss steps)
+  los_agl_m: [30, 120]     # flat shadow maps (the 3D shadows already cover every height)
+  los_resolution_m: 20     # signal analysis grid (m)
+  loss_offsets_db: [-6, 0, 6, 12]   # radio-budget steps for live antenna / power edits
   primary_link: 0          # index into links: used for the shadow map
   k_factor: 1.333
   fresnel_clearance: 0.6

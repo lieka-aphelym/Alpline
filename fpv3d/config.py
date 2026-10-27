@@ -57,7 +57,7 @@ class TerrainCfg:
     resolution_m: float = 5.0
     surface: str = "dtm"          # "dtm" = bare ground, "dsm" = incl. trees & buildings
     ortho: bool = True
-    ortho_resolution_m: float = 2.0
+    ortho_resolution_m: object = 2.0  # metres, or "auto" = sharpest that keeps the photo <= 2048 px (lite)
     local_dem_files: List[str] = field(default_factory=list)   # optional offline GeoTIFFs
     buildings: bool = True            # 3D buildings (OpenStreetMap footprints + swisstopo heights)
     detail_radius_m: float = 600      # sharp aerial photo around the pilot ...
@@ -71,6 +71,8 @@ class AnalysisCfg:
     primary_link: int = 0
     k_factor: float = 4.0 / 3.0
     fresnel_clearance: float = 0.6
+    # radio-budget steps (dB) precomputed for the 3D "predicted loss" shadows (live antenna / power edits)
+    loss_offsets_db: List[float] = field(default_factory=lambda: [-9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21])
 
 
 @dataclass
@@ -88,6 +90,16 @@ class LocationConfig:
     log_options: dict
     source_path: Path
     corridor: Optional[object] = None      # fpv3d.corridor.Corridor for route-shaped locations
+
+    def ortho_res(self, grid=None) -> float:
+        """Aerial photo resolution: the configured value, or for "auto" the sharpest valid one that
+        keeps the image at most 2048 px wide (a light texture for the browser), never finer than 2 m."""
+        r = self.terrain.ortho_resolution_m
+        if r != "auto":
+            return float(r)
+        g = grid or self.grid(10)
+        span = max(g.max_e - g.min_e, g.max_n - g.min_n)
+        return next((v for v in VALID_RES if v >= 2 and span / v <= 2048), VALID_RES[-1])
 
     def grid(self, res: float):
         """The scene's grid at `res`: square around the centre, or the box around a corridor."""

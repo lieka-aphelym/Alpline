@@ -19,7 +19,7 @@ const MAX_LINKS = 4;
 
 // ------------------------------------------------------------------ renderer / camera
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));   // lite: fewer pixels on high-DPI screens
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 $('view').appendChild(renderer.domElement);
@@ -35,6 +35,19 @@ scene3.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2));
 function fitRenderer() {
   const el = $('view'), w = el.clientWidth || innerWidth, h = el.clientHeight || innerHeight;
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+  requestRender();
+}
+
+// ------------------------------------------------------------------ render on demand (lite)
+// The scene is only drawn when something changes (camera, playback, simulator, live data, UI),
+// instead of 60 times per second. ?render=always restores the old behaviour.
+const RENDER_ALWAYS = new URLSearchParams(location.search).get('render') === 'always';
+let renderUntil = 0;
+function requestRender(ms = 250) { renderUntil = Math.max(renderUntil, performance.now() + ms); }
+for (const ev of ['input', 'change', 'click', 'keydown', 'keyup', 'wheel', 'pointerup']) addEventListener(ev, () => requestRender(400), true);
+{   // anything loaded from the server (scene data, terrain close-up, live telemetry) may change the picture
+  const f = window.fetch.bind(window);
+  window.fetch = (...a) => f(...a).finally(() => requestRender(800));
 }
 new ResizeObserver(fitRenderer).observe($('view'));
 addEventListener('resize', fitRenderer);
@@ -60,6 +73,7 @@ async function getJSON(url) {
   return r.json();
 }
 const loadTex = (url) => new Promise((ok, err) => new THREE.TextureLoader().load(url, (t) => {
+  requestRender();
   t.anisotropy = renderer.capabilities.getMaxAnisotropy(); ok(t);
 }, undefined, err));
 
@@ -84,7 +98,7 @@ function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coor
 const API = '/api';
 async function loadOverview(which) {
   const fileMeta = which === 'dtm' && S.meta.terrain_dtm ? S.meta.terrain_dtm : { file: S.meta.terrain, grid: S.meta.grid };
-  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || 1500);   // ?maxgrid=600 for slow GPUs
+  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || 800);    // lite: 800 x 800 overview (?maxgrid=1500 for more)
   const step = Math.max(1, Math.ceil(Math.max(g.cols, g.rows) / maxSide));
   let dem = null, cols, rows, api = null;
   try {
@@ -673,7 +687,8 @@ function initGroundUi() {
   };
   $('bldRow').classList.toggle('hidden', !S.bld);
   const bm = m.buildings;
-  const why = S.bld ? '' : !bm ? 'No 3D buildings in this scene yet (built before buildings existed).'
+  const why = S.bld ? '' : bm?.disabled ? '3D buildings are off for this location (set <code>buildings: true</code> under <code>terrain:</code> in its file, then refresh it).'
+    : !bm ? 'No 3D buildings in this scene yet (built before buildings existed).'
     : bm.error ? `No 3D buildings: the OpenStreetMap download failed (${bm.when || ''}): ${bm.error}`
       : bm.count === 0 ? 'No buildings in this area on OpenStreetMap.' : '';
   $('bldMissing').classList.toggle('hidden', !why);
@@ -1231,11 +1246,19 @@ renderer.setAnimationLoop(() => {
   CAM.update(dt);
   if (S.drone) S.drone.visible = CAM.mode() !== 'drone';   // don't sit inside the marker
   if (S.curtain) S.curtain.visible = $('curtainOn').checked && CAM.mode() !== 'drone';
-  if (CAM.usesOrbit()) controls.update();
+  const orbitMoved = CAM.usesOrbit() ? controls.update() : false;
   S.detail?.update(now);
   S.live?.tick(now);
-  renderer.render(scene3, camera);
+  // draw only when needed: camera moved, playback, recent UI/data change
+  const camMoved = _lastCamPos.distanceToSquared(camera.position) > 1e-6 || 1 - Math.abs(_lastCamQuat.dot(camera.quaternion)) > 1e-9;
+  if (RENDER_ALWAYS || orbitMoved || camMoved || S.playing || V.drivesClock() || now < renderUntil) {
+    renderer.render(scene3, camera);
+    _lastCamPos.copy(camera.position); _lastCamQuat.copy(camera.quaternion);
+    S.frames = (S.frames || 0) + 1;
+  }
 });
+const _lastCamPos = new THREE.Vector3(), _lastCamQuat = new THREE.Quaternion();
 
-window.fpv3d = { S, camera, controls, THREE, SIM };
+S.requestRender = requestRender;
+window.fpv3d = { S, camera, controls, THREE, SIM, requestRender };
 boot().catch((e) => { console.error(e); const l = $('loading'); l.classList.add('err'); l.textContent = e.message; });

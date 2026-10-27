@@ -244,3 +244,4 @@ button.danger { background: #8e2b2b; border-color: #b33a3a; color: #fff; }
 .dial i::after { content: ''; position: absolute; top: -5px; left: -4px; border: 5.5px solid transparent; border-bottom: 7px solid #fff; }
 body.sim-on #warnBox { top: 70px; }
 body.live-on #hud, body.live-on #timeline { display: none !important; }   /* the live drone replaces log playback */
+.lite { font-size: 10px; font-weight: 600; color: #22d3ee; border: 1px solid #22d3ee88; border-radius: 4px; padding: 0 4px; vertical-align: middle; letter-spacing: .5px; }

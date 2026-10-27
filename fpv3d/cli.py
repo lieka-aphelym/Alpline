@@ -139,7 +139,7 @@ def cmd_prefetch(a):
             for k in kinds:
                 tc.ensure(k, res, keys, a.refresh)
         if not a.no_ortho:
-            for res in a.ortho_res or [cfg.terrain.ortho_resolution_m]:
+            for res in a.ortho_res or [cfg.ortho_res()]:
                 tc.ensure("ortho", res, keys, a.refresh)
         tc.ensure("dtm", 10, cor.context_keys(cfg.pilot.lv95() if cfg.pilot else None), a.refresh)
         print(f"{len(keys)} km² along the route of {cfg.title} cached (+ coarse context).")
@@ -154,7 +154,7 @@ def cmd_prefetch(a):
         for k in kinds:
             tc.mosaic(k, grid, a.refresh)
     if not a.no_ortho:
-        for res in a.ortho_res or [cfg.terrain.ortho_resolution_m]:
+        for res in a.ortho_res or [cfg.ortho_res()]:
             tc.mosaic("ortho", Grid.around(ce, cn, half, res), a.refresh)
     print(f"{len(tile_keys(Grid.around(ce, cn, half, 10)))} km² cached around {cfg.title}. "
           "Builds of this area (any location file) now work offline.")

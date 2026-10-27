@@ -77,8 +77,9 @@ def build_terrain(cfg: LocationConfig, out: Path, cache: Path, skip_ortho=False,
     if cfg.terrain.ortho and not skip_ortho:
         try:
             log("[ortho] SWISSIMAGE")
-            progress.emit("phase", id="ortho", label=f"Aerial photo {cfg.terrain.ortho_resolution_m:g} m")
-            ogrid = grid.with_resolution(cfg.terrain.ortho_resolution_m)
+            ores = cfg.ortho_res(grid)
+            progress.emit("phase", id="ortho", label=f"Aerial photo {ores:g} m")
+            ogrid = grid.with_resolution(ores)
             img = swisstopo.orthophoto(ogrid, cache, refresh, keys=cfg.corridor.tile_keys() if cfg.corridor else None)
             Image.fromarray(img).save(out / "ortho.jpg", quality=88)
             has_ortho = True
@@ -129,7 +130,9 @@ def build_extras(cfg: LocationConfig, out: Path, cache: Path, grid: Grid, dem, r
                 return dict(buildings=dict(count=0, error=f"bare-ground terrain unavailable: {str(ex)[:200]}",
                                            when=time.strftime("%Y-%m-%d %H:%M")))
         meta["terrain_dtm"] = dict(file="terrain_dtm.f32", grid=dgrid.to_dict())
-    if cfg.terrain.buildings and dtm is not None:
+    if not cfg.terrain.buildings:
+        meta["buildings"] = dict(count=0, disabled=True)
+    elif dtm is not None:
         progress.emit("phase", id="buildings", label="3D buildings (OpenStreetMap)")
         keep = None
         if cfg.corridor is not None:
@@ -150,7 +153,7 @@ def detail_ortho(cfg: LocationConfig, cache: Path, grid: Grid, pilot, refresh=Fa
             return None
         od = 0.5
     od = float(od)
-    if od >= cfg.terrain.ortho_resolution_m:
+    if od >= cfg.ortho_res(grid):
         return None
     from .tilecache import TILE, TileCache
     r = cfg.terrain.detail_radius_m
@@ -244,7 +247,7 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
 
     # 3D blind-spot volumes: per column, the height above ground below which the link is blocked
     vol = None
-    offsets = [-9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21]          # dB: lets the viewer follow antenna/power edits live
+    offsets = sorted(set(cfg.analysis.loss_offsets_db) | {0})    # dB: lets the viewer follow antenna/power edits live
     key = hashlib.sha1(f"{base_key}|ceilings|v2|{offsets}".encode()).hexdigest()
     if memo.get("shadow3d", {}).get("key") == key and (out / "shadow3d.bin").exists():
         vol = memo["shadow3d"]["meta"]

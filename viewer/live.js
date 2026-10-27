@@ -152,6 +152,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     pred.geometry.setFromPoints([a, b]); pred.computeLineDistances(); pred.visible = spd > 1.5;
     if (!newest) return;
     if ($('liveFollow').checked) controls.target.lerp(drone.position, 0.5);
+    S.requestRender?.(400);
     const r = W.update(cur);
     pred.material.color.set(r.level === 'ok' ? 0xffffff : r.level === 'caution' ? 0xffb000 : 0xff3b30);
     values(cur, s);

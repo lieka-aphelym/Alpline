@@ -26,6 +26,21 @@ fpv3d/
 └─ tests/            self-tests, a mock STAC server, demo-log generator
 ```
 
+
+> **This is the `lite` branch** (see the "lite" badge in the viewer and on the map page). It is the same program as `main`, made lighter for slower computers. Switch branches in PyCharm (branch name at the bottom right). Locations, logs, scenes and the terrain cache are shared by both branches.
+>
+> - **Render on demand:** the 3D view is only redrawn when something changes (camera, playback, simulator, live data, a setting) instead of 60 times per second, so the graphics card is idle while you read the screen. Add `&render=always` to the viewer address for the old behaviour.
+> - **Lighter 3D:** the overview mesh is 800 × 800 instead of 1500 × 1500 (`&maxgrid=1500` for more), the sharp close-up patch is 384 × 384 instead of 768 × 768, and pixels are capped at 1.25× on high-DPI screens.
+> - **Coarser defaults for new locations** (existing location files keep their values):
+>   - terrain: 5 m (instead of 2 m on the map page)
+>   - aerial photo: `auto`, the sharpest that stays at most 2048 px (≥ 2 m)
+>   - signal grid: 20 m instead of 10 m
+>   - flat shadow maps: 2 heights instead of 4
+>   - live antenna-edit steps: 4 instead of 11
+>   - 3D buildings and the sharp near-pilot photo: off
+>
+>   On a 5 × 5 km test area this built in 2.3 s instead of 29 s, with 6–9× smaller terrain and shadow files. Turn anything back on in the location file (e.g. `buildings: true`).
+
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 
 ```bash
