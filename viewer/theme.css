@@ -131,3 +131,29 @@ details.help summary { font-family: var(--mono); }
 /* segmented choices (map page shape, etc.): the chosen one is filled */
 #panel .shape button.on, #panel button.on:not(.rail button):not(.themeSw button) { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; }
 #panel select { min-width: 0; max-width: 100%; }
+
+/* ---------- thin scrollbars: a hairline that only stands out on hover ---------- */
+#pbody, #panel *, #hud, #cmpTable, .zonelist { scrollbar-width: thin; scrollbar-color: var(--t-rule) transparent; }
+#pbody:hover, #panel *:hover { scrollbar-color: var(--t-rule2) transparent; }
+#pbody { scrollbar-gutter: stable; }
+
+/* ---------- sliders: thin track, square thumb ---------- */
+input[type=range] { -webkit-appearance: none; appearance: none; background: none; height: 16px; padding: 0; margin: 4px 0; cursor: pointer; border: 0 !important; }
+input[type=range]::-webkit-slider-runnable-track { height: 2px; background: var(--t-rule2); }
+input[type=range]::-moz-range-track { height: 2px; background: var(--t-rule2); }
+input[type=range]::-moz-range-progress { height: 2px; background: var(--t-acc); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 8px; height: 14px; margin-top: -6px; background: var(--t-acc); border: 0; border-radius: 0; }
+input[type=range]::-moz-range-thumb { width: 8px; height: 14px; background: var(--t-acc); border: 0; border-radius: 0; }
+
+/* ---------- playback bar: compact, movable ---------- */
+#timeline { width: min(480px, calc(100% - 24px)) !important; gap: 6px !important; padding: 3px 6px 3px 0 !important; }
+#timeline .grip { align-self: stretch; display: flex; align-items: center; padding: 0 5px; cursor: grab; user-select: none; touch-action: none;
+  color: var(--t-fg2); font: 12px/1 var(--mono); letter-spacing: -2px; border-right: 1px solid var(--t-rule); }
+#timeline .grip:hover { color: var(--t-acc); background: var(--t-bg3); }
+#timeline .grip:active { cursor: grabbing; }
+#timeline button { min-width: 0 !important; padding: 2px 6px !important; font-size: 11px !important; }
+#timeline select { padding: 1px 2px !important; font: 11px var(--mono) !important; width: auto; }
+#timeline #scrub { flex: 1; min-width: 80px; }
+#clock { min-width: 0 !important; font-size: 11px !important; white-space: nowrap; }
+#profile { bottom: 50px; }
+body:has(#timeline.moved) #profile { bottom: 14px; }

@@ -6,6 +6,7 @@ import { initCameraModes } from './camera.js';
 import { initSim } from './sim.js';
 import { loadVolumes } from './volume.js';
 import { initTabs } from './tabs.js';
+import { makeMovable } from './dock.js';
 import { initDetail } from './detail.js';
 import { loadBuildings } from './buildings.js';
 import { initProfile } from './profile.js';
@@ -845,6 +846,7 @@ function initUI() {
     if (e.code !== 'KeyC' || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
     const sel = $('camMode'); sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length; sel.onchange();
   });
+  makeMovable($('timeline'), $('tlGrip'), 'fpv3d:timelinePos');
   $('play').onclick = togglePlay;
   $('scrub').oninput = () => { if (!S.track) return; S.time = ($('scrub').value / 1000) * S.track.t[S.track.n - 1]; updateDrone(); V.seekToLog(S.time); };
   $('speed').onchange = () => V.setRate(+$('speed').value);
