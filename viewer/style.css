@@ -245,3 +245,21 @@ button.danger { background: #8e2b2b; border-color: #b33a3a; color: #fff; }
 body.sim-on #warnBox { top: 70px; }
 body.live-on #hud, body.live-on #timeline { display: none !important; }   /* the live drone replaces log playback */
 .lite { font-size: 10px; font-weight: 600; color: #22d3ee; border: 1px solid #22d3ee88; border-radius: 4px; padding: 0 4px; vertical-align: middle; letter-spacing: .5px; }
+
+/* ---- lite HUD ---- */
+#hud { min-width: 250px; max-width: 300px; }
+#hud .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 2px 0 8px; }
+#hud .tile { background: rgba(255,255,255,.04); border-radius: 7px; padding: 6px 4px; text-align: center; }
+#hud .tile b { display: block; font-size: 18px; line-height: 1.1; }
+#hud .tile b small { font-size: 11px; font-weight: 500; color: var(--muted); }
+#hud .tile span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+#hud .sigs { display: grid; gap: 4px; }
+#hud .sig .h { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }
+#hud .sig .h > span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#hud .sig .bar { display: block; height: 5px; margin-top: 2px; background: rgba(255,255,255,.08); border-radius: 3px; overflow: hidden; }
+#hud .sig .bar i { display: block; height: 100%; border-radius: 3px; }
+#hud .zone { border: 1px solid; border-radius: 6px; padding: 3px 6px; font-size: 11.5px; font-weight: 600; margin-bottom: 6px; }
+#hud .zone span { font-weight: 400; color: var(--text); }
+#hud button.more { margin: 8px 0 0; width: 100%; padding: 2px; font-size: 11px; color: var(--muted); background: none; border-color: transparent; }
+#hud button.more:hover { color: var(--text); }
+#hud table { margin-top: 4px; font-size: 12px; }

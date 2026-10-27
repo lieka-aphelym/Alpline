@@ -86,7 +86,7 @@ export async function loadVolumes({ scene3, S, demHeight }) {
     return { delta: d, exact: d === delta };
   }
 
-  for (const name of ['los', 'fresnel', 'loss']) {
+  for (const name of ['los', 'loss']) {             // lite: the Fresnel volume is left out
     if (!ceils[name]) continue;
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', posAttr); g.setAttribute('aGround', gAttr);
@@ -105,14 +105,14 @@ export async function loadVolumes({ scene3, S, demHeight }) {
   const tex2d = new THREE.DataTexture(new Uint8Array(N * 4), m.cols, m.rows, THREE.RGBAFormat);
   tex2d.magFilter = THREE.NearestFilter;
   function overlay(agl) {
-    const px = tex2d.image.data, L = ceils.los, F = ceils.fresnel;
+    const px = tex2d.image.data, L = ceils.los;
     for (let r = 0; r < m.rows; r++) {
       const dst = (m.rows - 1 - r) * m.cols;                // texture row 0 = south
       for (let c = 0; c < m.cols; c++) {
         const k = r * m.cols + c, o = (dst + c) * 4;
-        const blocked = L[k] > agl, fres = !blocked && F[k] > agl, lost = lossNow[k] > agl;
+        const blocked = L[k] > agl, lost = lossNow[k] > agl;   // lite: no separate Fresnel shading
         let rgba = [0, 0, 0, 0];
-        if (fres) rgba = lost ? [255, 120, 0, 150] : [255, 176, 0, 110];
+        if (lost) rgba = [255, 45, 85, 140];
         if (blocked) rgba = lost ? [5, 5, 12, 225] : [40, 30, 90, 175];
         px[o] = rgba[0]; px[o + 1] = rgba[1]; px[o + 2] = rgba[2]; px[o + 3] = rgba[3];
       }

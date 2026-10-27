@@ -1,7 +1,6 @@
 // fpv3d — route profile: a side view along a corridor's route.
 //   ground          terrain under the route (brown)
 //   blind band      below this height above ground there is no line of sight to the pilot (indigo)
-//   Fresnel line    below it the radio path is partly obstructed (amber)
 //   loss line       below it the predicted link margin is negative (red, dashed)
 //   your height     the "shadow at X m above ground" setting (white dashed)
 //   flight          the selected log, projected onto the route (dots coloured by link status)
@@ -66,8 +65,7 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
       const p = project(tr.x[i], tr.y[i]);
       if (p.off > cor.width_m * 1.3) continue;
       const blocked = tr.clearance?.[i] != null && tr.clearance[i] < 0;
-      const fres = !blocked && tr.fresnel?.[i] != null && tr.fresnel[i] < (S.meta.fresnel_clearance || 0.6);
-      out.push({ d: p.d, z: tr.z[i], c: blocked ? '#ff3b30' : fres ? '#ffb000' : '#2ecc71' });
+      out.push({ d: p.d, z: tr.z[i], c: blocked ? '#ff3b30' : '#2ecc71' });
     }
     return out;
   }
@@ -107,7 +105,6 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
       samples.forEach((s, i) => { const z = s.g + Math.min(s.los, CAP); i ? ctx.lineTo(X(s.d), Y(z)) : ctx.moveTo(X(s.d), Y(z)); });
       for (let i = samples.length - 1; i >= 0; i--) ctx.lineTo(X(samples[i].d), Y(samples[i].g));
       ctx.closePath(); ctx.fillStyle = 'rgba(91,75,214,.45)'; ctx.fill();
-      line((s) => s.g + Math.min(s.fr, CAP), '#ffb000', [], 1.3);
       line((s) => s.g + Math.min(s.loss, CAP), '#ff3b30', [5, 4], 1.5);
     }
     // ground
@@ -135,14 +132,14 @@ export function initProfile({ S, scene3, toWorld, demHeight, el }) {
       ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(X(s.d), T); ctx.lineTo(X(s.d), H - B); ctx.stroke();
       const fmt = (v) => (v == null ? '–' : v >= 1e4 ? 'at no height' : v < 0.5 ? 'from the ground up' : `from ${Math.round(v)} m above ground`);
       el.info.innerHTML = `<b>${s.d >= 1000 ? `${(s.d / 1000).toFixed(2)} km` : `${Math.round(s.d)} m`}</b> along the route · ground ${Math.round(s.g)} m`
-        + (s.los != null ? ` · line of sight ${fmt(s.los)} · clean Fresnel ${fmt(s.fr)} · signal ${fmt(s.loss)}` : '');
+        + (s.los != null ? ` · line of sight ${fmt(s.los)} · signal ${fmt(s.loss)}` : '');
       toWorld(s.x, s.y, s.g, marker.position);
       const hgt = Math.max(20, Math.min(s.los ?? 0, CAP)) * S.exag;
       pole.scale.y = hgt; pole.position.y = hgt / 2; ball.position.y = hgt;
       marker.visible = true;
     } else {
       marker.visible = false;
-      el.info.innerHTML = `Route ${(total / 1000).toFixed(2)} km · strip ${2 * cor.width_m} m wide · <span style="color:#8f84ff">■</span> no line of sight below · <span style="color:#ffb000">—</span> Fresnel · <span style="color:#ff3b30">- -</span> signal loss · <span style="color:#ddd">- -</span> ${agl} m above ground`;
+      el.info.innerHTML = `Route ${(total / 1000).toFixed(2)} km · strip ${2 * cor.width_m} m wide · <span style="color:#8f84ff">■</span> no line of sight below · <span style="color:#ff3b30">- -</span> signal loss · <span style="color:#ddd">- -</span> ${agl} m above ground`;
     }
 
     function line(f, color, dash, w) {

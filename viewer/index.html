@@ -84,7 +84,6 @@
     <label class="row"><input type="checkbox" id="vol3d"> Show as 3D volume</label>
     <div id="volOpts" class="hidden">
       <label class="row"><input type="checkbox" class="volLayer" data-l="los" checked> <i class="sw3" style="background:#5b4bd6"></i> No line of sight</label>
-      <label class="row"><input type="checkbox" class="volLayer" data-l="fresnel"> <i class="sw3" style="background:#ffb000"></i> Fresnel zone obstructed</label>
       <label class="row"><input type="checkbox" class="volLayer" data-l="loss"> <i class="sw3" style="background:#ff2d55"></i> Predicted signal loss</label>
       <label class="row">Show up to <output id="volCapOut">150 m</output> above ground</label>
       <input type="range" id="volCap" min="20" max="600" step="10" value="150">
@@ -95,8 +94,8 @@
     </div>
     <p id="volMissing" class="muted small hidden">3D volumes need a rebuild of this scene: <code>python -m fpv3d build locations/&lt;name&gt;.yaml --reuse-terrain</code></p>
     <div class="chips">
-      <span><i style="background:#ffb000"></i>Fresnel</span><span><i style="background:#3a2e7a"></i>No LOS</span>
-      <span><i style="background:#05050c"></i>No LOS + loss</span><span><i style="border:1px solid #ff4fd8"></i>Range edge</span>
+      <span><i style="background:#3a2e7a"></i>No line of sight</span><span><i style="background:#ff2d55"></i>Signal loss</span>
+      <span><i style="background:#05050c"></i>Both</span><span><i style="border:1px solid #ff4fd8"></i>Range edge</span>
     </div>
   </section>
 

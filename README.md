@@ -40,6 +40,9 @@ fpv3d/
 >   - 3D buildings and the sharp near-pilot photo: off
 >
 >   On a 5 × 5 km test area this built in 2.3 s instead of 29 s, with 6–9× smaller terrain and shadow files. Turn anything back on in the location file (e.g. `buildings: true`).
+>
+> - **Simpler signal display:** no separate "Fresnel" state. Signal loss covers the same idea, so the views show only *clear*, *no line of sight* and *signal loss likely*.
+> - **Cleaner flight info box:** distance, height and speed in large type; one bar per radio link (margin, plus LQ when the log has it); the drone zone only when you're in one. Everything else is under *[more]*, with plain names and units.
 
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 

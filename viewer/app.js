@@ -302,7 +302,6 @@ function statusOf(i) {
   const m = tr.margin[prim]?.[i];
   if (m != null && m < 0) return { c: C_LOST, label: 'SIGNAL LOSS LIKELY', css: '#ff2d55' };
   if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'NO LINE OF SIGHT', css: '#ff7a1a' };
-  if (tr.fresnel[i] < S.meta.fresnel_clearance) return { c: C_FRES, label: 'FRESNEL OBSTRUCTED', css: '#ffb000' };
   return { c: C_OK, label: 'CLEAR', css: '#3ddc84' };
 }
 
@@ -414,7 +413,7 @@ function buildCombs() {
 }
 
 function colorModes() {
-  const modes = [{ id: 'status', label: 'Link status (LOS / Fresnel / margin)' }];
+  const modes = [{ id: 'status', label: 'Link status (line of sight / signal)' }];
   for (const l of S.meta.links) modes.push({ id: 'margin:' + l.name, label: `Predicted margin — ${l.name}`, lo: -10, hi: 20, unit: 'dB' });
   modes.push({ id: 'agl', label: 'Height above ground', lo: 0, hi: null, unit: 'm', invert: false });
   modes.push({ id: 'speed', label: 'Speed (1st derivative)', lo: 0, hi: null, unit: 'km/h' });
@@ -449,7 +448,7 @@ function trackColors() {
   if (mode === 'status') {
     for (let i = 0; i < n; i++) statusOf(i).c.toArray(cols, i * 3);
     leg.className = 'legend gradient cat';
-    leg.innerHTML = [['#3ddc84', 'Clear'], ['#ffb000', 'Fresnel obstructed'], ['#ff7a1a', 'No line of sight'], ['#ff2d55', 'Signal loss likely']]
+    leg.innerHTML = [['#3ddc84', 'Clear'], ['#ff7a1a', 'No line of sight'], ['#ff2d55', 'Signal loss likely']]
       .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
     return cols;
   }
@@ -550,30 +549,67 @@ function updateDrone() {
   placeGhost();
 }
 
+// clean names for common telemetry columns (EdgeTX, simulator)
+const TEL_NAMES = { '1RSS_dB': 'RSSI ant. 1|dBm', '2RSS_dB': 'RSSI ant. 2|dBm', 'RQly_%': 'Control LQ|%', 'RSNR_dB': 'SNR|dB',
+  'TPWR_mW': 'TX power|mW', 'RxBt_V': 'Battery|V', 'GSpd_kmh': 'GPS speed|km/h', 'Sats': 'Satellites|', 'Curr_A': 'Current|A',
+  'Capa_mAh': 'Used|mAh', 'speed_m_s': null };
+function telName(k) {
+  if (k in TEL_NAMES) return TEL_NAMES[k];
+  const m = /^(RSSI|LQ|SNR_margin)_sim_(.+?)(_dBm|_dB)?$/.exec(k);
+  if (m) return null;                        // simulator values are shown in the signal block
+  return k.replace(/_/g, ' ');
+}
+function lqFor(tr, i, linkName) {           // link quality from the log for this link, if any
+  const key = `LQ_sim_${linkName.replace(/[^A-Za-z0-9]+/g, '_')}`.replace(/_+$/, '');
+  const ctrl = (S.meta.links.find((l) => l.name === linkName)?.freq_mhz ?? 0) < 3000;   // ELRS LQ = control link only
+  const v = tr.telemetry[key]?.[i] ?? (ctrl ? tr.telemetry['RQly_%']?.[i] : null);
+  return v == null ? null : Math.round(v);
+}
+let hudMore = false;
+try { hudMore = localStorage.getItem('fpv3d:hudMore') === '1'; } catch { /* private mode */ }
+
 function renderHud(st) {
-  const tr = S.track, i = S.idx, rows = [];
-  rows.push(['Distance (3D)', fmtDist(tr.dist[i])]);
-  rows.push(['Height AGL', `${tr.agl[i]?.toFixed(0)} m`]);
-  rows.push(['Altitude', `${tr.z[i]?.toFixed(0)} m`]);
+  const tr = S.track, i = S.idx;
+  const tile = (v, k) => `<div class="tile"><b>${v}</b><span>${k}</span></div>`;
+  const speed = tr.speed ? `${tr.speed[i].toFixed(0)}<small> km/h</small>` : '–';
+  // signal: one line per radio link, margin bar + LQ from the log
+  const sig = Object.entries(tr.margin).map(([name, arr]) => {
+    const m = arr[i], lq = lqFor(tr, i, name);
+    const col = m == null ? '#8b96a8' : m < 0 ? '#ff2d55' : m < 10 ? '#ffb000' : '#3ddc84';
+    const w = m == null ? 0 : Math.max(3, Math.min(100, (m / 40) * 100));
+    return `<div class="sig"><div class="h"><span>${name}</span><span><b style="color:${col}">${m == null ? '–' : `${m.toFixed(0)} dB`}</b>`
+      + `${lq != null ? `<span class="muted"> · LQ ${lq}</span>` : ''}</span></div><i class="bar"><i style="width:${w}%;background:${col}"></i></i></div>`;
+  }).join('');
+  // drone zone: only when inside one
+  let zone = '';
+  if (S.zones && tr.zoneSev && tr.zoneIdx[i] >= 0) {
+    const zs = S.zones.zones[tr.zoneIdx[i]];
+    zone = `<div class="zone" style="border-color:${zs.info.color};color:${zs.info.color}">${zs.info.label} · <span>${zs.name}</span></div>`;
+  }
+  // details (collapsed by default)
+  const more = [];
+  more.push(['Altitude', `${tr.z[i]?.toFixed(0)} m`]);
   if (tr.vx) {
-    const hs = Math.hypot(tr.vx[i], tr.vy[i]) * 3.6, ah = Math.hypot(tr.ax[i], tr.ay[i]) / G;
-    rows.push(['<span style="color:#22d3ee">●</span> Speed', `${tr.speed[i].toFixed(0)} km/h <span class="muted">(${(tr.speed[i] / 3.6).toFixed(1)} m/s)</span>`]);
-    rows.push(['Ground / vertical', `${hs.toFixed(0)} km/h · ${tr.vz[i] >= 0 ? '+' : ''}${tr.vz[i].toFixed(1)} m/s`]);
-    rows.push(['<span style="color:#c084fc">●</span> Acceleration', `${tr.accG[i].toFixed(2)} g <span class="muted">(${(tr.accG[i] * G).toFixed(1)} m/s²)</span>`]);
-    rows.push(['Horiz. / vertical', `${ah.toFixed(2)} g · ${tr.az[i] >= 0 ? '+' : ''}${(tr.az[i] / G).toFixed(2)} g`]);
+    more.push(['Vertical speed', `${tr.vz[i] >= 0 ? '+' : ''}${tr.vz[i].toFixed(1)} m/s`]);
+    more.push(['Acceleration', `${tr.accG[i].toFixed(2)} g`]);
   }
-  rows.push(['LOS clearance', tr.clearance[i] < 0 ? `blocked by ${(-tr.clearance[i]).toFixed(0)} m` : `${Math.min(tr.clearance[i], 9999).toFixed(0)} m`]);
-  const fz = tr.fresnel[i];
-  rows.push(['Fresnel clearance', tr.clearance[i] < 0 ? '–' : fz > 1 ? '> 100 %' : `${(fz * 100).toFixed(0)} %`]);
-  if (S.zones && tr.zoneSev) {
-    const zs = tr.zoneIdx[i] >= 0 ? S.zones.zones[tr.zoneIdx[i]] : null;
-    rows.push(['Drone zone', zs ? `<b style="color:${zs.info.color}">${zs.info.label}</b><br><span class="muted">${zs.name}</span>` : '<span class="muted">none (FOCA data)</span>']);
+  more.push(['Line of sight', tr.clearance[i] < 0 ? `blocked by ${(-tr.clearance[i]).toFixed(0)} m` : `clear by ${Math.min(tr.clearance[i], 9999).toFixed(0)} m`]);
+  for (const [k, v] of Object.entries(tr.telemetry)) {
+    const n = telName(k);
+    if (!n || v[i] == null) continue;
+    const [label, unit = ''] = n.split('|');
+    more.push([label, `${Math.round(v[i] * 10) / 10}${unit ? ` ${unit}` : ''}`]);
   }
-  const marg = Object.entries(tr.margin).map(([k, v]) => [`Margin · ${k}`, `${v[i]?.toFixed(1)} dB`]);
-  const tel = Object.entries(tr.telemetry).map(([k, v]) => [k, v[i] == null ? '–' : String(v[i])]);
-  const tbl = (r, cls = '') => r.map(([a, b], n) => `<tr class="${n === 0 ? cls : ''}"><td class="muted">${a}</td><td>${b}</td></tr>`).join('');
   $('hud').innerHTML = `<div class="status" style="background:${st.css}22;color:${st.css}">${st.label}</div>
-    <table>${tbl(rows)}${tbl(marg, 'sep')}${tbl(tel, 'sep')}</table>`;
+    <div class="tiles">${tile(fmtDist(tr.dist[i]), 'distance')}${tile(`${tr.agl[i]?.toFixed(0)}<small> m</small>`, 'height')}${tile(speed, 'speed')}</div>
+    ${zone}<div class="sigs">${sig}</div>
+    <button class="more" id="hudMoreBtn">${hudMore ? '[less]' : '[more]'}</button>
+    ${hudMore ? `<table>${more.map(([a, b]) => `<tr><td class="muted">${a}</td><td>${b}</td></tr>`).join('')}</table>` : ''}`;
+  $('hudMoreBtn').onclick = () => {
+    hudMore = !hudMore;
+    try { localStorage.setItem('fpv3d:hudMore', hudMore ? '1' : '0'); } catch { /* private mode */ }
+    renderHud(st);
+  };
 }
 
 // ------------------------------------------------------------------ LOS layers
@@ -1149,7 +1185,7 @@ async function loadTrack(file) {
   computeKinematics(S.track, +$('smooth').value);
   computeTrackZones(S.track);
   const tm = S.meta.tracks.find((t) => t.file === file);
-  $('trackInfo').innerHTML = tm ? `${fmtTime(tm.duration_s)} · max ${fmtDist(tm.max_dist_m)} · max ${tm.max_agl_m} m AGL<br>no LOS ${tm.no_los_pct}% · Fresnel ${tm.fresnel_pct}% of samples` : '';
+  $('trackInfo').innerHTML = tm ? `${fmtTime(tm.duration_s)} · max ${fmtDist(tm.max_dist_m)} · max ${tm.max_agl_m} m AGL<br>no line of sight during ${tm.no_los_pct}% of the flight` : '';
   const sel = $('colorMode'), prev = sel.value;
   sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join('');
   if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
