@@ -35,6 +35,7 @@ Double-click **`fpv3d.bat`** in the project folder. A small window opens:
 - **[3d viewer] / [locations map]** start the local server in that mode and open your browser. Changing the mode restarts the server the next time you open something. Closing the window stops the server.
 - **Offline at the field:** how many of your locations are built (the 3D viewer then works without internet) and whether the internet is reachable (needed for the map background, new downloads and place search).
 - **[desktop shortcut]** adds an *fpv3d* shortcut to your desktop.
+- **Switzerland map** (right side): the swisstopo grey map with the FOCA drone restriction zones (tick box to hide them) and your locations: yellow = built, click to open it in 3D; grey = not built, click to open the locations map. It is downloaded once and kept in `cache/launcher/`, so it also shows offline; *[update map]* fetches the latest zones.
 
 The viewer and the map page show the current mode in the small badge next to the title. From a terminal: `python -m fpv3d serve` (Full) or `python -m fpv3d serve --lite`, the same for `map` and `new`. `?mode=lite` / `?mode=full` in the viewer address overrides it for one page.
 
