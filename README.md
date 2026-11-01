@@ -29,13 +29,15 @@ fpv3d/
 
 ## Start it: the launcher (Full or Lite)
 
-Double-click **`fpv3d.bat`** in the project folder. A small window opens:
+Double-click **`fpv3d.bat`** in the project folder. One window:
 
-- **Mode: full / lite.** Full is the whole program at full quality. Lite is for slower computers (details below). The choice is remembered.
-- **[3d viewer] / [locations map]** start the local server in that mode and open your browser. Changing the mode restarts the server the next time you open something. Closing the window stops the server.
-- **Offline at the field:** how many of your locations are built (the 3D viewer then works without internet) and whether the internet is reachable (needed for the map background, new downloads and place search).
-- **[desktop shortcut]** adds an *fpv3d* shortcut to your desktop.
-- **Switzerland map + list** (right side): the swisstopo grey map with the FOCA drone restriction zones (tick box to hide them) and your locations with their number (yellow = built, grey = not built), and next to it the list of all locations in number order. Click a location on the map to select it in the list (a ring marks it), double-click it, double-click a row or press *[open]* to open it: in 3D when it is built, otherwise the locations map. The map is downloaded once and kept in `cache/launcher/`, so it also shows offline; *[update map]* fetches the latest zones.
+- **Top bar:** *full / lite* (hover for what each changes; remembered), *[3d viewer]*, *[locations map]* and *[stop]*. Opening something starts the local server in that mode; changing the mode restarts it on the next open; closing the window stops it.
+- **Map of Switzerland:** the swisstopo grey map with the FOCA drone restriction zones (tick box to hide them) and your locations with their number (yellow = built, grey = not built). Click = select, double-click = open. Downloaded once into `cache/launcher/` so it also shows offline; *[update map]* fetches the latest zones.
+- **Locations table:** number, name, and how many **real** and **sim** (training flight) logs each location has; grey rows are not built yet. Click a row to select it (a ring marks it on the map), double-click or Enter to open it.
+- **Details card** of the selected location: size, terrain detail, build date, last log, and a bar chart of real vs sim logs with their total flight time. *[open in 3d]* (or *[build on the map]* when it isn't built).
+- **Status bar:** server state, how many locations are built (= usable offline, hover for the list), internet yes/no, total real / sim logs, *[check]* (reload) and *[shortcut]* (desktop shortcut).
+
+Logs count as **sim** when they come from the training flight (`<location>_sim_<date>` or `logs/sim/`), everything else counts as **real**.
 - **Numbered locations:** a new location gets the next number in front of its name, with as many digits as your existing ones (e.g. `015_gruyere` after `014_vanil_noir`, or `01_...` for the very first). Renaming keeps the number.
 
 The viewer and the map page show the current mode in the small badge next to the title. From a terminal: `python -m fpv3d serve` (Full) or `python -m fpv3d serve --lite`, the same for `map` and `new`. `?mode=lite` / `?mode=full` in the viewer address overrides it for one page.

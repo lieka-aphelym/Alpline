@@ -1,4 +1,4 @@
-"""fpv3d launcher: pick Full or Lite mode, then open the 3D viewer or the locations map.
+"""fpv3d launcher: pick Full or Lite mode, see your locations on a map of Switzerland, open the 3D viewer.
 
 Double-click fpv3d.bat (or the desktop shortcut it can create). The window starts the local server in the
 chosen mode, opens your browser, and stops the server when you close it. It also tells you whether your
@@ -64,6 +64,68 @@ def load_settings() -> dict:
         return {"mode": "full", "port": 8000}
 
 
+import math
+import re
+from tkinter import ttk
+
+GREY = "#7d8796"
+
+
+class Tip:
+    """Small hover tooltip (the explanations live here instead of on the screen)."""
+    def __init__(self, w, text):
+        self.w, self.text, self.top = w, text, None
+        w.bind("<Enter>", self.show, add="+"); w.bind("<Leave>", self.hide, add="+")
+
+    def show(self, _=None):
+        t = self.text() if callable(self.text) else self.text
+        if not t:
+            return
+        self.top = tk.Toplevel(self.w); self.top.wm_overrideredirect(True)
+        self.top.wm_geometry(f"+{self.w.winfo_rootx()}+{self.w.winfo_rooty() + self.w.winfo_height() + 4}")
+        tk.Label(self.top, text=t, font=SANS, fg=FG, bg=BG3, justify="left", wraplength=340, padx=8, pady=5,
+                 highlightthickness=1, highlightbackground=RULE).pack()
+
+    def hide(self, _=None):
+        if self.top:
+            self.top.destroy(); self.top = None
+
+
+def is_sim(t: dict) -> bool:
+    """Training-flight logs: named <location>_sim_<date> or stored under logs/sim/."""
+    return "_sim_" in t.get("name", "") or bool(re.search(r"[\\/]logs[\\/]sim[\\/]", t.get("source", "")))
+
+
+def flight_stats(name: str) -> dict:
+    """Real and simulator logs of a built location (from scenes/<name>/scene.json)."""
+    out = {"real": 0, "sim": 0, "real_s": 0.0, "sim_s": 0.0, "last": None, "built": None}
+    f = ROOT / "scenes" / name / "scene.json"
+    if not f.exists():
+        return out
+    out["built"] = f.stat().st_mtime
+    try:
+        tracks = json.loads(f.read_text(encoding="utf-8")).get("tracks", [])
+    except Exception:
+        return out
+    for t in tracks:
+        k = "sim" if is_sim(t) else "real"
+        out[k] += 1
+        out[k + "_s"] += float(t.get("duration_s") or 0)
+        p = ROOT / "scenes" / name / t.get("file", "")
+        if p.exists():
+            out["last"] = max(out["last"] or 0, p.stat().st_mtime)
+    return out
+
+
+def fmt_dur(s: float) -> str:
+    s = int(round(s))
+    return f"{s // 3600} h {s % 3600 // 60:02d}" if s >= 3600 else f"{s // 60} min" if s >= 60 else f"{s} s"
+
+
+def fmt_day(ts) -> str:
+    return time.strftime("%d %b %Y", time.localtime(ts)) if ts else "–"
+
+
 class Launcher:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -71,64 +133,96 @@ class Launcher:
         self.proc: subprocess.Popen | None = None
         self.running_mode = None
         self.port = None
+        self.online = None
         root.title("fpv3d")
         root.configure(bg=BG)
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.quit)
+        self.style()
 
-        left = tk.Frame(root, bg=BG); left.pack(side="left", fill="y", anchor="n")
-        self.left = left
-        pad = dict(padx=14)
-        tk.Label(left, text="FPV3D", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(anchor="w", pady=(12, 0), **pad)
-        tk.Label(left, text="FPV flight and signal visualiser", font=SANS, fg=FG2, bg=BG).pack(anchor="w", **pad)
-
-        self.section("MODE")
+        # ---- top bar: title, mode, open buttons
+        top = tk.Frame(root, bg=BG); top.pack(fill="x", padx=14, pady=(10, 8))
+        tk.Label(top, text="FPV3D", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(side="left")
         self.mode = tk.StringVar(value=self.cfg.get("mode", "full"))
-        row = tk.Frame(left, bg=BG); row.pack(fill="x", **pad)
+        seg = tk.Frame(top, bg=RULE, padx=1, pady=1); seg.pack(side="left", padx=(16, 8))
         self.mode_btns = {}
-        for m, label in (("full", "full"), ("lite", "lite")):
-            b = tk.Button(row, text=label, font=("Consolas", 11, "bold"), width=8, relief="flat", bd=0, cursor="hand2",
+        for m in ("full", "lite"):
+            b = tk.Button(seg, text=m, font=("Consolas", 10, "bold"), width=6, relief="flat", bd=0, cursor="hand2",
                           command=lambda m=m: self.set_mode(m))
-            b.pack(side="left", padx=(0, 4))
+            b.pack(side="left")
             self.mode_btns[m] = b
-        self.mode_info = tk.Label(left, font=SANS, fg=FG2, bg=BG, justify="left", wraplength=360)
-        self.mode_info.pack(anchor="w", pady=(6, 0), **pad)
+        Tip(self.mode_btns["full"], "Full: the whole 3D at full quality, redrawn continuously. New locations: 2 m terrain, "
+                                    "2 m photo, 10 m signal grid, 3D buildings.")
+        Tip(self.mode_btns["lite"], "Lite: for slower computers. 3D redrawn only when something changes, lighter mesh. "
+                                    "New locations: 5 m terrain, lighter photo, 20 m signal grid, no 3D buildings.")
+        self.mode_info = tk.Label(top, font=SANS, fg=FG2, bg=BG); self.mode_info.pack(side="left")
+        self.stop_btn = self.button(top, "[stop]", self.stop); self.stop_btn.pack(side="right")
+        Tip(self.stop_btn, "Stop the local server (closing this window does it too).")
+        self.button(top, "[locations map]", lambda: self.open("/viewer/map.html")).pack(side="right", padx=(0, 6))
+        self.button(top, "[3d viewer]", lambda: self.open("/viewer/"), primary=True).pack(side="right", padx=(0, 6))
+        tk.Frame(root, bg=RULE, height=1).pack(fill="x")
 
-        self.section("OPEN")
-        row = tk.Frame(left, bg=BG); row.pack(fill="x", **pad)
-        self.button(row, "[3d viewer]", lambda: self.open("/viewer/"), primary=True).pack(side="left", padx=(0, 6))
-        self.button(row, "[locations map]", lambda: self.open("/viewer/map.html")).pack(side="left")
-        self.status = tk.Label(left, font=MONO, fg=FG2, bg=BG, justify="left", anchor="w")
-        self.status.pack(fill="x", pady=(8, 0), **pad)
-        self.stop_btn = self.button(left, "[stop server]", self.stop)
-        self.stop_btn.pack(anchor="w", pady=(4, 0), **pad)
+        # ---- middle: map | locations table + details card
+        mid = tk.Frame(root, bg=BG); mid.pack(fill="both", padx=14, pady=10)
+        self.map = SwissMap(self, mid)
+        right = tk.Frame(mid, bg=BG, width=390, height=self.map.h + 36)   # fixed size: the window never jumps
+        right.pack(side="left", fill="y", padx=(12, 0)); right.pack_propagate(False)
+        self.loc_title = self.section("LOCATIONS", right)
+        self.table = Table(self, right, height=max(6, (self.map.h - 205) // 21))
+        self.card = Card(self, right)
 
-        self.section("OFFLINE AT THE FIELD")
-        self.offline = tk.Label(left, font=MONO, fg=FG, bg=BG, justify="left", anchor="w", wraplength=360)
-        self.offline.pack(fill="x", **pad)
-        row = tk.Frame(left, bg=BG); row.pack(fill="x", pady=(6, 0), **pad)
-        self.button(row, "[check again]", self.check_offline).pack(side="left", padx=(0, 6))
-        self.button(row, "[desktop shortcut]", self.make_shortcut).pack(side="left")
-        self.msg = tk.Label(left, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=360)
-        self.msg.pack(fill="x", pady=(6, 12), **pad)
-
-        tk.Frame(root, bg=RULE, width=1).pack(side="left", fill="y", pady=12)
-        self.map = SwissMap(self, root)
+        # ---- status bar
+        tk.Frame(root, bg=RULE, height=1).pack(fill="x")
+        bar = tk.Frame(root, bg=BG); bar.pack(fill="x", padx=14, pady=5)
+        self.status = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.status.pack(side="left")
+        self.offline = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.offline.pack(side="left", padx=(18, 0))
+        Tip(self.offline, self.offline_tip)
+        self.net = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.net.pack(side="left", padx=(18, 0))
+        Tip(self.net, lambda: "Internet is used for the map background, new downloads and place search. Without it the "
+                              "3D viewer still works for built locations." if self.online is not None else "")
+        self.flights = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.flights.pack(side="left", padx=(18, 0))
+        sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
+        Tip(sc, "Add an 'fpv3d' shortcut to your desktop.")
+        ck = self.button(bar, "[check]", self.check_offline, small=True); ck.pack(side="right", padx=(0, 6))
+        Tip(ck, "Reload the locations and check the internet again.")
+        self.msg = tk.Label(bar, font=SANS, fg=ACC, bg=BG); self.msg.pack(side="right", padx=(0, 12))
 
         self.set_mode(self.mode.get(), save=False)
-        self.refresh_status()
         self.check_offline()
 
     # ------------------------------------------------------------ widgets
-    def section(self, title, parent=None):
-        f = tk.Frame(parent or self.left, bg=BG); f.pack(fill="x", padx=14, pady=(14, 6))
-        tk.Label(f, text=title, font=("Consolas", 9, "bold"), fg=FG, bg=BG).pack(side="left")
-        tk.Frame(f, bg=RULE, height=1).pack(side="left", fill="x", expand=True, padx=(8, 0), pady=(2, 0))
+    def style(self):
+        st = ttk.Style(self.root)
+        try:
+            st.theme_use("clam")
+        except tk.TclError:
+            pass
+        st.configure("L.Treeview", background=BG2, fieldbackground=BG2, foreground=FG, font=MONO, rowheight=21,
+                     borderwidth=0, relief="flat")
+        st.map("L.Treeview", background=[("selected", ACC)], foreground=[("selected", "#000")])
+        st.configure("L.Treeview.Heading", background=BG, foreground=FG2, font=("Consolas", 8, "bold"), relief="flat",
+                     borderwidth=0)
+        st.map("L.Treeview.Heading", background=[("active", BG3)])
+        st.layout("L.Treeview", [("L.Treeview.treearea", {"sticky": "nswe"})])
+        st.configure("L.Vertical.TScrollbar", background=BG3, troughcolor=BG2, bordercolor=BG2, arrowcolor=FG2,
+                     lightcolor=BG3, darkcolor=BG3, gripcount=0)
+        st.map("L.Vertical.TScrollbar", background=[("active", RULE), ("!active", BG3)])
 
-    def button(self, parent, text, cmd, primary=False):
-        return tk.Button(parent, text=text, command=cmd, font=MONO, relief="flat", bd=0, cursor="hand2", padx=10, pady=4,
+    def section(self, title, parent):
+        f = tk.Frame(parent, bg=BG); f.pack(fill="x", pady=(0, 6))
+        lab = tk.Label(f, text=title, font=("Consolas", 9, "bold"), fg=FG, bg=BG); lab.pack(side="left")
+        tk.Frame(f, bg=RULE, height=1).pack(side="left", fill="x", expand=True, padx=(8, 0), pady=(2, 0))
+        return lab
+
+    def button(self, parent, text, cmd, primary=False, small=False):
+        return tk.Button(parent, text=text, command=cmd, font=("Consolas", 9 if small else 10), relief="flat", bd=0,
+                         cursor="hand2", padx=6 if small else 10, pady=1 if small else 4,
                          bg=ACC if primary else BG2, fg="#000" if primary else FG,
                          activebackground=ACC if primary else BG3, activeforeground="#000" if primary else FG)
+
+    def say(self, text):
+        self.msg.configure(text=text)
+        self.root.after(8000, lambda: self.msg.cget("text") == text and self.msg.configure(text=""))
 
     # ------------------------------------------------------------ mode
     def set_mode(self, m, save=True):
@@ -136,11 +230,7 @@ class Launcher:
         for k, b in self.mode_btns.items():
             on = k == m
             b.configure(bg=ACC if on else BG2, fg="#000" if on else FG2, activebackground=ACC if on else BG3)
-        self.mode_info.configure(text=(
-            "Full: the whole 3D at full quality, redrawn continuously. New locations: 2 m terrain, "
-            "2 m photo, 10 m signal grid, 3D buildings." if m == "full" else
-            "Lite: for slower computers. 3D redrawn only when something changes, lighter mesh. New locations: "
-            "5 m terrain, lighter photo, 20 m signal grid, no 3D buildings."))
+        self.mode_info.configure(text="full quality" if m == "full" else "lighter, for slower computers")
         if save:
             self.cfg["mode"] = m
             self.save()
@@ -163,9 +253,9 @@ class Launcher:
             if port_free(base):
                 break
             time.sleep(0.25)
-        port = next((p for p in range(int(self.cfg.get("port", 8000)), int(self.cfg.get("port", 8000)) + 20) if port_free(p)), None)
+        port = next((p for p in range(base, base + 20) if port_free(p)), None)
         if port is None:
-            self.msg.configure(text="No free port between 8000 and 8019: close the other fpv3d windows.")
+            self.say("No free port between 8000 and 8019: close the other fpv3d windows.")
             return False
         args = [python_exe(), "-m", "fpv3d", "serve", "--port", str(port), "--no-browser"]
         if self.mode.get() == "lite":
@@ -178,7 +268,7 @@ class Launcher:
         self.port, self.running_mode = port, self.mode.get()
         for _ in range(60):                     # wait until it answers (max ~15 s)
             if self.proc.poll() is not None:
-                self.msg.configure(text=f"The server stopped right away. See {LOG.relative_to(ROOT)}.")
+                self.say(f"The server stopped right away. See {LOG.relative_to(ROOT)}.")
                 self.proc = None
                 self.refresh_status()
                 return False
@@ -192,11 +282,11 @@ class Launcher:
 
     def open(self, path):
         if not self.server_alive() or self.running_mode != self.mode.get():
-            self.status.configure(text="starting…"); self.root.update()
+            self.status.configure(text="○ starting…", fg=FG2); self.root.update()
             if not self.start():
                 return
         webbrowser.open(f"http://127.0.0.1:{self.port}{path}")
-        self.msg.configure(text="Opened in your browser. Keep this window open while you use fpv3d.")
+        self.say("opened in your browser · keep this window open")
 
     def stop(self):
         if self.server_alive():
@@ -209,30 +299,36 @@ class Launcher:
         self.refresh_status()
 
     def refresh_status(self):
+        if not hasattr(self, "status"):
+            return
         if self.server_alive():
-            note = "" if self.running_mode == self.mode.get() else f"\n(restarts in {self.mode.get()} mode when you open)"
-            self.status.configure(text=f"running · {self.running_mode} · http://127.0.0.1:{self.port}{note}", fg=FG)
+            note = "" if self.running_mode == self.mode.get() else f" (→ {self.mode.get()} on next open)"
+            self.status.configure(text=f"● running · {self.running_mode} · :{self.port}{note}", fg="#3ddc84")
             self.stop_btn.configure(state="normal")
         else:
-            self.status.configure(text="not running (starts when you open)", fg=FG2)
+            self.status.configure(text="○ server off · starts when you open", fg=FG2)
             self.stop_btn.configure(state="disabled")
 
     def quit(self):
         self.stop()
         self.root.destroy()
 
-    # ------------------------------------------------------------ offline check
+    # ------------------------------------------------------------ locations, offline check
     def check_offline(self):
-        if hasattr(self, "map"):
-            self.map.load_locations(); self.map.draw()
-        locs = sorted(p.stem for p in (ROOT / "locations").glob("*.yaml"))
-        built = [n for n in locs if (ROOT / "scenes" / n / "scene.json").exists()]
-        missing = [n for n in locs if n not in built]
-        lines = [f"{len(built)} of {len(locs)} locations built: the 3D viewer works without internet for these."]
-        if missing:
-            lines.append("not built yet: " + ", ".join(missing[:6]) + (" …" if len(missing) > 6 else ""))
-        lines.append("internet: checking…")
-        self.offline.configure(text="\n".join(lines))
+        self.map.load_locations()
+        locs = self.map.locs
+        for l in locs:
+            l["stats"] = flight_stats(l["name"])
+        self.loc_title.configure(text=f"LOCATIONS · {len(locs)}")
+        self.table.fill(locs)
+        self.map.draw()
+        self.card.show(self.map.current())
+        built = [l for l in locs if l.get("built")]
+        self.offline.configure(text=f"{len(built)}/{len(locs)} built" + (" · offline ok" if built else ""),
+                               fg=FG2 if len(built) == len(locs) else FG)
+        real = sum(l["stats"]["real"] for l in locs); sim = sum(l["stats"]["sim"] for l in locs)
+        self.flights.configure(text=f"logs: {real} real · {sim} sim")
+        self.net.configure(text="internet …", fg=FG2)
 
         def net():
             try:
@@ -242,16 +338,31 @@ class Launcher:
                 ok = True                       # the server answered: we are online
             except Exception:
                 ok = False
-            lines[-1] = ("internet: yes (map background, new downloads and searches work)" if ok else
-                         "internet: no. The viewer works; the locations map has no background and "
-                         "new locations can only use what is in the cache.")
-            self.root.after(0, lambda: self.offline.configure(text="\n".join(lines)))
+            self.online = ok
+            self.root.after(0, lambda: self.net.configure(text="internet yes" if ok else "internet no",
+                                                          fg="#3ddc84" if ok else "#ff9f43"))
         threading.Thread(target=net, daemon=True).start()
+
+    def offline_tip(self):
+        missing = [l["name"] for l in self.map.locs if not l.get("built")]
+        return ("Built locations open in the 3D viewer without internet." +
+                (f"\nNot built yet: {', '.join(missing)}" if missing else ""))
+
+    def select(self, name):
+        """one location chosen (map click or table row): ring on the map, row in the table, details card"""
+        self.map.selected = name
+        self.map.draw(save=False)
+        self.table.select(name)
+        self.card.show(self.map.current())
+
+    def open_location(self, l):
+        if l:
+            self.open(f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html")
 
     # ------------------------------------------------------------ desktop shortcut (Windows)
     def make_shortcut(self):
         if os.name != "nt":
-            self.msg.configure(text="Desktop shortcuts are made on Windows only. Start with: python launcher.pyw")
+            self.say("Desktop shortcuts are made on Windows only.")
             return
         pyw = venv_exe("pythonw.exe")             # the project's .venv, so the map can read your locations
         ps = ("$d=[Environment]::GetFolderPath('Desktop');"
@@ -260,19 +371,123 @@ class Launcher:
               "$s.Description='fpv3d: Full or Lite, 3D viewer or locations map';$s.Save()")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.msg.configure(text="Shortcut 'fpv3d' added to your desktop." if r.returncode == 0
-                           else f"Could not create the shortcut: {(r.stderr or r.stdout).strip()[:200]}")
+        self.say("shortcut 'fpv3d' added to your desktop" if r.returncode == 0
+                 else f"could not create the shortcut: {(r.stderr or r.stdout).strip()[:120]}")
+
+
+def split_name(name):
+    """'007_moleson' -> ('007', 'moleson'); 'test' -> ('', 'test')"""
+    head, _, rest = name.partition("_")
+    return (head, rest) if head.isdigit() and rest else ("", name)
+
+
+class Table:
+    """Locations in number order: # · name · real logs · sim logs (grey row = not built yet)."""
+    def __init__(self, app, parent, height):
+        self.app = app
+        box = tk.Frame(parent, bg=RULE, padx=1, pady=1); box.pack(fill="x")
+        self.tv = ttk.Treeview(box, style="L.Treeview", columns=("num", "name", "real", "sim"), show="headings",
+                               height=height, selectmode="browse")
+        for c, label, w, anchor in (("num", "#", 42, "w"), ("name", "LOCATION", 190, "w"),
+                                    ("real", "REAL", 54, "e"), ("sim", "SIM", 54, "e")):
+            self.tv.heading(c, text=label, anchor=anchor)
+            self.tv.column(c, width=w, anchor=anchor, stretch=c == "name")
+        self.tv.tag_configure("nb", foreground=GREY)
+        sb = ttk.Scrollbar(box, orient="vertical", command=self.tv.yview, style="L.Vertical.TScrollbar")
+        def autohide(lo, hi):                   # the scrollbar only shows when the list is longer than the box
+            sb.set(lo, hi)
+            if float(lo) <= 0 and float(hi) >= 1:
+                sb.pack_forget()
+            elif not sb.winfo_ismapped():
+                sb.pack(side="left", fill="y")
+        self.tv.configure(yscrollcommand=autohide)
+        self.tv.pack(side="left", fill="x", expand=True)
+        self.tv.bind("<<TreeviewSelect>>", self.on_select)
+        self.tv.bind("<Double-1>", lambda e: app.open_location(app.map.current()))
+        self.tv.bind("<Return>", lambda e: app.open_location(app.map.current()))
+        self.busy = False
+
+    def fill(self, locs):
+        self.busy = True
+        self.tv.delete(*self.tv.get_children())
+        for l in locs:
+            num, rest = split_name(l["name"])
+            st = l.get("stats") or {}
+            self.tv.insert("", "end", iid=l["name"], tags=() if l.get("built") else ("nb",),
+                           values=(num, l.get("title") or rest, st.get("real", 0) or "·", st.get("sim", 0) or "·"))
+        if self.app.map.selected in self.tv.get_children():
+            self.tv.selection_set(self.app.map.selected); self.tv.see(self.app.map.selected)
+        self.busy = False
+
+    def select(self, name):
+        if name in self.tv.get_children() and self.tv.selection() != (name,):
+            self.busy = True
+            self.tv.selection_set(name); self.tv.see(name)
+            self.app.root.after_idle(lambda: setattr(self, "busy", False))
+
+    def on_select(self, _):
+        if self.busy:
+            return
+        sel = self.tv.selection()
+        if sel:
+            self.app.select(sel[0])
+
+
+class Card:
+    """Details of the selected location, with a real / sim bar chart of its logs."""
+    BAR_W = 200
+
+    def __init__(self, app, parent):
+        self.app = app
+        f = tk.Frame(parent, bg=RULE, padx=1, pady=1); f.pack(fill="x", pady=(10, 0))
+        inner = tk.Frame(f, bg=BG, padx=10, pady=8); inner.pack(fill="both")
+        self.title = tk.Label(inner, font=("Consolas", 10, "bold"), fg=FG, bg=BG, anchor="w"); self.title.pack(fill="x")
+        self.info = tk.Label(inner, font=("Consolas", 9), fg=FG2, bg=BG, anchor="w", justify="left", wraplength=350)
+        self.info.pack(fill="x", pady=(2, 6))
+        self.cv = tk.Canvas(inner, width=330, height=46, bg=BG, highlightthickness=0); self.cv.pack(anchor="w")
+        row = tk.Frame(inner, bg=BG); row.pack(fill="x", pady=(8, 0))
+        self.open_btn = app.button(row, "[open in 3d]", lambda: app.open_location(app.map.current()), primary=True)
+        self.open_btn.pack(side="left")
+        self.map_btn = app.button(row, "[locations map]", lambda: app.open("/viewer/map.html"))
+        self.map_btn.pack(side="left", padx=(6, 0))
+
+    def show(self, l):
+        self.cv.delete("all")
+        if not l:
+            self.title.configure(text="no location selected")
+            self.info.configure(text="click one on the map or in the list")
+            self.open_btn.configure(state="disabled")
+            return
+        num, rest = split_name(l["name"])
+        self.title.configure(text=f"{num + ' · ' if num else ''}{(l.get('title') or rest).upper()}")
+        size = (f"route {l['corridor']['length_m'] / 1000:.1f} km" if l.get("corridor")
+                else f"{2 * l['half_size_m'] / 1000:g} × {2 * l['half_size_m'] / 1000:g} km")
+        st = l.get("stats") or {}
+        built = f"built {fmt_day(st.get('built'))}" if l.get("built") else "not built yet"
+        last = f" · last log {fmt_day(st.get('last'))}" if st.get("last") else ""
+        self.info.configure(text=f"{size} · terrain {l.get('resolution_m', '?'):g} m · {built}{last}")
+        self.open_btn.configure(state="normal", text="[open in 3d]" if l.get("built") else "[build on the map]")
+        # bar chart: real vs sim logs (bars scaled to the location with the most logs)
+        most = max([1] + [max(x["stats"]["real"], x["stats"]["sim"]) for x in self.app.map.locs if x.get("stats")])
+        for i, (k, label, col) in enumerate((("real", "REAL", ACC), ("sim", "SIM", "#8fb3ff"))):
+            y = 4 + i * 22
+            n, secs = st.get(k, 0), st.get(k + "_s", 0)
+            self.cv.create_text(0, y + 7, text=label, anchor="w", fill=FG2, font=("Consolas", 8, "bold"))
+            self.cv.create_rectangle(40, y, 40 + self.BAR_W, y + 14, fill=BG2, outline="")
+            if n:
+                self.cv.create_rectangle(40, y, 40 + max(3, self.BAR_W * n / most), y + 14, fill=col, outline="")
+            self.cv.create_text(48 + self.BAR_W, y + 7, anchor="w", fill=FG if n else GREY, font=("Consolas", 9),
+                                text=f"{n}  {fmt_dur(secs)}" if n else "0")
 
 
 # ---------------------------------------------------------------- Switzerland map
 # swisstopo grey map + FOCA drone restrictions (the same tiles as the locations map page), downloaded once
 # at zoom 8, cropped to Switzerland and kept in cache/launcher/ so the map also shows offline.
-import math
 
 MAP_DIR = ROOT / "cache" / "launcher"
 BBOX = (5.85, 45.75, 10.6, 47.9)                    # lon/lat west, south, east, north
 Z = 8
-MAP_W = 560                                          # canvas width (px)
+MAP_W = 600                                          # canvas width (px)
 TILE_URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
 
 
@@ -286,55 +501,37 @@ def merc(lon, lat, z=Z):
 
 
 class SwissMap:
-    def __init__(self, app: "Launcher", root):
+    def __init__(self, app: "Launcher", parent):
         self.app = app
         x0, y0 = merc(BBOX[0], BBOX[3]); x1, y1 = merc(BBOX[2], BBOX[1])
         self.org, self.scale = (x0, y0), MAP_W / (x1 - x0)
         self.h = round((y1 - y0) * self.scale)
-        f = tk.Frame(root, bg=BG); f.pack(side="left", fill="both", anchor="n")
-        app.section("SWITZERLAND", f)
-        wrap = tk.Frame(f, bg=BG); wrap.pack(fill="x", padx=14)
-        self.cv = tk.Canvas(wrap, width=MAP_W, height=self.h, bg=BG2, highlightthickness=1, highlightbackground=RULE)
-        self.cv.pack(side="left", anchor="n")
-        # list of the locations, in number order, next to the map
-        lf = tk.Frame(wrap, bg=BG); lf.pack(side="left", fill="y", padx=(10, 0))
-        tk.Label(lf, text="LOCATIONS", font=("Consolas", 9, "bold"), fg=FG, bg=BG, anchor="w").pack(fill="x")
-        box = tk.Frame(lf, bg=BG); box.pack(fill="both", expand=True, pady=(4, 0))
-        self.lst = tk.Listbox(box, width=30, height=max(8, (self.h - 60) // 18), font=MONO, bg=BG2, fg=FG,
-                              selectbackground=ACC, selectforeground="#000", highlightthickness=1, highlightbackground=RULE,
-                              highlightcolor=ACC, relief="flat", bd=0, activestyle="none", exportselection=False)
-        sb = tk.Scrollbar(box, orient="vertical", command=self.lst.yview, bg=BG2, troughcolor=BG, bd=0, width=10)
-        self.lst.configure(yscrollcommand=sb.set)
-        self.lst.pack(side="left", fill="both", expand=True); sb.pack(side="left", fill="y")
-        self.lst.bind("<<ListboxSelect>>", lambda e: self.draw(save=False))
-        self.lst.bind("<Double-Button-1>", lambda e: self.open_selected())
-        self.lst.bind("<Return>", lambda e: self.open_selected())
-        app.button(lf, "[open]", self.open_selected, primary=True).pack(anchor="w", pady=(6, 0))
-        tk.Label(lf, text="white = built (opens in 3D)\ngrey = not built yet", font=SANS, fg=FG2, bg=BG,
-                 justify="left", anchor="w").pack(fill="x", pady=(4, 0))
-        row = tk.Frame(f, bg=BG); row.pack(fill="x", padx=14, pady=(6, 0))
+        f = tk.Frame(parent, bg=BG); f.pack(side="left", anchor="n")
+        self.cv = tk.Canvas(f, width=MAP_W, height=self.h, bg=BG2, highlightthickness=1, highlightbackground=RULE)
+        self.cv.pack()
+        row = tk.Frame(f, bg=BG); row.pack(fill="x", pady=(6, 0))
         self.zones = tk.BooleanVar(value=app.cfg.get("map_zones", True))
-        tk.Checkbutton(row, text="drone zones (FOCA)", variable=self.zones, command=self.draw, font=SANS, fg=FG, bg=BG,
-                       selectcolor=BG2, activebackground=BG, activeforeground=FG, bd=0).pack(side="left")
-        app.button(row, "[update map]", lambda: self.download(force=True)).pack(side="right")
-        self.info = tk.Label(f, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=MAP_W)
-        self.info.pack(fill="x", padx=14, pady=(6, 12))
-        self.hint = ("Squares and routes: your locations, with their number (yellow = built, grey = not built). "
-                     "Click one to select it in the list, double-click to open it. Coloured areas: drone restrictions "
-                     "from FOCA, check the locations map for the details before flying.")
-        self.info.configure(text=self.hint)
+        cb = tk.Checkbutton(row, text="drone zones (FOCA)", variable=self.zones, command=self.draw, font=SANS, fg=FG, bg=BG,
+                            selectcolor=BG2, activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0)
+        cb.pack(side="left")
+        Tip(cb, "Official drone restrictions from FOCA (map.geo.admin.ch). An overview only: check the locations map "
+                "for the details before flying.")
+        up = app.button(row, "[update map]", lambda: self.download(force=True), small=True); up.pack(side="right")
+        Tip(up, "Download the map and the latest drone zones again (needs internet; kept for offline use).")
+        self.hint = "click = select · double-click = open"
+        self.info = tk.Label(row, text=self.hint, font=SANS, fg=FG2, bg=BG); self.info.pack(side="right", padx=(0, 10))
         self.imgs = {}
         self.locs = []
-        self.selected = None
-        self.load_locations()
-        if all((MAP_DIR / f"ch_{k}.png").exists() for k in ("base", "zones")):
-            self.draw()
-        else:
+        self.selected = app.cfg.get("selected")
+        if not all((MAP_DIR / f"ch_{k}_{MAP_W}.png").exists() for k in ("base", "zones")):
             self.download()
 
     def px(self, lat, lon):
         x, y = merc(lon, lat)
         return (x - self.org[0]) * self.scale, (y - self.org[1]) * self.scale
+
+    def current(self):
+        return next((l for l in self.locs if l["name"] == self.selected), None)
 
     # ---------------------------------------------------------- data
     def load_locations(self):
@@ -345,37 +542,11 @@ class SwissMap:
                 sys.path.append(str(sp))
             from fpv3d.locations import list_locations
             self.locs = sorted((l for l in list_locations(ROOT / "scenes") if "center" in l), key=lambda l: l["name"])
-            self.fill_list()
         except Exception as ex:                     # missing libraries etc.: the map still works without them
             self.locs = []
-            self.info.configure(text=f"Locations not shown ({ex.__class__.__name__}: {ex})")
-
-    def fill_list(self):
-        self.lst.delete(0, "end")
-        for i, l in enumerate(self.locs):
-            num, rest = self.split(l["name"])
-            self.lst.insert("end", f"{num or '   '} {l.get('title') or rest}")
-            self.lst.itemconfigure(i, fg=FG if l.get("built") else "#7d8796")
-            if l["name"] == self.selected:
-                self.lst.selection_set(i); self.lst.see(i)
-
-    @staticmethod
-    def split(name):
-        """'007_moleson' -> ('007', 'moleson'); 'test' -> ('', 'test')"""
-        head, _, rest = name.partition("_")
-        return (head, rest) if head.isdigit() and rest else ("", name)
-
-    def select(self, name):
-        self.selected = name
-        self.fill_list()
-        self.draw(save=False)
-
-    def open_selected(self):
-        sel = self.lst.curselection()
-        if not sel:
-            return
-        l = self.locs[sel[0]]
-        self.app.open(f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html")
+            self.info.configure(text=f"locations not shown ({ex.__class__.__name__})")
+        if self.selected not in [l["name"] for l in self.locs]:
+            self.selected = self.locs[0]["name"] if self.locs else None
 
     def download(self, force=False):
         self.cv.delete("all")
@@ -407,12 +578,11 @@ class SwissMap:
                     out[key] = crop
                 base = out["base"].convert("RGB").convert("RGBA")
                 MAP_DIR.mkdir(parents=True, exist_ok=True)
-                base.save(MAP_DIR / "ch_base.png")
-                Image.alpha_composite(base, out["zones"]).save(MAP_DIR / "ch_zones.png")
+                base.save(MAP_DIR / f"ch_base_{MAP_W}.png")
+                Image.alpha_composite(base, out["zones"]).save(MAP_DIR / f"ch_zones_{MAP_W}.png")
                 self.app.root.after(0, lambda: (self.imgs.clear(), self.draw(), self.info.configure(text=self.hint)))
             except Exception as ex:
-                msg = (f"Map not downloaded ({ex.__class__.__name__}). It needs internet once, then it also works offline. "
-                       "Try [update map] later.")
+                msg = f"map not downloaded ({ex.__class__.__name__}): needs internet once"
                 self.app.root.after(0, lambda: (self.draw(), self.info.configure(text=msg)))
         threading.Thread(target=work, daemon=True).start()
 
@@ -420,15 +590,11 @@ class SwissMap:
     def draw(self, save=True):
         if save:
             self.app.cfg["map_zones"] = self.zones.get(); self.app.save()
-        sel = self.lst.curselection()
-        if sel and sel[0] < len(self.locs):
-            self.selected = self.locs[sel[0]]["name"]
-        if self.lst.size() != len(self.locs):
-            self.fill_list()
+        self.app.cfg["selected"] = self.selected
         cv = self.cv
         cv.delete("all")
         key = "zones" if self.zones.get() else "base"
-        p = MAP_DIR / f"ch_{key}.png"
+        p = MAP_DIR / f"ch_{key}_{MAP_W}.png"
         if p.exists():
             try:
                 self.imgs[key] = self.imgs.get(key) or tk.PhotoImage(file=str(p))
@@ -455,7 +621,7 @@ class SwissMap:
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline=col, width=2,
                                     fill=col if l.get("built") else "", stipple="gray50" if l.get("built") else "", tags=tag)
                 lx, ly = cx + r, cy - r
-            label = self.split(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
+            label = split_name(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
             if l["name"] == self.selected:                          # selected in the list: a ring around it
                 rx, ry = (cx, cy) if not l.get("corridor") else (pts[0], pts[1])
                 cv.create_oval(rx - 14, ry - 14, rx + 14, ry + 14, outline="#000", width=4)
@@ -467,12 +633,11 @@ class SwissMap:
                     cv.create_text(lx + 4 + dx, ly + dy, text=label, anchor="sw", fill="#000", font=("Consolas", 9, "bold"), tags=tag)
                 cv.create_text(lx + 4, ly, text=label, anchor="sw", fill=col, font=("Consolas", 9, "bold"), tags=tag)
             cv.tag_bind(tag, "<Enter>", lambda e, l=l: (self.cv.configure(cursor="hand2"), self.info.configure(
-                text=f"{l.get('title') or l['name']} · " + ("built: double-click to open it in 3D" if l.get("built")
-                                                             else "not built yet: double-click to open the locations map"))))
+                text=f"{l.get('title') or l['name']}" + ("" if l.get("built") else " (not built)"))))
             cv.tag_bind(tag, "<Leave>", lambda e: (self.cv.configure(cursor=""), self.info.configure(text=self.hint)))
-            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.select(l["name"]))       # click: select (+ list)
-            cv.tag_bind(tag, "<Double-Button-1>", lambda e, l=l: self.app.open(
-                f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html"))
+            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.app.select(l["name"]))   # click: select (table + card)
+            cv.tag_bind(tag, "<Double-Button-1>", lambda e, l=l: self.app.open_location(l))
+
 
 
 if __name__ == "__main__":
