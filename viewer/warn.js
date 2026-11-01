@@ -19,7 +19,8 @@
 //   blind      low harsh double buzz (+ the action)   weak   soft low wobble (+ "back" when very weak)
 //   lost       one long low tone                      clear  two bright rising notes
 // Repetition = urgency: ahead every 1.6 s, close every 0.7 s, blind every 1.3 s, weak every 2.5 s.
-// Climb repeats faster (ahead 0.9 s, close 0.6 s, no sight 0.8 s with the buzz every 3rd time) while you must still climb.
+// Climb repeats faster (ahead 0.9 s, close 0.6 s, no sight 0.8 s with the buzz every 3rd time) while you must still climb;
+// in mixed mode every 4th one is the spoken word "Climb".
 // Modes: 'mixed' (default: voice says the sentence once when the situation changes, then only the sound repeats),
 //        'sounds' (never speaks), 'voice' (sentences + the old plain beeps).
 const RANK = { ok: 0, link: 1, caution: 2, urgent: 3, blind: 4, lost: 5 };
@@ -150,7 +151,7 @@ export function createWarner({ S, demHeight, el }) {
   }
   const EVERY = { caution: 1600, urgent: 700, blind: 1300, link: 2500 };
   const CLIMB_EVERY = { caution: 900, urgent: 600, blind: 800 };   // the climb sweep repeats faster than the other sounds
-  let cueN = 0;
+  let cueN = 0, climbN = 0;
   const BEEP = { caution: [900, () => tone(880, 0.09)], urgent: [300, () => tone(1320, 0.08)],
     blind: [650, () => { tone(1100, 0.08); tone(700, 0.1, 0.12); }], link: [1400, () => tone(600, 0.12)] };
   function soundLoop(now) {
@@ -167,7 +168,12 @@ export function createWarner({ S, demHeight, el }) {
     const every = last.detail?.startsWith('link') ? 2000 : climbing ? CLIMB_EVERY[last.level] : EVERY[last.level];
     if (!every || now - cueT < every) return;
     cueT = now;
+    // mixed mode: after three climb sounds the voice says "Climb", then the sounds go on (sweep, sweep, sweep, "Climb", ...)
+    if (climbing && cfg.mode === 'mixed' && climbN >= 3 && 'speechSynthesis' in window) {
+      climbN = 0; speechSynthesis.cancel(); say('Climb'); return;
+    }
     if (climbing && names.length > 1 && cueN++ % 3 !== 0) names = names.filter((n) => n !== 'blind');
+    if (climbing && !muted('climb')) climbN++;
     play(names);
   }
   const speaks = () => cfg.mode === 'mixed' || cfg.mode === 'voice';
@@ -221,7 +227,7 @@ export function createWarner({ S, demHeight, el }) {
           else if (cfg.mode === 'sounds') { cueT = now; play(cueOf(r)); }
           cueT = now;
         }
-        if (newKind) cueN = 1;                            // the first sound (with the buzz) was just played or spoken
+        if (newKind) { cueN = 1; climbN = cfg.mode === 'sounds' && cueOf(r).some((n) => n.startsWith('climb')) ? 1 : 0; }                            // the first sound (with the buzz) was just played or spoken
         lastKind = kind;
       }
       last = r;
