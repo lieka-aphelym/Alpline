@@ -202,7 +202,7 @@
 
   <section data-tab="fly" id="liveSection">
     <h2>Live flight</h2>
-    <p class="summary" id="sumLive">See the real drone on the map from your radio's telemetry, with voice warnings before it flies out of sight.</p>
+    <p class="summary" id="sumLive">See the real drone on the map from your radio's telemetry, with sound and voice warnings before it flies out of sight.</p>
     <label class="row">Source <select id="liveSrc">
       <option value="serial">My radio (USB cable)</option>
       <option value="replay">Replay a flight (test)</option>
@@ -225,9 +225,20 @@
       <div class="row btns"><button id="liveZoom">[zoom]</button><button id="liveCopy">[copy GPS]</button><a id="liveGeoAdmin" target="_blank" rel="noopener" class="navlink">[map.geo.admin]</a></div>
     </div>
     <h2 style="margin-top:12px">Warnings</h2>
-    <label class="row"><input type="checkbox" id="warnVoice" checked> Voice</label>
-    <label class="row"><input type="checkbox" id="warnBeeps" checked> Beeps (faster = closer)</label>
-    <div class="row btns"><button id="warnTest">[test sound]</button></div>
+    <label class="row">Alerts <select id="warnMode">
+      <option value="mixed">Sounds + voice the first time</option>
+      <option value="sounds">Sounds only</option>
+      <option value="voice">Voice + beeps</option>
+      <option value="off">Off (screen only)</option>
+    </select></label>
+    <div class="small muted">Learn the sounds (stereo earbuds for left / right). They repeat faster when it gets closer:</div>
+    <div class="soundboard" id="warnBoard">
+      <button data-s="climb">[climb]</button><button data-s="climb2">[climb a lot]</button>
+      <button data-s="left">[left]</button><button data-s="right">[right]</button><button data-s="back">[turn back]</button>
+      <button data-s="blind">[no sight]</button><button data-s="weak">[signal weak]</button>
+      <button data-s="lost">[signal lost]</button><button data-s="clear">[clear]</button>
+    </div>
+    <div class="row btns"><button id="warnTest">[test a warning]</button></div>
     <details class="adv"><summary>Advanced</summary>
       <label class="row">Warn this far ahead <output id="warnLookOut"></output></label>
       <input type="range" id="warnLook" min="3" max="10" step="1" value="5">

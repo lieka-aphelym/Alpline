@@ -58,9 +58,9 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   };
   $('livePortRefresh').onclick = fillPorts;
   $('liveConnect').onclick = () => (st.on ? disconnect() : connect());
-  for (const [id, key] of [['warnVoice', 'voice'], ['warnBeeps', 'beeps']]) {
-    $(id).checked = W.cfg[key]; $(id).onchange = () => { W.cfg[key] = $(id).checked; W.save(); };
-  }
+  $('warnMode').value = W.cfg.mode;
+  $('warnMode').onchange = () => { W.cfg.mode = $('warnMode').value; W.save(); };
+  $('warnBoard').onclick = (e) => { const s = e.target.closest('button')?.dataset.s; if (s) W.play(s); };
   $('warnLook').value = W.cfg.lookahead; $('warnLookOut').textContent = `${W.cfg.lookahead} s`;
   $('warnLook').oninput = () => { W.cfg.lookahead = +$('warnLook').value; $('warnLookOut').textContent = `${W.cfg.lookahead} s`; W.save(); };
   $('warnTest').onclick = () => W.test();

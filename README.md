@@ -101,6 +101,17 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
   - "Clear", once it's safe again
 
   The voice always says the reason first, then one action. When the warning goes on, it only repeats the action ("Climb 35", "Turn left now"). Directions are from the drone's direction of flight: *bear left/right* (a small turn), *turn left/right*, *turn back*. A coloured box at the top of the screen shows the same thing for a spotter (title, action, seconds and metres), with a small clock dial for the escape direction.
+
+  **Command sounds.** Under *[fly] → Warnings → Alerts* you choose *Sounds + voice the first time* (default: the sentence once when something new happens, then only the sound repeats), *Sounds only*, *Voice + beeps* (the sentences and plain beeps) or *Off*. Each command has its own sound, and it repeats faster when it gets closer (every 1.6 s ahead, 0.7 s close):
+  - climb: a rising sweep (twice = climb more than 40 m)
+  - left / right: a double tick in that ear only (use stereo earbuds)
+  - turn back: two falling tones, left then right
+  - no line of sight: a low harsh double buzz, followed by the action
+  - signal weak: a soft low wobble (followed by "turn back" when very weak)
+  - signal lost: one long low tone
+  - clear: two bright rising notes
+
+  The buttons under *Alerts* play each sound, to learn them before flying (the simulator warns too).
 - **Signal lost:** after 1.5 s without GPS telemetry there is one long tone and "Signal lost". A red pin marks the last fix and a red area the likely impact zone (free fall from the last height and speed, carried forward along the course). The panel gives distance and direction from the pilot, GPS coordinates to copy, and a link to map.geo.admin.ch.
 - **Recording:** everything is saved to `logs/live/<location>/`. When you disconnect (with *Save the flight* ticked), the flight becomes a normal log of the scene.
 - **Training:** the same warnings work in the simulator (*Also warn during training flights*), so you can get used to them before a real flight. *Replay a flight log (test)* plays one of the scene's logs back as if it came from the radio, to try everything without flying.

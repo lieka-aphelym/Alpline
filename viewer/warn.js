@@ -12,12 +12,23 @@
 //   back to ok                                              -> "Clear"
 // Repeats only say the action ("Climb 30", "Turn left now"). Directions are relative to the direction of flight:
 // bear left/right (up to 45 deg), turn left/right (up to 120 deg), turn back. The spotter's screen also shows a clock dial.
+//
+// Command sounds (no files, made with Web Audio; left / right are panned, so use stereo earbuds):
+//   climb      rising sweep (twice = climb a lot, more than 40 m)
+//   left/right double tick in that ear only           back   two falling tones, left then right
+//   blind      low harsh double buzz (+ the action)   weak   soft low wobble (+ "back" when very weak)
+//   lost       one long low tone                      clear  two bright rising notes
+// Repetition = urgency: ahead every 1.6 s, close every 0.7 s, blind every 1.3 s, weak every 2.5 s.
+// Modes: 'mixed' (default: voice says the sentence once when the situation changes, then only the sound repeats),
+//        'sounds' (never speaks), 'voice' (sentences + the old plain beeps).
 const RANK = { ok: 0, link: 1, caution: 2, urgent: 3, blind: 4, lost: 5 };
 const COLORS = { ok: '#1f6f4a', link: '#9a6b00', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };
 
 export function createWarner({ S, demHeight, el }) {
-  const cfg = { voice: true, beeps: true, lookahead: 5, margin: 5, climbRate: 12 };
+  const cfg = { mode: 'mixed', lookahead: 5, margin: 5, climbRate: 12 };
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('fpv3d:warn') || '{}')); } catch { /* private mode */ }
+  if (!['mixed', 'sounds', 'voice', 'off'].includes(cfg.mode)) cfg.mode = 'mixed';
+  delete cfg.voice; delete cfg.beeps;                       // settings of the older version
   const save = () => { try { localStorage.setItem('fpv3d:warn', JSON.stringify(cfg)); } catch { /* ignore */ } };
   let last = { level: 'ok' }, lastSpoke = 0, lastText = '', lastKind = '', active = false;
 
@@ -88,30 +99,70 @@ export function createWarner({ S, demHeight, el }) {
   }
 
   // ------------------------------------------------------------ sound
-  let ac = null, beepT = 0;
+  let ac = null, cueT = 0, quietUntil = 0;
   function audio() { if (!ac) { try { ac = new AudioContext(); } catch { ac = null; } } if (ac?.state === 'suspended') ac.resume(); return ac; }
-  function tone(freq, dur, when = 0, vol = 0.25) {
+  /** one note: freq (-> freqEnd) Hz, dur s, start in `when` s, pan -1 left .. +1 right */
+  function tone(freq, dur, when = 0, vol = 0.25, { type = 'square', freqEnd = null, pan = 0, trem = 0 } = {}) {
     const a = audio(); if (!a) return;
     const o = a.createOscillator(), g = a.createGain(), t0 = a.currentTime + when;
-    o.frequency.value = freq; o.type = 'square';
-    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.01); g.gain.setValueAtTime(vol, t0 + dur - 0.02); g.gain.linearRampToValueAtTime(0, t0 + dur);
-    o.connect(g).connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+    o.type = type; o.frequency.setValueAtTime(freq, t0);
+    if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t0 + dur);
+    g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(vol, t0 + 0.01);
+    g.gain.setValueAtTime(vol, t0 + dur - 0.02); g.gain.linearRampToValueAtTime(0, t0 + dur);
+    let out = g;
+    if (trem) {                                           // tremolo: a second gain wobbled by a slow oscillator
+      const tg = a.createGain(), lfo = a.createOscillator(), depth = a.createGain();
+      tg.gain.value = 0.5; lfo.frequency.value = trem; depth.gain.value = 0.5;
+      lfo.connect(depth).connect(tg.gain); lfo.start(t0); lfo.stop(t0 + dur + 0.05);
+      g.connect(tg); out = tg;
+    }
+    if (pan && a.createStereoPanner) { const p = a.createStereoPanner(); p.pan.value = pan; out.connect(p); out = p; }
+    o.connect(g); out.connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.05);
   }
+  // each sound returns its length in seconds, so two can be chained (blind + climb)
+  const SOUNDS = {
+    climb: (t) => { tone(450, 0.24, t, 0.22, { type: 'triangle', freqEnd: 1150 }); return 0.3; },
+    climb2: (t) => { tone(450, 0.2, t, 0.22, { type: 'triangle', freqEnd: 1150 }); tone(450, 0.2, t + 0.26, 0.22, { type: 'triangle', freqEnd: 1150 }); return 0.5; },
+    left: (t) => { tone(1500, 0.045, t, 0.3, { pan: -1 }); tone(1500, 0.045, t + 0.1, 0.3, { pan: -1 }); return 0.2; },
+    right: (t) => { tone(1500, 0.045, t, 0.3, { pan: 1 }); tone(1500, 0.045, t + 0.1, 0.3, { pan: 1 }); return 0.2; },
+    back: (t) => { tone(950, 0.18, t, 0.22, { type: 'triangle', freqEnd: 520, pan: -0.8 }); tone(850, 0.18, t + 0.22, 0.22, { type: 'triangle', freqEnd: 430, pan: 0.8 }); return 0.45; },
+    blind: (t) => { tone(150, 0.13, t, 0.32, { type: 'sawtooth' }); tone(150, 0.13, t + 0.19, 0.32, { type: 'sawtooth' }); return 0.4; },
+    weak: (t) => { tone(330, 0.55, t, 0.28, { type: 'sine', trem: 9 }); return 0.65; },
+    lost: (t) => { tone(420, 1.2, t, 0.3); return 1.25; },
+    clear: (t) => { tone(880, 0.1, t, 0.2, { type: 'sine' }); tone(1320, 0.16, t + 0.12, 0.2, { type: 'sine' }); return 0.3; },
+  };
+  function play(names) { audio(); let t = 0; for (const n of names) t += SOUNDS[n]?.(t) ?? 0; }
+  /** which sounds stand for a warning: [reason?, action] */
+  function cueOf(r) {
+    const a = (r.action || '').toLowerCase();
+    const act = a.startsWith('climb') ? (r.climb > 40 ? 'climb2' : 'climb') : a.includes('left') ? 'left' : a.includes('right') ? 'right' : a.includes('back') ? 'back' : null;
+    if (r.level === 'blind') return ['blind', act].filter(Boolean);
+    if (r.level === 'link' || r.detail?.startsWith('link')) return ['weak', act === 'back' ? 'back' : null].filter(Boolean);
+    return act ? [act] : [];
+  }
+  const EVERY = { caution: 1600, urgent: 700, blind: 1300, link: 2500 };
   const BEEP = { caution: [900, () => tone(880, 0.09)], urgent: [300, () => tone(1320, 0.08)],
     blind: [650, () => { tone(1100, 0.08); tone(700, 0.1, 0.12); }], link: [1400, () => tone(600, 0.12)] };
-  function beepLoop(now) {
-    const b = BEEP[last.level];
-    if (!cfg.beeps || !b || now - beepT < b[0]) return;
-    beepT = now; b[1]();
+  function soundLoop(now) {
+    if (cfg.mode === 'off' || now < quietUntil) return;
+    if (cfg.mode === 'voice') {                           // old behaviour: plain beeps, faster = closer
+      const b = BEEP[last.level];
+      if (b && now - cueT >= b[0]) { cueT = now; b[1](); }
+      return;
+    }
+    const every = last.detail?.startsWith('link') ? 2000 : EVERY[last.level];   // very weak signal: wobble + back, 1.1 s long
+    if (every && now - cueT >= every) { cueT = now; play(cueOf(last)); }
   }
+  const speaks = () => cfg.mode === 'mixed' || cfg.mode === 'voice';
   function say(text, interrupt) {
-    if (!cfg.voice || !text || !('speechSynthesis' in window)) return;
+    if (!speaks() || !text || !('speechSynthesis' in window)) return;
     if (interrupt) speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.15; u.lang = 'en-US';
     const v = speechSynthesis.getVoices().find((x) => /^en/i.test(x.lang));
     if (v) u.voice = v;
     speechSynthesis.speak(u);
+    quietUntil = performance.now() + Math.min(3000, 600 + text.length * 55);   // let the sentence finish before the sounds go on
   }
 
   // ------------------------------------------------------------ screen (spotter)
@@ -134,30 +185,47 @@ export function createWarner({ S, demHeight, el }) {
       active = true;
       const r = evaluate(s), now = performance.now();
       const rose = RANK[r.level] > RANK[last.level];
-      if (r.level === 'ok' && RANK[last.level] >= RANK.caution) { say('Clear', true); lastKind = ''; }
-      else if (r.level !== 'ok') {
-        const every = r.level === 'caution' || r.level === 'link' ? 8000 : 4000;
+      if (r.level === 'ok' && RANK[last.level] >= RANK.caution) {
+        lastKind = '';
+        if (cfg.mode === 'voice') say('Clear', true);
+        else if (cfg.mode !== 'off') { if ('speechSynthesis' in window) speechSynthesis.cancel(); quietUntil = 0; play(['clear']); }
+      } else if (r.level !== 'ok') {
         const kind = `${r.level}:${(r.action || '').replace(/\d+/g, '#')}`;      // same situation, maybe another number
         const newKind = kind !== lastKind;
-        if (rose || now - lastSpoke > every || (r.text !== lastText && now - lastSpoke > 2500)) {
+        if (cfg.mode === 'voice') {
           // full sentence ("Blind zone ahead, climb 30") when the situation is new, only the action ("Climb 35") when it goes on
-          say(rose || newKind ? r.text : r.short || r.text, rose); lastSpoke = now; lastText = r.text; lastKind = kind;
+          const every = r.level === 'caution' || r.level === 'link' ? 8000 : 4000;
+          if (rose || now - lastSpoke > every || (r.text !== lastText && now - lastSpoke > 2500)) {
+            say(rose || newKind ? r.text : r.short || r.text, rose); lastSpoke = now; lastText = r.text;
+          }
+        } else if (rose || newKind) {
+          // mixed: the sentence once, then the sounds; sounds only: the sound right away
+          if (cfg.mode === 'mixed') say(r.text, true);
+          else if (cfg.mode === 'sounds') { cueT = now; play(cueOf(r)); }
+          cueT = now;
         }
+        lastKind = kind;
       }
       last = r;
       render(r);
       return r;
     },
-    tick(now) { if (active) beepLoop(now); },
+    tick(now) { if (active) soundLoop(now); },
     lost(info) {
       last = { level: 'lost', text: info || 'Telemetry stopped', action: 'Last position marked on the map', detail: info || 'no telemetry for 1.5 s' };
-      if (cfg.beeps) tone(420, 1.2, 0, 0.3);
-      say('Signal lost', true);
+      if (cfg.mode !== 'off') { if ('speechSynthesis' in window) speechSynthesis.cancel(); play(['lost']); }
+      if (speaks()) setTimeout(() => say('Signal lost', true), 1300);
       render(last);
     },
     stop() { active = false; last = { level: 'ok' }; render(last); if ('speechSynthesis' in window) speechSynthesis.cancel(); },
     unlock() { audio(); },
-    test() { audio(); tone(880, 0.09); tone(1320, 0.08, 0.3); say('Blind zone ahead, climb 30'); },
+    /** play one command sound (sound board) */
+    play(name) { play(SOUNDS[name] ? [name] : cueOf(name)); },
+    test() {
+      if (cfg.mode === 'voice') { audio(); tone(880, 0.09); say('Blind zone ahead, climb 30'); return; }
+      if (cfg.mode === 'mixed') say('Blind zone ahead, climb 30');
+      setTimeout(() => play(['climb']), cfg.mode === 'mixed' ? 2200 : 0);
+    },
     get level() { return last.level; },
   };
 }

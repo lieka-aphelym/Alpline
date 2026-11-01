@@ -157,3 +157,7 @@ input[type=range]::-moz-range-thumb { width: 8px; height: 14px; background: var(
 #clock { min-width: 0 !important; font-size: 11px !important; white-space: nowrap; }
 #profile { bottom: 50px; }
 body:has(#timeline.moved) #profile { bottom: 14px; }
+
+/* warning sound board */
+.soundboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 6px 0; }
+#panel .soundboard button { padding: 4px 2px !important; font-size: 11px !important; white-space: nowrap; }
