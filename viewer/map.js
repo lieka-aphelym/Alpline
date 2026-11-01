@@ -380,6 +380,8 @@ async function pilotHeight() {
     if (id === heightReq) $('oHeight').innerHTML = r.height == null ? `<span class="muted">${r.source}</span>` : `${r.height.toFixed(0)} m <span class="muted">(${r.source})</span>`;
   } catch { if (id === heightReq) $('oHeight').textContent = '–'; }
 }
+// default terrain detail of a new location: Full mode 2 m, Lite mode 5 m
+$('fRes').value = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite' ? '5' : '2';
 ['fHalf', 'fRes', 'fSurface'].forEach((id) => $(id).addEventListener('input', () => updatePreview(false)));
 
 function loadIntoForm(l) {

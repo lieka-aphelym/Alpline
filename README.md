@@ -27,26 +27,41 @@ fpv3d/
 ```
 
 
-> **This is the `lite` branch** (see the "lite" badge in the viewer and on the map page). It is the same program as `main`, made lighter for slower computers. Switch branches in PyCharm (branch name at the bottom right). Locations, logs, scenes and the terrain cache are shared by both branches.
->
-> - **Render on demand:** the 3D view is only redrawn when something changes (camera, playback, simulator, live data, a setting) instead of 60 times per second, so the graphics card is idle while you read the screen. Add `&render=always` to the viewer address for the old behaviour.
-> - **Lighter 3D:** the overview mesh is 800 × 800 instead of 1500 × 1500 (`&maxgrid=1500` for more), the sharp close-up patch is 384 × 384 instead of 768 × 768, and pixels are capped at 1.25× on high-DPI screens.
-> - **Coarser defaults for new locations** (existing location files keep their values):
->   - terrain: 5 m (instead of 2 m on the map page)
->   - aerial photo: `auto`, the sharpest that stays at most 2048 px (≥ 2 m)
->   - signal grid: 20 m instead of 10 m
->   - flat shadow maps: 2 heights instead of 4
->   - live antenna-edit steps: 4 instead of 11
->   - 3D buildings and the sharp near-pilot photo: off
->
->   On a 5 × 5 km test area this built in 2.3 s instead of 29 s, with 6–9× smaller terrain and shadow files. Turn anything back on in the location file (e.g. `buildings: true`).
->
-> - **Simpler signal display:** no separate "Fresnel" state. Signal loss covers the same idea, so the views show only *clear*, *no line of sight* and *signal loss likely*.
-> - **Cleaner flight info box:** distance, height and speed in large type; one bar per radio link (margin, plus LQ when the log has it); the drone zone only when you're in one. Everything else is under *[more]*, with plain names and units.
-> - **Simpler panel:** plain words ("Where do I lose the drone?", "Hidden by terrain", "No-fly zones"), a one-sentence answer at the top of the Signal, No-fly zones, Flights and Live tabs (e.g. *Video reaches about 2.1 km. Flying at 30 m, the drone stays in sight over 64% of that area*), and the less used settings under **+ Advanced** in each tab.
-> - **Four tabs instead of seven:** **[map]** (photo, camera, no-fly zones, this location), **[signal]** (where you lose the drone, radio range), **[flights]** (logs, comparison, video) and **[fly]** (training flight, live flight with the radio + warnings). The Switzerland map is now the **[locations]** link at the top.
-> - **Radio setups instead of dB fields:** *[signal] → Radio range* offers ready-made choices per link (e.g. *25 mW · stock antennas (CH / EU limit)*, *500 mW · patch on the goggles*, *1 W · directional on the radio*). They set the power and antennas; receiver sensitivity, losses and safety margin keep the location's values. The exact numbers are under *Advanced: exact radio values*.
-> - **Dark / light theme:** the *[dark] [light]* switch next to the title (viewer and map page) is remembered per browser. Dark for indoors, light for reading in sunlight at the field. Both are square-edged and data-first: numbers in a fixed-width font, section titles in small capitals with a thin rule, one accent colour (yellow in dark, blue in light) for what is selected or important.
+## Start it: the launcher (Full or Lite)
+
+Double-click **`fpv3d.bat`** in the project folder. A small window opens:
+
+- **Mode: full / lite.** Full is the whole program at full quality. Lite is for slower computers (details below). The choice is remembered.
+- **[3d viewer] / [locations map]** start the local server in that mode and open your browser. Changing the mode restarts the server the next time you open something. Closing the window stops the server.
+- **Offline at the field:** how many of your locations are built (the 3D viewer then works without internet) and whether the internet is reachable (needed for the map background, new downloads and place search).
+- **[desktop shortcut]** adds an *fpv3d* shortcut to your desktop.
+
+The viewer and the map page show the current mode in the small badge next to the title. From a terminal: `python -m fpv3d serve` (Full) or `python -m fpv3d serve --lite`, the same for `map` and `new`. `?mode=lite` / `?mode=full` in the viewer address overrides it for one page.
+
+**What Lite changes** (everything else is the same program):
+
+| | Full | Lite |
+|---|---|---|
+| 3D drawing | continuously | only when something changes (camera, playback, simulator, live data, a setting) |
+| overview mesh | 1500 × 1500 | 800 × 800 (`&maxgrid=` to change) |
+| sharp close-up patch | 768 × 768 | 384 × 384 |
+| pixels on high-DPI screens | up to 2× | up to 1.25× |
+| new location: terrain (map page) | 2 m | 5 m |
+| new location: aerial photo | 2 m | `auto`: sharpest that stays ≤ 2048 px |
+| new location: signal grid | 10 m | 20 m |
+| new location: flat shadow maps / antenna-edit steps | 4 / 11 | 2 / 4 |
+| new location: 3D buildings, sharp near-pilot photo | on | off |
+
+Existing location files keep their own values in both modes; edit them to change (e.g. `buildings: true`). On a 5 × 5 km test area a Lite location built in 2.3 s instead of 29 s, with 6–9× smaller terrain and shadow files.
+
+**Panel and display** (both modes):
+
+- **Plain panel in four tabs:** **[map]** (photo, camera, no-fly zones, this location), **[signal]** (where you lose the drone, radio range), **[flights]** (logs, comparison, video), **[fly]** (training flight, live flight with the radio + warnings). Each tab starts with a one-sentence answer (e.g. *Video reaches about 2.1 km. Flying at 30 m, the drone stays in sight over 64% of that area*); less used settings are under **+ Advanced**. The Switzerland map is the **[locations]** link at the top.
+- **Radio setups instead of dB fields:** *[signal] → Radio range* offers ready-made choices per link (e.g. *25 mW · stock antennas (CH / EU limit)*, *500 mW · patch on the goggles*). The exact numbers are under *Advanced: exact radio values*.
+- **Simpler signal display:** *clear*, *no line of sight* and *signal loss likely* (no separate Fresnel state).
+- **Clean flight info box:** distance, height and speed in large type, one bar per radio link (margin, plus LQ when the log has it), the drone zone only when you're in one; the rest under *[more]*.
+- **Dark / light theme:** the *[dark] [light]* switch next to the title, remembered per browser. Dark for indoors, light for sunlight at the field.
+- **Playback bar:** small, and you can drag it anywhere by its grip (double-click the grip to put it back). In *[flights]*, the flight **(none)** hides the path, the drone, the info box and the bar.
 
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 

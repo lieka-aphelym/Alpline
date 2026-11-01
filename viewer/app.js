@@ -18,9 +18,13 @@ const params = new URLSearchParams(location.search);
 const SCENES = '../scenes/';
 const MAX_LINKS = 4;
 
+// ------------------------------------------------------------------ Full / Lite mode
+// chosen when the program starts (launcher or --lite; served as /api/mode.js); ?mode=lite|full overrides
+const LITE = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite';
+
 // ------------------------------------------------------------------ renderer / camera
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));   // lite: fewer pixels on high-DPI screens
+renderer.setPixelRatio(Math.min(devicePixelRatio, LITE ? 1.25 : 2));   // Lite: fewer pixels on high-DPI screens
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 $('view').appendChild(renderer.domElement);
@@ -39,10 +43,11 @@ function fitRenderer() {
   requestRender();
 }
 
-// ------------------------------------------------------------------ render on demand (lite)
-// The scene is only drawn when something changes (camera, playback, simulator, live data, UI),
-// instead of 60 times per second. ?render=always restores the old behaviour.
-const RENDER_ALWAYS = new URLSearchParams(location.search).get('render') === 'always';
+// ------------------------------------------------------------------ render on demand (Lite mode)
+// Lite: the scene is only drawn when something changes (camera, playback, simulator, live data, UI),
+// instead of 60 times per second. Full mode draws continuously. ?render=always / ?render=demand override.
+const RENDER_PARAM = new URLSearchParams(location.search).get('render');
+const RENDER_ALWAYS = RENDER_PARAM === 'always' || (!LITE && RENDER_PARAM !== 'demand');
 let renderUntil = 0;
 function requestRender(ms = 250) { renderUntil = Math.max(renderUntil, performance.now() + ms); }
 for (const ev of ['input', 'change', 'click', 'keydown', 'keyup', 'wheel', 'pointerup']) addEventListener(ev, () => requestRender(400), true);
@@ -99,7 +104,7 @@ function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coor
 const API = '/api';
 async function loadOverview(which) {
   const fileMeta = which === 'dtm' && S.meta.terrain_dtm ? S.meta.terrain_dtm : { file: S.meta.terrain, grid: S.meta.grid };
-  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || 800);    // lite: 800 x 800 overview (?maxgrid=1500 for more)
+  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || (LITE ? 800 : 1500));   // overview mesh: Lite 800 x 800, Full 1500 x 1500
   const step = Math.max(1, Math.ceil(Math.max(g.cols, g.rows) / maxSide));
   let dem = null, cols, rows, api = null;
   try {

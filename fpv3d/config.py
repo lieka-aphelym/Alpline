@@ -57,7 +57,7 @@ class TerrainCfg:
     resolution_m: float = 5.0
     surface: str = "dtm"          # "dtm" = bare ground, "dsm" = incl. trees & buildings
     ortho: bool = True
-    ortho_resolution_m: object = 2.0  # metres, or "auto" = sharpest that keeps the photo <= 2048 px (lite)
+    ortho_resolution_m: object = 2.0  # metres, or "auto" = sharpest that keeps the photo <= 2048 px (Lite default)
     local_dem_files: List[str] = field(default_factory=list)   # optional offline GeoTIFFs
     buildings: bool = True            # 3D buildings (OpenStreetMap footprints + swisstopo heights)
     detail_radius_m: float = 600      # sharp aerial photo around the pilot ...

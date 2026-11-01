@@ -30,15 +30,11 @@ terrain:
   resolution_m: {res:g}          # 0.5,1,2,2.5,4,5,8,10,20,25,40,50
   surface: {surface}             # dtm = bare ground (swissALTI3D), dsm = incl. trees/buildings (swissSURFACE3D)
   ortho: true
-  ortho_resolution_m: auto       # lite: sharpest photo that stays <= 2048 px (or a value in m, e.g. 2)
-  buildings: false         # lite: off. true = 3D buildings (OpenStreetMap footprints, swisstopo heights)
-  ortho_detail_m: off      # lite: off. auto = sharp 0.5 m photo near the pilot when resolution_m <= 1
+{terrain_opts}
   detail_radius_m: 600
 
-analysis:                  # lite defaults (full version: [10, 30, 60, 120], 10 m, 11 loss steps)
-  los_agl_m: [30, 120]     # flat shadow maps (the 3D shadows already cover every height)
-  los_resolution_m: 20     # signal analysis grid (m)
-  loss_offsets_db: [-6, 0, 6, 12]   # radio-budget steps for live antenna / power edits
+analysis:                  # created in {mode} mode
+{analysis_opts}
   primary_link: 0          # index into links: used for the shadow map
   k_factor: 1.333
   fresnel_clearance: 0.6
@@ -49,6 +45,24 @@ log_options:
   altitude_mode: auto      # auto | amsl | relative | agl
   altitude_offset_m: 0
 """
+
+# what differs between a location created in Full and in Lite mode (see fpv3d/mode.py)
+MODE_OPTS = {
+    "full": dict(
+        terrain_opts="""  ortho_resolution_m: 2          # aerial photo (m), or auto = sharpest that stays <= 2048 px
+  buildings: true          # 3D buildings: OpenStreetMap footprints, heights from swisstopo
+  ortho_detail_m: auto     # sharp photo near the pilot: auto (0.5 m if resolution_m <= 1), a value, or off""",
+        analysis_opts="""  los_agl_m: [10, 30, 60, 120]   # flat shadow maps
+  los_resolution_m: 10     # signal analysis grid (m)
+  loss_offsets_db: [-9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21]   # radio-budget steps for live antenna / power edits"""),
+    "lite": dict(
+        terrain_opts="""  ortho_resolution_m: auto       # sharpest photo that stays <= 2048 px (or a value in m, e.g. 2)
+  buildings: false         # off in Lite mode. true = 3D buildings (OpenStreetMap footprints, swisstopo heights)
+  ortho_detail_m: off      # off in Lite mode. auto = sharp 0.5 m photo near the pilot when resolution_m <= 1""",
+        analysis_opts="""  los_agl_m: [30, 120]     # flat shadow maps (the 3D shadows already cover every height)
+  los_resolution_m: 20     # signal analysis grid (m)
+  loss_offsets_db: [-6, 0, 6, 12]   # radio-budget steps for live antenna / power edits"""),
+}
 
 DEFAULT_LINKS = """links:
   - name: "Video 5.8 GHz"
@@ -106,11 +120,13 @@ def write_location(name: str, title: str, center, pilot=None, half_size_m=2500, 
         if src.get("links"):
             links = yaml.safe_dump({"links": src["links"]}, sort_keys=False, allow_unicode=True)
     pilot = pilot or center
+    from . import mode as _mode
+    m = _mode.current()
     LOC_DIR.mkdir(exist_ok=True)
     text = TEMPLATE.format(
         name=name, title=(title or name).replace('"', "'"), clat=center[0], clon=center[1],
         plat=pilot[0], plon=pilot[1], half=half_size_m, antenna=antenna_height_m,
-        res=resolution_m, surface=surface, links=links)
+        res=resolution_m, surface=surface, links=links, mode=m, **MODE_OPTS[m])
     if corridor:
         block = ("corridor:                  # route-shaped location: only a strip along these points\n"
                  f"  width_m: {width:g}             # each side of the line\n  points:\n"

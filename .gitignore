@@ -9,3 +9,4 @@ locations/
 logs/
 # editor
 .idea/
+launcher.json

@@ -1,4 +1,4 @@
-// fpv3d lite: let a floating box (the playback bar) be dragged anywhere by its grip.
+// fpv3d: let a floating box (the playback bar) be dragged anywhere by its grip.
 // The position is remembered per browser; double-click the grip to put it back in its default place.
 export function makeMovable(el, grip, key) {
   const load = () => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };

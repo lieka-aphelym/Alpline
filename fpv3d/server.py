@@ -198,10 +198,20 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             u = urllib.parse.urlparse(self.path)
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             try:
+                if u.path == "/api/mode.js":     # loaded by the pages before anything else: Full or Lite mode
+                    from . import mode
+                    body = f'window.FPV3D_MODE = "{mode.current()}";\n'.encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/javascript")
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    return self.wfile.write(body)
                 if u.path == "/api/state":
                     from .trash import list_deleted
+                    from . import mode
                     return self._json(dict(locations=list_locations(scenes_dir), cache=cache.inventory(),
-                                           tile_size_m=TILE, deleted=list_deleted()[:10]))
+                                           tile_size_m=TILE, deleted=list_deleted()[:10], mode=mode.current()))
                 if u.path == "/api/height":
                     e, n = wgs84_to_lv95(float(q["lat"]), float(q["lon"]))
                     e, n = float(e), float(n)

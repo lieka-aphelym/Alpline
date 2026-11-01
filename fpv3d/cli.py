@@ -2,7 +2,7 @@
 
   build      locations/moleson.yaml [--log FILE ...]   download data, compute LOS, write scene
   add-log    locations/moleson.yaml FILE [FILE ...]    add flight logs to an existing scene (fast)
-  serve      [--port 8000] [--scene NAME]               open the 3D viewer in your browser
+  serve      [--port 8000] [--scene NAME] [--lite]      open the 3D viewer in your browser (--lite = Lite mode)
   map        [--port 8000]                              Swiss map: cached areas, click to create locations
   new        NAME --lat 46.x --lon 7.x                  create a new location file
   refresh-all [--zones-only | --full] [--missing]      update every scene at once (new features, zones, tracks)
@@ -187,6 +187,10 @@ def cmd_add_log(a):
 
 def cmd_serve(a, path=None):
     from .server import serve
+    from . import mode
+    if getattr(a, "lite", False):
+        mode.set_mode("lite")
+    print(f"fpv3d: {mode.current()} mode")
     path = path or ("/viewer/" + (f"?scene={a.scene}" if a.scene else ""))
     serve(a.port, Path(a.scenes), Path(a.cache), path, not a.no_browser)
 
@@ -197,6 +201,9 @@ def cmd_map(a):
 
 def cmd_new(a):
     from .locations import write_location
+    from . import mode
+    if getattr(a, "lite", False):
+        mode.set_mode("lite")
     pilot = (a.pilot_lat, a.pilot_lon) if a.pilot_lat is not None and a.pilot_lon is not None else None
     try:
         out = write_location(a.name, a.title or a.name, (a.lat, a.lon), pilot, a.half_size, a.resolution,
@@ -324,11 +331,13 @@ def main(argv=None):
     s.add_argument("--port", type=int, default=8000)
     s.add_argument("--scene")
     s.add_argument("--no-browser", action="store_true")
+    s.add_argument("--lite", action="store_true", help="Lite mode: lighter 3D and lighter defaults for new locations")
     s.set_defaults(func=cmd_serve)
 
     mp = sub.add_parser("map", help="open the Switzerland map (cached areas, create locations by clicking)")
     mp.add_argument("--port", type=int, default=8000)
     mp.add_argument("--no-browser", action="store_true")
+    mp.add_argument("--lite", action="store_true", help="Lite mode: lighter 3D and lighter defaults for new locations")
     mp.set_defaults(func=cmd_map, scene=None)
 
     n = sub.add_parser("new", help="create a location file")
@@ -342,6 +351,7 @@ def main(argv=None):
     n.add_argument("--resolution", type=float, default=5)
     n.add_argument("--surface", choices=["dtm", "dsm"], default="dtm")
     n.add_argument("--radio-from", help="copy the radio links of an existing location")
+    n.add_argument("--lite", action="store_true", help="lighter defaults (photo auto, 20 m signal grid, no 3D buildings)")
     n.set_defaults(func=cmd_new)
 
     ra = sub.add_parser("refresh-all", help="update every scene at once (keeps your tracks)")

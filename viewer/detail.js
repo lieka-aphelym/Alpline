@@ -4,7 +4,7 @@
 // patch a 0.5 m scene looks like a 2-8 m one.
 import * as THREE from 'three';
 
-const N = 384;                 // cells per side of the patch (lite: 384, full version 768)
+const N = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite' ? 384 : 768;   // cells per side (Lite 384, Full 768)
 
 export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which }) {
   const g = S.view.grid;                      // full-resolution grid of the displayed ground
