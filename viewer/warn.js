@@ -3,12 +3,15 @@
 // Every update gets the drone state (local x/y metres, z AMSL, velocity m/s, heading) from the live
 // telemetry or the simulator. The path of the next few seconds is checked against the 3D
 // line-of-sight ceilings of the scene: below the ceiling there is no line of sight to the pilot.
-//   caution  shadow within the look-ahead (default 5 s)  -> slow beeps + "Shadow in 4 seconds, climb 30"
-//   urgent   shadow within 2 s                           -> fast beeps + "Climb now" / "Turn back, clear at 10 o'clock"
-//   blind    no line of sight right now                  -> double beeps + "No line of sight, climb 40"
-//   link     real LQ low (live telemetry only)           -> "Link low"
-//   lost     telemetry stopped                           -> one long tone + "Signal lost"
-// Directions use the clock, from the drone's direction of flight: 12 ahead, 3 right, 6 behind, 9 left.
+// Voice = reason + one action, short enough for the goggles ("short + reason"):
+//   caution  blind zone within the look-ahead (default 5 s) -> slow beeps   + "Blind zone ahead, climb 30" / "..., turn left"
+//   urgent   blind zone within 2 s                          -> fast beeps   + "Blind zone close, climb 30 now" / "..., turn back now"
+//   blind    no line of sight right now                     -> double beeps + "No line of sight, climb 40" / "..., turn right"
+//   link     real LQ low (live telemetry only)              -> "Signal weak" / "Signal weak, turn back"
+//   lost     telemetry stopped                              -> one long tone + "Signal lost"
+//   back to ok                                              -> "Clear"
+// Repeats only say the action ("Climb 30", "Turn left now"). Directions are relative to the direction of flight:
+// bear left/right (up to 45 deg), turn left/right (up to 120 deg), turn back. The spotter's screen also shows a clock dial.
 const RANK = { ok: 0, link: 1, caution: 2, urgent: 3, blind: 4, lost: 5 };
 const COLORS = { ok: '#1f6f4a', link: '#9a6b00', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };
 
@@ -16,7 +19,7 @@ export function createWarner({ S, demHeight, el }) {
   const cfg = { voice: true, beeps: true, lookahead: 5, margin: 5, climbRate: 12 };
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('fpv3d:warn') || '{}')); } catch { /* private mode */ }
   const save = () => { try { localStorage.setItem('fpv3d:warn', JSON.stringify(cfg)); } catch { /* ignore */ } };
-  let last = { level: 'ok' }, lastSpoke = 0, lastText = '', active = false;
+  let last = { level: 'ok' }, lastSpoke = 0, lastText = '', lastKind = '', active = false;
 
   // ------------------------------------------------------------ model
   const ceil = (x, y) => (S.vol?.ceilAt ? S.vol.ceilAt('los', x, y) : null);
@@ -37,15 +40,18 @@ export function createWarner({ S, demHeight, el }) {
     return { first, need };
   }
   const clockOf = (rel) => { const h = ((Math.round(rel / 30) % 12) + 12) % 12; return h === 0 ? 12 : h; };
+  const turnOf = (rel) => (Math.abs(rel) > 120 ? 'turn back' : `${Math.abs(rel) <= 45 ? 'bear' : 'turn'} ${rel < 0 ? 'left' : 'right'}`);
+  /** first heading change (relative, deg; + = right) whose path stays in sight, or null */
   function escape(s, speed, horizon) {
     const v = Math.max(speed, 8), hdg = s.heading * Math.PI / 180;
     for (const rel of [-30, 30, -60, 60, -90, 90, -120, 120, -150, 150, 180]) {
       const a = hdg + rel * Math.PI / 180;
       const r = pathCheck(s, v * Math.sin(a), v * Math.cos(a), 0, Math.min(horizon, 4));
-      if (r.first == null) return clockOf(rel);
+      if (r.first == null) return rel;
     }
     return null;
   }
+  const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
   const round5 = (m) => Math.max(5, Math.ceil(m / 5) * 5);
 
   function evaluate(s) {
@@ -56,24 +62,27 @@ export function createWarner({ S, demHeight, el }) {
     const L = cfg.lookahead;
     let r = { level: 'ok', text: '', detail: 'line of sight OK' };
     if (now?.blind) {
-      const clock = escape(s, speed, L);
-      const climb = round5(now.need + cfg.margin);
-      r = { level: 'blind', climb, clock, text: `No line of sight. Climb ${climb}` + (clock ? `, or clear at ${clock} o'clock` : ''),
-        short: climb <= 60 ? `Climb ${climb}` : clock ? `Clear at ${clock} o'clock` : 'Turn back', detail: `blind now · ${Math.round(now.need)} m below the shadow ceiling` };
+      const climb = round5(now.need + cfg.margin), rel = climb > 60 ? escape(s, speed, L) : null;
+      const act = climb <= 60 ? `climb ${climb}` : rel != null ? turnOf(rel) : 'turn back';
+      r = { level: 'blind', climb, clock: rel != null ? clockOf(rel) : null, action: cap(act),
+        text: `No line of sight, ${act}`, short: cap(act),
+        detail: `${Math.round(now.need)} m below the line of sight` + (climb > 60 ? ' · too high to climb' : '') };
     } else if (speed > 1.5 || Math.abs(s.vz) > 1) {
       const p = pathCheck(s, s.vx, s.vy, s.vz, L);
       if (p.first != null) {
         const climb = round5(p.need + cfg.margin), canClimb = climb <= cfg.climbRate * p.first + 5;
-        const clock = canClimb ? null : escape(s, speed, L);
+        const rel = canClimb ? null : escape(s, speed, L);
         const urgent = p.first <= 2;
-        const act = canClimb ? `climb ${climb}` : `turn back${clock ? `, clear at ${clock} o'clock` : ''}`;
-        r = { level: urgent ? 'urgent' : 'caution', tShadow: p.first, climb, clock,
-          text: urgent ? (canClimb ? `Climb now, ${climb}` : `Turn back${clock ? `. Clear at ${clock} o'clock` : ''}`) : `Shadow in ${Math.round(p.first)} seconds, ${act}`,
-          detail: `shadow in ${p.first.toFixed(1)} s · needs +${Math.round(p.need)} m` };
+        const act = canClimb ? `climb ${climb}` : rel != null ? turnOf(rel) : 'turn back';
+        const now_ = urgent ? ' now' : '';
+        r = { level: urgent ? 'urgent' : 'caution', tShadow: p.first, climb, clock: rel != null ? clockOf(rel) : null, action: cap(act),
+          text: `Blind zone ${urgent ? 'close' : 'ahead'}, ${act}${now_}`, short: cap(act) + now_,
+          detail: `in ${p.first.toFixed(1)} s · needs +${Math.round(p.need)} m` };
       }
     }
     if (s.lq != null && s.lq < 70 && RANK[r.level] < RANK.caution) {
-      r = { level: s.lq < 50 ? 'urgent' : 'link', text: s.lq < 50 ? 'Link low. Turn back' : 'Link low', detail: `LQ ${s.lq}%` };
+      r = { level: s.lq < 50 ? 'urgent' : 'link', text: s.lq < 50 ? 'Signal weak, turn back' : 'Signal weak',
+        short: s.lq < 50 ? 'Turn back' : 'Signal weak', action: s.lq < 50 ? 'Turn back' : 'Watch the signal', detail: `link quality ${s.lq}%` };
     }
     return r;
   }
@@ -110,8 +119,9 @@ export function createWarner({ S, demHeight, el }) {
     if (!el) return;
     el.box.classList.toggle('hidden', !active);
     el.box.style.background = COLORS[r.level] || COLORS.ok;
-    el.title.textContent = { ok: 'Line of sight OK', link: 'LINK LOW', caution: 'SHADOW AHEAD', urgent: 'SHADOW NOW', blind: 'NO LINE OF SIGHT', lost: 'SIGNAL LOST' }[r.level];
-    el.text.textContent = r.level === 'ok' ? r.detail : r.text;
+    el.title.textContent = r.level === 'urgent' && r.detail?.startsWith('link') ? 'SIGNAL VERY WEAK'
+      : { ok: 'Line of sight OK', link: 'SIGNAL WEAK', caution: 'BLIND ZONE AHEAD', urgent: 'BLIND ZONE CLOSE', blind: 'NO LINE OF SIGHT', lost: 'SIGNAL LOST' }[r.level];
+    el.text.textContent = r.level === 'ok' ? r.detail : r.action || r.text;
     el.detail.textContent = r.level === 'ok' ? '' : r.detail || '';
     el.dial.classList.toggle('hidden', !r.clock);
     if (r.clock) el.hand.style.transform = `rotate(${(r.clock % 12) * 30}deg)`;
@@ -124,11 +134,14 @@ export function createWarner({ S, demHeight, el }) {
       active = true;
       const r = evaluate(s), now = performance.now();
       const rose = RANK[r.level] > RANK[last.level];
-      if (r.level === 'ok' && RANK[last.level] >= RANK.caution) say('Clear', true);
+      if (r.level === 'ok' && RANK[last.level] >= RANK.caution) { say('Clear', true); lastKind = ''; }
       else if (r.level !== 'ok') {
         const every = r.level === 'caution' || r.level === 'link' ? 8000 : 4000;
+        const kind = `${r.level}:${(r.action || '').replace(/\d+/g, '#')}`;      // same situation, maybe another number
+        const newKind = kind !== lastKind;
         if (rose || now - lastSpoke > every || (r.text !== lastText && now - lastSpoke > 2500)) {
-          say(r.level === 'urgent' && r.short ? r.short : r.text, rose); lastSpoke = now; lastText = r.text;
+          // full sentence ("Blind zone ahead, climb 30") when the situation is new, only the action ("Climb 35") when it goes on
+          say(rose || newKind ? r.text : r.short || r.text, rose); lastSpoke = now; lastText = r.text; lastKind = kind;
         }
       }
       last = r;
@@ -137,14 +150,14 @@ export function createWarner({ S, demHeight, el }) {
     },
     tick(now) { if (active) beepLoop(now); },
     lost(info) {
-      last = { level: 'lost', text: info || 'Telemetry stopped', detail: 'last known position marked on the map' };
+      last = { level: 'lost', text: info || 'Telemetry stopped', action: 'Last position marked on the map', detail: info || 'no telemetry for 1.5 s' };
       if (cfg.beeps) tone(420, 1.2, 0, 0.3);
       say('Signal lost', true);
       render(last);
     },
     stop() { active = false; last = { level: 'ok' }; render(last); if ('speechSynthesis' in window) speechSynthesis.cancel(); },
     unlock() { audio(); },
-    test() { audio(); tone(880, 0.09); tone(1320, 0.08, 0.3); say("Shadow in 4 seconds, climb 30. Clear at 10 o'clock"); },
+    test() { audio(); tone(880, 0.09); tone(1320, 0.08, 0.3); say('Blind zone ahead, climb 30'); },
     get level() { return last.level; },
   };
 }

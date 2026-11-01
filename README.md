@@ -94,13 +94,13 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
 **What you get**
 - **Live drone:** the drone moves on the map with a trail coloured by LQ, a dashed line shows where it will be in a few seconds, and you see LQ, RSSI, SNR, TX power, battery, flight mode, height above ground, speed, distance and satellites.
 - **Warnings (voice + beeps, through the laptop speaker or an earbud):** the path of the next seconds (*Look ahead*, 5 s by default) is checked against the 3D shadows of the scene, i.e. the height below which there is no line of sight to the pilot:
-  - "Shadow in 4 seconds, climb 30", with slow beeps
-  - "Climb now" or "Turn back. Clear at 10 o'clock", with fast beeps
-  - "No line of sight. Climb 40", with double beeps
-  - "Link low", when the real LQ drops
+  - "Blind zone ahead, climb 30" (or "..., turn left" when climbing is not enough), with slow beeps
+  - "Blind zone close, climb 30 now" / "..., turn back now", with fast beeps
+  - "No line of sight, climb 40" (or "..., turn right"), with double beeps
+  - "Signal weak" when the real LQ drops, "Signal weak, turn back" when it is very low
   - "Clear", once it's safe again
 
-  Directions use the clock, from the drone's direction of flight: 12 ahead, 3 right, 6 behind, 9 left. A coloured box at the top of the screen shows the same thing for a spotter, with a small clock dial for the escape direction.
+  The voice always says the reason first, then one action. When the warning goes on, it only repeats the action ("Climb 35", "Turn left now"). Directions are from the drone's direction of flight: *bear left/right* (a small turn), *turn left/right*, *turn back*. A coloured box at the top of the screen shows the same thing for a spotter (title, action, seconds and metres), with a small clock dial for the escape direction.
 - **Signal lost:** after 1.5 s without GPS telemetry there is one long tone and "Signal lost". A red pin marks the last fix and a red area the likely impact zone (free fall from the last height and speed, carried forward along the course). The panel gives distance and direction from the pilot, GPS coordinates to copy, and a link to map.geo.admin.ch.
 - **Recording:** everything is saved to `logs/live/<location>/`. When you disconnect (with *Save the flight* ticked), the flight becomes a normal log of the scene.
 - **Training:** the same warnings work in the simulator (*Also warn during training flights*), so you can get used to them before a real flight. *Replay a flight log (test)* plays one of the scene's logs back as if it came from the radio, to try everything without flying.
