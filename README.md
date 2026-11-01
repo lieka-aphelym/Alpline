@@ -103,7 +103,7 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
   The voice always says the reason first, then one action. When the warning goes on, it only repeats the action ("Climb 35", "Turn left now"). Directions are from the drone's direction of flight: *bear left/right* (a small turn), *turn left/right*, *turn back*. A coloured box at the top of the screen shows the same thing for a spotter (title, action, seconds and metres), with a small clock dial for the escape direction.
 
   **Command sounds.** Under *[fly] → Warnings → Alerts* you choose *Sounds + voice the first time* (default: the sentence once when something new happens, then only the sound repeats), *Sounds only*, *Voice + beeps* (the sentences and plain beeps) or *Off*. Each command has its own sound, and it repeats faster when it gets closer (every 1.6 s ahead, 0.7 s close):
-  - climb: a rising sweep (twice = climb more than 40 m)
+  - climb: a rising sweep (twice = climb more than 40 m). It repeats faster than the other sounds (every 0.9 s, 0.6 s when close) for as long as you still have to climb; with no line of sight the buzz only comes every 3rd time
   - left / right: a double tick in that ear only (use stereo earbuds)
   - turn back: two falling tones, left then right
   - no line of sight: a low harsh double buzz, followed by the action
