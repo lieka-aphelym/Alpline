@@ -90,6 +90,28 @@ def path_for(name: str) -> Path:
     return LOC_DIR / f"{name}.yaml"
 
 
+NUM_RE = re.compile(r"^(\d{2,4})_")
+
+
+def numbered_name(name: str) -> str:
+    """New locations are numbered in creation order: 'gruyere' -> '015_gruyere' (next free number, same number of
+    digits as the existing ones, 2 when there are none yet). A name that already starts with a number is kept,
+    and 'moleson' finds an existing '007_moleson' (so saving it again is an overwrite, not a new number)."""
+    if NUM_RE.match(name):
+        return name
+    names = [f.stem for f in LOC_DIR.glob("*.yaml")]
+    trash = ROOT / "deleted"                       # deleted locations keep their number (they can be restored)
+    if trash.exists():
+        names += [f.stem for f in trash.rglob("*.yaml")]
+    for n in names:
+        m = NUM_RE.match(n)
+        if m and n[m.end():] == name and (LOC_DIR / f"{n}.yaml").exists():
+            return n
+    nums = [(int(m.group(1)), len(m.group(1))) for n in names if (m := NUM_RE.match(n))]
+    width = max((w for _, w in nums), default=2)
+    return f"{max((v for v, _ in nums), default=0) + 1:0{width}d}_{name}"
+
+
 def write_location(name: str, title: str, center, pilot=None, half_size_m=2500, resolution_m=5,
                    surface="dtm", antenna_height_m=1.8, radio_from: Optional[str] = None,
                    overwrite=False, corridor: Optional[dict] = None) -> Path:
@@ -98,6 +120,7 @@ def write_location(name: str, title: str, center, pilot=None, half_size_m=2500, 
     from .config import VALID_RES
     if not NAME_RE.match(name or ""):
         raise ValueError("name: lowercase letters, digits, - and _ only (e.g. moleson_east)")
+    name = numbered_name(name)
     if resolution_m not in VALID_RES:
         raise ValueError(f"resolution must be one of {VALID_RES}")
     if surface not in ("dtm", "dsm"):

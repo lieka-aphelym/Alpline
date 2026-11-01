@@ -292,7 +292,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                         float(b.get("half_size_m", 2500)), float(b.get("resolution_m", 5)), b.get("surface", "dtm"),
                         float(b.get("antenna_height_m", 1.8)), b.get("radio_from") or None, bool(b.get("overwrite")),
                         b.get("corridor") or None)
-                    return self._json(dict(ok=True, file=f"locations/{out.name}"))
+                    return self._json(dict(ok=True, file=f"locations/{out.name}", name=out.stem))
                 if u.path == "/api/rename":
                     # {"kind": "location", "old", "new", "title"} or {"kind": "log", "scene", "old", "new"}
                     from . import rename as rn

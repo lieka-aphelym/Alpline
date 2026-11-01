@@ -108,6 +108,10 @@ def rename_location(old: str, new: str, scenes_dir: Path, title: str | None = No
         raise ValueError("name: lowercase letters, digits, - and _ only (e.g. moleson_east)")
     src = _loc_file(old)
     old = src.stem if src.stem == old else old
+    from .locations import NUM_RE
+    m = NUM_RE.match(src.stem)
+    if m and not NUM_RE.match(new):                # keep the location's number: 007_moleson -> 007_moleson_east
+        new = f"{m.group(1)}_{new}"
     if new != old:
         if (LOC_DIR / f"{new}.yaml").exists() or (scenes_dir / new).exists():
             raise FileExistsError(f"a location or scene called '{new}' already exists")

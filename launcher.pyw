@@ -293,8 +293,25 @@ class SwissMap:
         self.h = round((y1 - y0) * self.scale)
         f = tk.Frame(root, bg=BG); f.pack(side="left", fill="both", anchor="n")
         app.section("SWITZERLAND", f)
-        self.cv = tk.Canvas(f, width=MAP_W, height=self.h, bg=BG2, highlightthickness=1, highlightbackground=RULE)
-        self.cv.pack(padx=14)
+        wrap = tk.Frame(f, bg=BG); wrap.pack(fill="x", padx=14)
+        self.cv = tk.Canvas(wrap, width=MAP_W, height=self.h, bg=BG2, highlightthickness=1, highlightbackground=RULE)
+        self.cv.pack(side="left", anchor="n")
+        # list of the locations, in number order, next to the map
+        lf = tk.Frame(wrap, bg=BG); lf.pack(side="left", fill="y", padx=(10, 0))
+        tk.Label(lf, text="LOCATIONS", font=("Consolas", 9, "bold"), fg=FG, bg=BG, anchor="w").pack(fill="x")
+        box = tk.Frame(lf, bg=BG); box.pack(fill="both", expand=True, pady=(4, 0))
+        self.lst = tk.Listbox(box, width=30, height=max(8, (self.h - 60) // 18), font=MONO, bg=BG2, fg=FG,
+                              selectbackground=ACC, selectforeground="#000", highlightthickness=1, highlightbackground=RULE,
+                              highlightcolor=ACC, relief="flat", bd=0, activestyle="none", exportselection=False)
+        sb = tk.Scrollbar(box, orient="vertical", command=self.lst.yview, bg=BG2, troughcolor=BG, bd=0, width=10)
+        self.lst.configure(yscrollcommand=sb.set)
+        self.lst.pack(side="left", fill="both", expand=True); sb.pack(side="left", fill="y")
+        self.lst.bind("<<ListboxSelect>>", lambda e: self.draw(save=False))
+        self.lst.bind("<Double-Button-1>", lambda e: self.open_selected())
+        self.lst.bind("<Return>", lambda e: self.open_selected())
+        app.button(lf, "[open]", self.open_selected, primary=True).pack(anchor="w", pady=(6, 0))
+        tk.Label(lf, text="white = built (opens in 3D)\ngrey = not built yet", font=SANS, fg=FG2, bg=BG,
+                 justify="left", anchor="w").pack(fill="x", pady=(4, 0))
         row = tk.Frame(f, bg=BG); row.pack(fill="x", padx=14, pady=(6, 0))
         self.zones = tk.BooleanVar(value=app.cfg.get("map_zones", True))
         tk.Checkbutton(row, text="drone zones (FOCA)", variable=self.zones, command=self.draw, font=SANS, fg=FG, bg=BG,
@@ -302,12 +319,13 @@ class SwissMap:
         app.button(row, "[update map]", lambda: self.download(force=True)).pack(side="right")
         self.info = tk.Label(f, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=MAP_W)
         self.info.pack(fill="x", padx=14, pady=(6, 12))
-        self.hint = ("Squares and routes: your locations (yellow = built, click to open it in 3D; grey = not built, "
-                     "click to open the locations map). Coloured areas: drone restrictions from FOCA, check the "
-                     "locations map for the details before flying.")
+        self.hint = ("Squares and routes: your locations, with their number (yellow = built, grey = not built). "
+                     "Click one to select it in the list, double-click to open it. Coloured areas: drone restrictions "
+                     "from FOCA, check the locations map for the details before flying.")
         self.info.configure(text=self.hint)
         self.imgs = {}
         self.locs = []
+        self.selected = None
         self.load_locations()
         if all((MAP_DIR / f"ch_{k}.png").exists() for k in ("base", "zones")):
             self.draw()
@@ -326,10 +344,38 @@ class SwissMap:
             if sp.exists() and str(sp) not in sys.path:
                 sys.path.append(str(sp))
             from fpv3d.locations import list_locations
-            self.locs = [l for l in list_locations(ROOT / "scenes") if "center" in l]
+            self.locs = sorted((l for l in list_locations(ROOT / "scenes") if "center" in l), key=lambda l: l["name"])
+            self.fill_list()
         except Exception as ex:                     # missing libraries etc.: the map still works without them
             self.locs = []
             self.info.configure(text=f"Locations not shown ({ex.__class__.__name__}: {ex})")
+
+    def fill_list(self):
+        self.lst.delete(0, "end")
+        for i, l in enumerate(self.locs):
+            num, rest = self.split(l["name"])
+            self.lst.insert("end", f"{num or '   '} {l.get('title') or rest}")
+            self.lst.itemconfigure(i, fg=FG if l.get("built") else "#7d8796")
+            if l["name"] == self.selected:
+                self.lst.selection_set(i); self.lst.see(i)
+
+    @staticmethod
+    def split(name):
+        """'007_moleson' -> ('007', 'moleson'); 'test' -> ('', 'test')"""
+        head, _, rest = name.partition("_")
+        return (head, rest) if head.isdigit() and rest else ("", name)
+
+    def select(self, name):
+        self.selected = name
+        self.fill_list()
+        self.draw(save=False)
+
+    def open_selected(self):
+        sel = self.lst.curselection()
+        if not sel:
+            return
+        l = self.locs[sel[0]]
+        self.app.open(f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html")
 
     def download(self, force=False):
         self.cv.delete("all")
@@ -371,8 +417,14 @@ class SwissMap:
         threading.Thread(target=work, daemon=True).start()
 
     # ---------------------------------------------------------- drawing
-    def draw(self):
-        self.app.cfg["map_zones"] = self.zones.get(); self.app.save()
+    def draw(self, save=True):
+        if save:
+            self.app.cfg["map_zones"] = self.zones.get(); self.app.save()
+        sel = self.lst.curselection()
+        if sel and sel[0] < len(self.locs):
+            self.selected = self.locs[sel[0]]["name"]
+        if self.lst.size() != len(self.locs):
+            self.fill_list()
         cv = self.cv
         cv.delete("all")
         key = "zones" if self.zones.get() else "base"
@@ -403,17 +455,23 @@ class SwissMap:
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline=col, width=2,
                                     fill=col if l.get("built") else "", stipple="gray50" if l.get("built") else "", tags=tag)
                 lx, ly = cx + r, cy - r
-            box = (lx + 3, ly - 13, lx + 6 + 7 * len(l["name"]), ly + 1)
+            label = self.split(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
+            if l["name"] == self.selected:                          # selected in the list: a ring around it
+                rx, ry = (cx, cy) if not l.get("corridor") else (pts[0], pts[1])
+                cv.create_oval(rx - 14, ry - 14, rx + 14, ry + 14, outline="#000", width=4)
+                cv.create_oval(rx - 14, ry - 14, rx + 14, ry + 14, outline=ACC, width=2)
+            box = (lx + 3, ly - 13, lx + 6 + 7 * len(label), ly + 1)
             if not any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3] for o in labels):
                 labels.append(box)                  # names that would overlap another one are left out (hover shows them)
                 for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):    # dark halo so the name reads on any background
-                    cv.create_text(lx + 4 + dx, ly + dy, text=l["name"], anchor="sw", fill="#000", font=("Consolas", 9, "bold"), tags=tag)
-                cv.create_text(lx + 4, ly, text=l["name"], anchor="sw", fill=col, font=("Consolas", 9, "bold"), tags=tag)
+                    cv.create_text(lx + 4 + dx, ly + dy, text=label, anchor="sw", fill="#000", font=("Consolas", 9, "bold"), tags=tag)
+                cv.create_text(lx + 4, ly, text=label, anchor="sw", fill=col, font=("Consolas", 9, "bold"), tags=tag)
             cv.tag_bind(tag, "<Enter>", lambda e, l=l: (self.cv.configure(cursor="hand2"), self.info.configure(
-                text=f"{l.get('title') or l['name']} · " + ("built: click to open it in 3D" if l.get("built")
-                                                             else "not built yet: click to open the locations map"))))
+                text=f"{l.get('title') or l['name']} · " + ("built: double-click to open it in 3D" if l.get("built")
+                                                             else "not built yet: double-click to open the locations map"))))
             cv.tag_bind(tag, "<Leave>", lambda e: (self.cv.configure(cursor=""), self.info.configure(text=self.hint)))
-            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.app.open(
+            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.select(l["name"]))       # click: select (+ list)
+            cv.tag_bind(tag, "<Double-Button-1>", lambda e, l=l: self.app.open(
                 f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html"))
 
 

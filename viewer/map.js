@@ -416,7 +416,7 @@ async function save() {
   const r = await fetch('/api/locations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const d = await r.json();
   if (!r.ok) { msg(d.exists ? `${d.error} - tick "overwrite" or choose another name.` : d.error, 'err'); return null; }
-  msg(`Saved ${d.file}`, 'ok'); await refresh(); return name;
+  msg(`Saved ${d.file}`, 'ok'); await refresh(); return d.name || name;   // the server adds the number (015_name)
 }
 
 let PROG = null;
