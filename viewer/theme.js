@@ -24,8 +24,9 @@
     h1.insertAdjacentElement('afterend', sw);
     set(get());
     // Full / Lite mode badge (the mode is chosen when the program starts: launcher or --lite)
+    var m = new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE;   // ?mode= overrides, like the viewer
     var b = document.querySelector('small.lite');
-    if (b) { b.textContent = window.FPV3D_MODE === 'lite' ? 'lite' : 'full'; b.title = window.FPV3D_MODE === 'lite'
+    if (b) { b.textContent = m === 'lite' ? 'lite' : 'full'; b.title = m === 'lite'
       ? 'Lite mode: lighter 3D and lighter defaults for new locations (choose in the launcher)'
       : 'Full mode (choose Lite in the launcher for slower computers)'; }
   });

@@ -23,10 +23,10 @@
   --t-fg2: #3b4552;
   --t-rule: #c9ced6;
   --t-rule2: #7d8796;
-  --t-acc: #0050c8;
+  --t-acc: #d52b1e;         /* accent: Swiss red */
   --t-acc-fg: #fff;
   --t-shadow: 0 2px 14px rgba(0,0,0,.28);
-  --ok: #0a8a3a; --warn: #a86400; --bad: #c4142c;
+  --ok: #0a8a3a; --warn: #a86400; --bad: #8c0a16;   /* danger is a darker crimson so it never looks like 'selected' */
 }
 
 :root { --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace; font-size: 13.5px; }
@@ -119,6 +119,8 @@ details.help summary { font-family: var(--mono); }
 
 /* light theme: a few hard-coded dark bits */
 :root[data-theme="light"] #panel .rail button.on { background: var(--t-bg) !important; }
+:root[data-theme="light"] .summary b { color: var(--t-fg); }          /* red is for selection; figures stay black */
+:root[data-theme="light"] #panel button.danger { background: #fff !important; color: var(--bad) !important; border: 1px solid var(--bad) !important; }
 :root[data-theme="light"] #warnBox { box-shadow: var(--t-shadow); }
 :root[data-theme="light"] .lite { background: none; }
 :root[data-theme="light"] .mappage #map { background: #dfe3e8; }
