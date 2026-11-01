@@ -28,11 +28,22 @@ MONO = ("Consolas", 10)
 SANS = ("Segoe UI", 10)
 
 
-def python_exe() -> str:
-    """The console-less python that runs this window -> its python.exe twin for the server."""
+def venv_exe(name: str) -> str:
+    """python.exe / pythonw.exe of the project's virtual environment (.venv), where numpy, rasterio, PyYAML...
+    are installed. Asked for explicitly: with the Microsoft Store Python, sys.executable inside a venv points
+    to the base Python, which does not have those libraries."""
+    for d in (ROOT / ".venv" / "Scripts", ROOT / ".venv" / "bin", Path(sys.prefix) / "Scripts", Path(sys.prefix) / "bin"):
+        for n in (name, name.replace(".exe", ""), "python3" if name.startswith("python.") else name):
+            if (d / n).exists():
+                return str(d / n)
     exe = Path(sys.executable)
-    twin = exe.with_name("python.exe") if exe.name.lower() == "pythonw.exe" else exe
+    twin = exe.with_name(name)
     return str(twin if twin.exists() else exe)
+
+
+def python_exe() -> str:
+    """The python that runs the server (console version, no window: CREATE_NO_WINDOW)."""
+    return venv_exe("python.exe")
 
 
 def port_free(port: int) -> bool:
@@ -242,8 +253,7 @@ class Launcher:
         if os.name != "nt":
             self.msg.configure(text="Desktop shortcuts are made on Windows only. Start with: python launcher.pyw")
             return
-        exe = Path(sys.executable)
-        pyw = exe.with_name("pythonw.exe") if exe.with_name("pythonw.exe").exists() else exe
+        pyw = venv_exe("pythonw.exe")             # the project's .venv, so the map can read your locations
         ps = ("$d=[Environment]::GetFolderPath('Desktop');"
               "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'fpv3d.lnk'));"
               f"$s.TargetPath='{pyw}';$s.Arguments='\"{ROOT / 'launcher.pyw'}\"';$s.WorkingDirectory='{ROOT}';"
@@ -312,6 +322,9 @@ class SwissMap:
     def load_locations(self):
         try:
             sys.path.insert(0, str(ROOT))
+            sp = ROOT / ".venv" / "Lib" / "site-packages"   # in case this window was started without the .venv
+            if sp.exists() and str(sp) not in sys.path:
+                sys.path.append(str(sp))
             from fpv3d.locations import list_locations
             self.locs = [l for l in list_locations(ROOT / "scenes") if "center" in l]
         except Exception as ex:                     # missing libraries etc.: the map still works without them
