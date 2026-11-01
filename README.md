@@ -1,6 +1,8 @@
-# fpv3d: FPV flight and signal visualiser on Swiss terrain
+# Alpline (by lieka): FPV line of sight on Swiss terrain
 
-fpv3d builds a 3D map of any place in Switzerland from **swisstopo open data**. It then shows where your FPV radio link is likely to struggle:
+Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**. It then shows where your FPV radio link is likely to struggle:
+
+*The code and the commands keep their short technical name `fpv3d` (e.g. `python -m fpv3d build ...`).*
 
 - **Range spheres** are drawn around the pilot antenna, one per radio link (video, control…). Their size comes from a free-space link budget. A coloured ring marks where each sphere meets the ground.
 - **Signal shadow ("dark zone")** is draped on the terrain. It marks every spot where a drone flying *N m above ground* has no direct line of sight to you, or where the Fresnel zone is obstructed. It is precomputed for several heights. In the viewer you can pick one, or let the overlay follow the drone's live height.
@@ -29,13 +31,13 @@ fpv3d/
 
 ## Start it: the launcher (Full or Lite)
 
-Double-click **`fpv3d.bat`** in the project folder. One window:
+Double-click **`Alpline.bat`** in the project folder. One window:
 
 - **Top bar:** *full / lite* (hover for what each changes; remembered), *[3d viewer]*, *[locations map]* and *[stop]*. Opening something starts the local server in that mode; changing the mode restarts it on the next open; closing the window stops it.
 - **Map of Switzerland:** the swisstopo grey map with the FOCA drone restriction zones (tick box to hide them) and your locations with their number (yellow = built, grey = not built). Click = select, double-click = open. Downloaded once into `cache/launcher/` so it also shows offline; *[update map]* fetches the latest zones.
 - **Locations table:** number, name, and how many **real** and **sim** (training flight) logs each location has; grey rows are not built yet. Click a row to select it (a ring marks it on the map), double-click or Enter to open it.
 - **Details card** of the selected location: size, terrain detail, build date, last log, and a bar chart of real vs sim logs with their total flight time. *[open in 3d]* (or *[build on the map]* when it isn't built).
-- **Status bar:** server state, how many locations are built (= usable offline, hover for the list), internet yes/no, total real / sim logs, *[check]* (reload) and *[shortcut]* (desktop shortcut).
+- **Status bar:** server state, how many locations are built (= usable offline, hover for the list), internet yes/no, total real / sim logs, *[check]* (reload) and *[shortcut]* (an *Alpline* desktop shortcut).
 
 Logs count as **sim** when they come from the training flight (`<location>_sim_<date>` or `logs/sim/`), everything else counts as **real**.
 

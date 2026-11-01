@@ -166,3 +166,6 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 .soundboard label:has(input:not(:checked)) { color: var(--t-fg2); text-decoration: line-through; }
 .soundboard span { display: flex; gap: 3px; justify-content: flex-end; }
 #panel .soundboard button { padding: 2px 6px !important; font-size: 11px !important; white-space: nowrap; }
+
+/* app name: ALPLINE by lieka */
+#panel h1 .by { text-transform: none; font: 400 10.5px var(--mono); letter-spacing: 0; color: var(--t-fg2); margin-left: 2px; }

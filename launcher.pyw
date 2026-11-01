@@ -1,6 +1,6 @@
-"""fpv3d launcher: pick Full or Lite mode, see your locations on a map of Switzerland, open the 3D viewer.
+"""Alpline (by lieka) launcher: pick Full or Lite mode, see your locations on a map of Switzerland, open the 3D viewer.
 
-Double-click fpv3d.bat (or the desktop shortcut it can create). The window starts the local server in the
+Double-click Alpline.bat (or the desktop shortcut it can create). The window starts the local server in the
 chosen mode, opens your browser, and stops the server when you close it. It also tells you whether your
 locations are ready to use offline at the field.
 """
@@ -134,7 +134,7 @@ class Launcher:
         self.running_mode = None
         self.port = None
         self.online = None
-        root.title("fpv3d")
+        root.title("Alpline by lieka")
         root.configure(bg=BG)
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.quit)
@@ -142,7 +142,8 @@ class Launcher:
 
         # ---- top bar: title, mode, open buttons
         top = tk.Frame(root, bg=BG); top.pack(fill="x", padx=14, pady=(10, 8))
-        tk.Label(top, text="FPV3D", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(side="left")
+        tk.Label(top, text="ALPLINE", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(side="left")
+        tk.Label(top, text="by lieka", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(6, 0), pady=(6, 0))
         self.mode = tk.StringVar(value=self.cfg.get("mode", "full"))
         seg = tk.Frame(top, bg=RULE, padx=1, pady=1); seg.pack(side="left", padx=(16, 8))
         self.mode_btns = {}
@@ -182,7 +183,7 @@ class Launcher:
                               "3D viewer still works for built locations." if self.online is not None else "")
         self.flights = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.flights.pack(side="left", padx=(18, 0))
         sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
-        Tip(sc, "Add an 'fpv3d' shortcut to your desktop.")
+        Tip(sc, "Add an 'Alpline' shortcut to your desktop.")
         ck = self.button(bar, "[check]", self.check_offline, small=True); ck.pack(side="right", padx=(0, 6))
         Tip(ck, "Reload the locations and check the internet again.")
         self.msg = tk.Label(bar, font=SANS, fg=ACC, bg=BG); self.msg.pack(side="right", padx=(0, 12))
@@ -255,7 +256,7 @@ class Launcher:
             time.sleep(0.25)
         port = next((p for p in range(base, base + 20) if port_free(p)), None)
         if port is None:
-            self.say("No free port between 8000 and 8019: close the other fpv3d windows.")
+            self.say("No free port between 8000 and 8019: close the other Alpline windows.")
             return False
         args = [python_exe(), "-m", "fpv3d", "serve", "--port", str(port), "--no-browser"]
         if self.mode.get() == "lite":
@@ -366,12 +367,12 @@ class Launcher:
             return
         pyw = venv_exe("pythonw.exe")             # the project's .venv, so the map can read your locations
         ps = ("$d=[Environment]::GetFolderPath('Desktop');"
-              "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'fpv3d.lnk'));"
+              "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Alpline.lnk'));"
               f"$s.TargetPath='{pyw}';$s.Arguments='\"{ROOT / 'launcher.pyw'}\"';$s.WorkingDirectory='{ROOT}';"
-              "$s.Description='fpv3d: Full or Lite, 3D viewer or locations map';$s.Save()")
+              "$s.Description='Alpline by lieka: FPV line of sight on Swiss terrain';$s.Save()")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.say("shortcut 'fpv3d' added to your desktop" if r.returncode == 0
+        self.say("shortcut 'Alpline' added to your desktop" if r.returncode == 0
                  else f"could not create the shortcut: {(r.stderr or r.stdout).strip()[:120]}")
 
 
@@ -567,7 +568,7 @@ class SwissMap:
                     for tx in range(tx0, tx1 + 1):
                         for ty in range(ty0, ty1 + 1):
                             url = TILE_URL.format(layer=layer, z=Z, x=tx, y=ty, ext=ext)
-                            req = urllib.request.Request(url, headers={"User-Agent": "fpv3d-launcher"})
+                            req = urllib.request.Request(url, headers={"User-Agent": "alpline-launcher"})
                             try:
                                 data = urllib.request.urlopen(req, timeout=10).read()
                             except urllib.error.HTTPError:
