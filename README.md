@@ -1,8 +1,7 @@
 # Alpline (by lieka): FPV line of sight on Swiss terrain
+*The code and the commands keep their short technical name `fpv3d` (e.g. `python -m fpv3d build ...`).*
 
 Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**. It then shows where your FPV radio link is likely to struggle:
-
-*The code and the commands keep their short technical name `fpv3d` (e.g. `python -m fpv3d build ...`).*
 
 - **Range spheres** are drawn around the pilot antenna, one per radio link (video, control…). Their size comes from a free-space link budget. A coloured ring marks where each sphere meets the ground.
 - **Signal shadow ("dark zone")** is draped on the terrain. It marks every spot where a drone flying *N m above ground* has no direct line of sight to you, or where the Fresnel zone is obstructed. It is precomputed for several heights. In the viewer you can pick one, or let the overlay follow the drone's live height.
