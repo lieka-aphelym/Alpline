@@ -231,12 +231,15 @@
       <option value="voice">Voice + beeps</option>
       <option value="off">Off (screen only)</option>
     </select></label>
-    <div class="small muted">Learn the sounds (stereo earbuds for left / right). They repeat faster when it gets closer:</div>
+    <div class="small muted">Click a sound to hear it (stereo earbuds for left / right). Untick the ones you don't want: that warning then stays silent (screen only).</div>
     <div class="soundboard" id="warnBoard">
-      <button data-s="climb">[climb]</button><button data-s="climb2">[climb a lot]</button>
-      <button data-s="left">[left]</button><button data-s="right">[right]</button><button data-s="back">[turn back]</button>
-      <button data-s="blind">[no sight]</button><button data-s="weak">[signal weak]</button>
-      <button data-s="lost">[signal lost]</button><button data-s="clear">[clear]</button>
+      <label><input type="checkbox" data-g="climb" checked> climb</label><span><button data-s="climb">[x1]</button><button data-s="climb2">[x2]</button></span>
+      <label><input type="checkbox" data-g="turns" checked> left / right</label><span><button data-s="left">[left]</button><button data-s="right">[right]</button></span>
+      <label><input type="checkbox" data-g="back" checked> turn back</label><span><button data-s="back">[play]</button></span>
+      <label><input type="checkbox" data-g="blind" checked> no sight</label><span><button data-s="blind">[play]</button></span>
+      <label><input type="checkbox" data-g="weak" checked> signal weak</label><span><button data-s="weak">[play]</button></span>
+      <label><input type="checkbox" data-g="lost" checked> signal lost</label><span><button data-s="lost">[play]</button></span>
+      <label><input type="checkbox" data-g="clear" checked> clear</label><span><button data-s="clear">[play]</button></span>
     </div>
     <div class="row btns"><button id="warnTest">[test a warning]</button></div>
     <details class="adv"><summary>Advanced</summary>

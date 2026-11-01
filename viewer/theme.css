@@ -159,5 +159,8 @@ input[type=range]::-moz-range-thumb { width: 8px; height: 14px; background: var(
 body:has(#timeline.moved) #profile { bottom: 14px; }
 
 /* warning sound board */
-.soundboard { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 6px 0; }
-#panel .soundboard button { padding: 4px 2px !important; font-size: 11px !important; white-space: nowrap; }
+.soundboard { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; margin: 6px 0; }
+.soundboard label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; border-bottom: 1px solid var(--t-rule); padding: 2px 0; }
+.soundboard label:has(input:not(:checked)) { color: var(--t-fg2); text-decoration: line-through; }
+.soundboard span { display: flex; gap: 3px; justify-content: flex-end; }
+#panel .soundboard button { padding: 2px 6px !important; font-size: 11px !important; white-space: nowrap; }

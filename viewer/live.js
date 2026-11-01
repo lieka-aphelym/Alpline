@@ -61,6 +61,10 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   $('warnMode').value = W.cfg.mode;
   $('warnMode').onchange = () => { W.cfg.mode = $('warnMode').value; W.save(); };
   $('warnBoard').onclick = (e) => { const s = e.target.closest('button')?.dataset.s; if (s) W.play(s); };
+  for (const cb of $('warnBoard').querySelectorAll('input[data-g]')) {
+    cb.checked = !W.cfg.muted.includes(cb.dataset.g);
+    cb.onchange = () => W.setMuted(cb.dataset.g, !cb.checked);
+  }
   $('warnLook').value = W.cfg.lookahead; $('warnLookOut').textContent = `${W.cfg.lookahead} s`;
   $('warnLook').oninput = () => { W.cfg.lookahead = +$('warnLook').value; $('warnLookOut').textContent = `${W.cfg.lookahead} s`; W.save(); };
   $('warnTest').onclick = () => W.test();

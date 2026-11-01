@@ -29,6 +29,7 @@ export function createWarner({ S, demHeight, el }) {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('fpv3d:warn') || '{}')); } catch { /* private mode */ }
   if (!['mixed', 'sounds', 'voice', 'off'].includes(cfg.mode)) cfg.mode = 'mixed';
   delete cfg.voice; delete cfg.beeps;                       // settings of the older version
+  if (!Array.isArray(cfg.muted)) cfg.muted = [];            // sound groups switched off (see GROUP)
   const save = () => { try { localStorage.setItem('fpv3d:warn', JSON.stringify(cfg)); } catch { /* ignore */ } };
   let last = { level: 'ok' }, lastSpoke = 0, lastText = '', lastKind = '', active = false;
 
@@ -131,7 +132,13 @@ export function createWarner({ S, demHeight, el }) {
     lost: (t) => { tone(420, 1.2, t, 0.3); return 1.25; },
     clear: (t) => { tone(880, 0.1, t, 0.2, { type: 'sine' }); tone(1320, 0.16, t + 0.12, 0.2, { type: 'sine' }); return 0.3; },
   };
-  function play(names) { audio(); let t = 0; for (const n of names) t += SOUNDS[n]?.(t) ?? 0; }
+  // sounds can be switched off by group in the panel; a warning whose sounds are all off stays silent (no voice either)
+  const GROUP = { climb: 'climb', climb2: 'climb', left: 'turns', right: 'turns', back: 'back', blind: 'blind', weak: 'weak', lost: 'lost', clear: 'clear' };
+  const muted = (n) => cfg.muted.includes(GROUP[n]);
+  const audible = (names) => names.filter((n) => !muted(n));
+  function play(names, force = false) { audio(); let t = 0; for (const n of force ? names : audible(names)) t += SOUNDS[n]?.(t) ?? 0; }
+  /** a warning is silent when it has sounds and they are all switched off */
+  const silent = (names) => names.length > 0 && audible(names).length === 0;
   /** which sounds stand for a warning: [reason?, action] */
   function cueOf(r) {
     const a = (r.action || '').toLowerCase();
@@ -147,7 +154,7 @@ export function createWarner({ S, demHeight, el }) {
     if (cfg.mode === 'off' || now < quietUntil) return;
     if (cfg.mode === 'voice') {                           // old behaviour: plain beeps, faster = closer
       const b = BEEP[last.level];
-      if (b && now - cueT >= b[0]) { cueT = now; b[1](); }
+      if (b && !silent(cueOf(last)) && now - cueT >= b[0]) { cueT = now; b[1](); }
       return;
     }
     const every = last.detail?.startsWith('link') ? 2000 : EVERY[last.level];   // very weak signal: wobble + back, 1.1 s long
@@ -187,20 +194,20 @@ export function createWarner({ S, demHeight, el }) {
       const rose = RANK[r.level] > RANK[last.level];
       if (r.level === 'ok' && RANK[last.level] >= RANK.caution) {
         lastKind = '';
-        if (cfg.mode === 'voice') say('Clear', true);
-        else if (cfg.mode !== 'off') { if ('speechSynthesis' in window) speechSynthesis.cancel(); quietUntil = 0; play(['clear']); }
+        if (cfg.mode === 'voice') { if (!muted('clear')) say('Clear', true); }
+        else if (cfg.mode !== 'off' && !muted('clear')) { if ('speechSynthesis' in window) speechSynthesis.cancel(); quietUntil = 0; play(['clear']); }
       } else if (r.level !== 'ok') {
         const kind = `${r.level}:${(r.action || '').replace(/\d+/g, '#')}`;      // same situation, maybe another number
         const newKind = kind !== lastKind;
         if (cfg.mode === 'voice') {
           // full sentence ("Blind zone ahead, climb 30") when the situation is new, only the action ("Climb 35") when it goes on
           const every = r.level === 'caution' || r.level === 'link' ? 8000 : 4000;
-          if (rose || now - lastSpoke > every || (r.text !== lastText && now - lastSpoke > 2500)) {
+          if (!silent(cueOf(r)) && (rose || now - lastSpoke > every || (r.text !== lastText && now - lastSpoke > 2500))) {
             say(rose || newKind ? r.text : r.short || r.text, rose); lastSpoke = now; lastText = r.text;
           }
         } else if (rose || newKind) {
           // mixed: the sentence once, then the sounds; sounds only: the sound right away
-          if (cfg.mode === 'mixed') say(r.text, true);
+          if (cfg.mode === 'mixed' && !silent(cueOf(r))) say(r.text, true);
           else if (cfg.mode === 'sounds') { cueT = now; play(cueOf(r)); }
           cueT = now;
         }
@@ -213,14 +220,16 @@ export function createWarner({ S, demHeight, el }) {
     tick(now) { if (active) soundLoop(now); },
     lost(info) {
       last = { level: 'lost', text: info || 'Telemetry stopped', action: 'Last position marked on the map', detail: info || 'no telemetry for 1.5 s' };
-      if (cfg.mode !== 'off') { if ('speechSynthesis' in window) speechSynthesis.cancel(); play(['lost']); }
-      if (speaks()) setTimeout(() => say('Signal lost', true), 1300);
+      if (cfg.mode !== 'off' && !muted('lost')) { if ('speechSynthesis' in window) speechSynthesis.cancel(); play(['lost']); }
+      if (speaks() && !muted('lost')) setTimeout(() => say('Signal lost', true), 1300);
       render(last);
     },
     stop() { active = false; last = { level: 'ok' }; render(last); if ('speechSynthesis' in window) speechSynthesis.cancel(); },
     unlock() { audio(); },
     /** play one command sound (sound board) */
-    play(name) { play(SOUNDS[name] ? [name] : cueOf(name)); },
+    play(name) { play(SOUNDS[name] ? [name] : cueOf(name), true); },
+    /** switch a sound group on/off: climb, turns, back, blind, weak, lost, clear */
+    setMuted(group, off) { cfg.muted = cfg.muted.filter((g) => g !== group); if (off) cfg.muted.push(group); save(); },
     test() {
       if (cfg.mode === 'voice') { audio(); tone(880, 0.09); say('Blind zone ahead, climb 30'); return; }
       if (cfg.mode === 'mixed') say('Blind zone ahead, climb 30');
