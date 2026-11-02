@@ -351,61 +351,91 @@ class Launcher:
     # "Private" network (on "Public" networks Windows refuses them, whatever the firewall says for Private).
     RULE = "Alpline (phone)"
 
-    def ps(self, cmd: str) -> str:
-        r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=20)
+    def ps(self, cmd: str, timeout=30) -> str:
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd], capture_output=True,
+                           text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=timeout)
         return (r.stdout or "").strip()
+
+    # what can stop a phone: written to logs/phone_check.txt so it can be read when something doesn't work
+    CHECK = r"""
+$r = [ordered]@{}
+$r.nets = @(Get-NetConnectionProfile | ForEach-Object { @{name=$_.Name; alias=$_.InterfaceAlias; category=[string]$_.NetworkCategory} })
+$r.ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.InterfaceAlias) $($_.IPAddress)" })
+$a = Get-NetFirewallRule -DisplayName 'Alpline (phone)' -ErrorAction SilentlyContinue
+$r.rule = @($a | ForEach-Object { @{enabled=[string]$_.Enabled; profile=[string]$_.Profile; action=[string]$_.Action} })
+$r.pyblock = @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | Where-Object { $_.Program -like '*python*' } | ForEach-Object {
+  $x = $_ | Get-NetFirewallRule; @{name=$x.DisplayName; dir=[string]$x.Direction; action=[string]$x.Action; enabled=[string]$x.Enabled; profile=[string]$x.Profile; program=$_.Program} })
+$r.fw = @(Get-NetFirewallProfile -ErrorAction SilentlyContinue | ForEach-Object { @{name=$_.Name; enabled=[string]$_.Enabled; inbound=[string]$_.DefaultInboundAction; local=[string]$_.AllowLocalFirewallRules} })
+$r | ConvertTo-Json -Depth 4 -Compress
+"""
 
     def check_phone_access(self, ask=False):
         def work():
             try:
-                nets = json.loads(self.ps("Get-NetConnectionProfile | Select-Object Name,InterfaceAlias,"
-                                          "@{n='Category';e={[string]$_.NetworkCategory}} | ConvertTo-Json -Compress") or "[]")
-                nets = nets if isinstance(nets, list) else [nets]
-                rule = self.ps(f"if (Get-NetFirewallRule -DisplayName '{self.RULE}' -ErrorAction SilentlyContinue) {{'yes'}}") == "yes"
+                d = json.loads(self.ps(self.CHECK) or "{}")
             except Exception as ex:
                 return self.root.after(0, lambda: self.say(f"could not check the network ({ex.__class__.__name__})"))
-            public = [n for n in nets if n.get("Category") == "Public"]
-            self.root.after(0, lambda: self.phone_access_result(nets, public, rule, ask))
+            try:
+                (ROOT / "logs").mkdir(exist_ok=True)
+                (ROOT / "logs" / "phone_check.txt").write_text(json.dumps(d, indent=2), encoding="utf-8")
+            except OSError:
+                pass
+            self.root.after(0, lambda: self.phone_access_result(d, ask))
         threading.Thread(target=work, daemon=True).start()
 
-    def phone_access_result(self, nets, public, rule, ask):
+    def phone_access_result(self, d, ask):
         from tkinter import messagebox
-        names = ", ".join(f"{n.get('Name')} ({n.get('InterfaceAlias')})" for n in public)
-        if rule and not public:
-            self.say("phone access: ok (firewall open, network private)")
-            return
+        lst = lambda v: v if isinstance(v, list) else ([v] if v else [])
+        nets, rules, py, fw = lst(d.get("nets")), lst(d.get("rule")), lst(d.get("pyblock")), lst(d.get("fw"))
+        public = [n for n in nets if n.get("category") == "Public"]
+        rule_ok = any(r.get("enabled") == "True" and r.get("action") == "Allow" for r in rules)
+        blocks = [b for b in py if b.get("dir") == "Inbound" and b.get("action") == "Block" and b.get("enabled") == "True"]
+        managed = any(f.get("local") == "False" for f in fw)          # company PCs: local rules are ignored
         problems = []
-        if not rule:
-            problems.append("the Windows firewall does not let the phone in yet")
+        if not rule_ok:
+            problems.append("the Windows firewall has no rule letting the phone in")
+        if blocks:
+            problems.append(f"{len(blocks)} firewall rule(s) block Python (often created when the 'allow access' "
+                            "question was closed or answered 'cancel')")
         if public:
-            problems.append(f"your network {names} is set to Public, where Windows blocks other devices")
-        if not ask:
+            problems.append("your network " + ", ".join(f"{n.get('name')} ({n.get('alias')})" for n in public)
+                            + " is set to Public")
+        if managed:
+            problems.append("this PC's firewall is managed by an organisation (local rules are ignored)")
+        if not problems:
+            self.say("phone access: ok · if it still doesn't load, see logs/phone_check.txt")
+            return
+        if not ask or (managed and len(problems) == 1):
             self.say("phone access: " + "; ".join(problems))
             return
-        fix = ("The phone can't reach this computer because " + " and ".join(problems) + ".\n\n"
-               "Fix it now? Windows will ask for permission once (administrator). This will:\n"
-               "• allow incoming connections to Alpline (ports 8000-8019) on private networks"
-               + (f"\n• set {names} to Private (fine for your home Wi-Fi or your own phone hotspot, "
-                  "not for public Wi-Fi)" if public else ""))
+        fix = ("The phone can't reach this computer:\n• " + "\n• ".join(problems) + "\n\n"
+               "Fix it now? Windows asks for administrator permission once. This will:\n"
+               "• allow incoming connections to Alpline (ports 8000-8019 only)\n"
+               + ("• switch off the rules that block Python\n" if blocks else "")
+               + ("• set " + ", ".join(n.get("name", "?") for n in public) + " to Private "
+                  "(fine for your home Wi-Fi or your own phone hotspot)\n" if public else "")
+               + "\nClick [phone] again later to stop sharing.")
         if not messagebox.askyesno("Alpline: phone access", fix, parent=self.root):
             self.say("phone access not fixed: the phone won't load the page")
             return
-        cmds = []
-        if not rule:
-            cmds.append(f"New-NetFirewallRule -DisplayName '{self.RULE}' -Direction Inbound -Action Allow "
-                        "-Protocol TCP -LocalPort 8000-8019 -Profile Private,Domain | Out-Null")
+        log = ROOT / "logs" / "phone_fix.txt"
+        cmds = [f"Start-Transcript -Path '{log}' -Force | Out-Null",
+                f"Get-NetFirewallRule -DisplayName '{self.RULE}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule",
+                f"New-NetFirewallRule -DisplayName '{self.RULE}' -Direction Inbound -Action Allow -Protocol TCP "
+                "-LocalPort 8000-8019 -Profile Any | Out-Null"]
+        for b in blocks:
+            cmds.append(f"Get-NetFirewallRule -DisplayName '{b.get('name')}' -ErrorAction SilentlyContinue | "
+                        "Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' } | Disable-NetFirewallRule")
         for n in public:
-            cmds.append(f"Set-NetConnectionProfile -InterfaceAlias '{n.get('InterfaceAlias')}' -NetworkCategory Private")
-        script = "; ".join(cmds)
-        # one elevated PowerShell (UAC prompt), then check again
+            cmds.append(f"Set-NetConnectionProfile -InterfaceAlias '{n.get('alias')}' -NetworkCategory Private")
+        cmds.append("Stop-Transcript | Out-Null")
         import base64
-        enc = base64.b64encode(script.encode("utf-16-le")).decode()   # no quoting problems with -EncodedCommand
+        enc = base64.b64encode("; ".join(cmds).encode("utf-16-le")).decode()   # no quoting problems
 
         def run():
-            try:
+            try:                                  # one elevated PowerShell (UAC prompt), then check again
                 self.ps("Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden "
-                        f"-ArgumentList '-NoProfile','-EncodedCommand','{enc}'")
+                        f"-ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','{enc}'", timeout=180)
             except Exception:
                 pass
             self.root.after(0, lambda: self.check_phone_access(ask=False))
