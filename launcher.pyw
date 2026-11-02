@@ -161,10 +161,18 @@ class Launcher:
         root.configure(bg=BG)
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.quit)
+        try:                                       # window / taskbar icon: the red Alpline square
+            self.icon = tk.PhotoImage(file=str(ROOT / "viewer" / "brand" / "icon-64.png"))
+            root.iconphoto(True, self.icon)
+        except tk.TclError:
+            pass
         self.style()
 
         # ---- top bar: title, mode, open buttons
         top = tk.Frame(root, bg=BG); top.pack(fill="x", padx=14, pady=(10, 8))
+        self.logo = self.brand_image("logo-dark", S(30))
+        if self.logo:
+            tk.Label(top, image=self.logo, bg=BG).pack(side="left", padx=(0, 8))
         tk.Label(top, text="ALPLINE", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(side="left")
         tk.Label(top, text="by lieka", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(6, 0), pady=(6, 0))
         self.mode = tk.StringVar(value=self.cfg.get("mode", "full"))
@@ -223,6 +231,19 @@ class Launcher:
             root.after(1200, lambda: self.check_phone_access(ask=True))
 
     # ------------------------------------------------------------ widgets
+    @staticmethod
+    def brand_image(name, px):
+        """viewer/brand/<name>-<size>.png closest to px (pre-rendered sizes), or None"""
+        sizes = sorted(int(p.stem.rsplit("-", 1)[1]) for p in (ROOT / "viewer" / "brand").glob(f"{name}-*.png")
+                       if p.stem.rsplit("-", 1)[1].isdigit())
+        if not sizes:
+            return None
+        best = min(sizes, key=lambda s: abs(s - px))
+        try:
+            return tk.PhotoImage(file=str(ROOT / "viewer" / "brand" / f"{name}-{best}.png"))
+        except tk.TclError:
+            return None
+
     def style(self):
         st = ttk.Style(self.root)
         try:
@@ -526,6 +547,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         ps = ("$d=[Environment]::GetFolderPath('Desktop');"
               "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Alpline.lnk'));"
               f"$s.TargetPath='{pyw}';$s.Arguments='\"{ROOT / 'launcher.pyw'}\"';$s.WorkingDirectory='{ROOT}';"
+              f"$s.IconLocation='{ROOT / 'viewer' / 'brand' / 'icon.ico'},0';"
               "$s.Description='Alpline by lieka: FPV line of sight on Swiss terrain';$s.Save()")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))

@@ -190,3 +190,7 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 #simLive button, #simLive input { background: var(--t-bg2) !important; color: var(--t-fg) !important; border: 1px solid var(--t-rule2) !important;
   border-radius: 0 !important; font-family: var(--mono); font-size: 12px; }
 #simLive button.primary { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }
+
+/* logo in front of ALPLINE */
+#panel h1 { display: inline-flex; align-items: center; gap: 6px; }
+#panel h1 svg.logo { width: 22px; height: 22px; flex: none; }
