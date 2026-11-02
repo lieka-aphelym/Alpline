@@ -135,6 +135,11 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
   - clear: two bright rising notes
 
   The buttons under *Alerts* play each sound, to learn them before flying (the simulator warns too). Untick a sound to switch it off: that warning then stays silent, voice included, and only shows on screen. If a warning combines two sounds (no line of sight + climb), the other one still plays.
+- **Safety checks during a live flight:**
+  - The warning sounds run on their own timer. If the Alpline page goes to the background, the voice says *"Alpline is in the background. Warnings may be late"*, and the panel reminds you afterwards: browsers slow down hidden pages, so keep Alpline in front. On the PC the screen is kept on while connected.
+  - If the drone leaves the built area there is no shadow data under it: you get **OUTSIDE THE MAP** (turn-back sound) instead of a silent "all clear".
+  - When the drone sits on the ground at connect, its position is compared with the location's pilot point. More than 75 m apart: a note in the panel and a spoken warning, and **[use the takeoff point as pilot]** moves the pilot point there and rebuilds the shadows.
+  - At connect, the panel lists what is switched off (sounds, voice, warning box), so a flight never starts silent without you knowing.
 - **Signal lost:** after 1.5 s without GPS telemetry there is one long tone and "Signal lost". A red pin marks the last fix and a red area the likely impact zone (free fall from the last height and speed, carried forward along the course). The panel gives distance and direction from the pilot, GPS coordinates to copy, and a link to map.geo.admin.ch.
 - **Recording:** everything is saved to `logs/live/<location>/`. When you disconnect (with *Save the flight* ticked), the flight becomes a normal log of the scene.
 - **Training:** the same warnings work in the simulator (*Also warn during training flights*), so you can get used to them before a real flight. *Replay a flight log (test)* plays one of the scene's logs back as if it came from the radio, to try everything without flying.

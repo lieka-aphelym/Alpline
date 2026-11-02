@@ -214,3 +214,21 @@ def patch_links(path: Path, updates: list) -> list:
     new = text[:m.start()] + block + ("\n" if m.end() < len(text) else "") + text[m.end():] if m else text.rstrip() + "\n\n" + block
     path.write_text(new, encoding="utf-8")
     return changed
+
+
+def set_pilot(path: Path, lat: float, lon: float) -> None:
+    """Move the pilot point of a location file to lat/lon (keeps comments and the antenna height).
+    Used by the live flight's "use the takeoff point as pilot" button."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start = next((i for i, l in enumerate(lines) if re.match(r"^pilot:", l)), None)
+    if start is None:                                  # no pilot block yet: add one after the centre
+        at = next((i + 1 for i, l in enumerate(lines) if re.match(r"^(center|half_size_m|corridor):", l)), len(lines))
+        lines[at:at] = ["", "pilot:", f"  lat: {lat:.6f}", f"  lon: {lon:.6f}", "  antenna_height_m: 1.8"]
+    else:
+        end = next((i for i in range(start + 1, len(lines)) if lines[i] and not lines[i].startswith((" ", "#"))), len(lines))
+        block = lines[start + 1:end]
+        block = [l for l in block if not re.match(r"^\s+(lat|lon|e|n):", l)]    # old position (lat/lon or LV95)
+        lines[start + 1:end] = [f"  lat: {lat:.6f}", f"  lon: {lon:.6f}"] + block
+        if re.match(r"^pilot:\s*\{", lines[start]):      # inline form "pilot: {lat: .., lon: ..}"
+            lines[start] = "pilot:"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

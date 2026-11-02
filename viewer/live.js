@@ -91,9 +91,40 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     document.body.classList.add('live-on');
     onStart?.();
     st.poll = setInterval(poll, 200);
+    // warning sounds on their own timer: the 3D drawing loop stops when the page is hidden
+    st.tickTimer = setInterval(() => W.tick(performance.now()), 100);
+    keepAwake(true);
+    st.pilotChecked = false; $('livePilot').classList.add('hidden');
+    const silent = W.silentSummary();             // never start a flight silent without saying so
+    $('liveSilent').classList.toggle('hidden', !silent.length);
+    $('liveSilent').innerHTML = silent.length ? `<b>Check your warnings:</b> ${silent.join(' · ')}. Change it in Warnings below.` : '';
   }
+
+  // ------------------------------------------------------------ the page must stay in front during a live flight
+  // Browsers slow down hidden pages (Chrome: timers at most once a second; Android: paused) and the screen may
+  // turn off. Ask the screen to stay on (works on the PC; a phone needs https), and say so when the page hides.
+  async function keepAwake(on) {
+    try {
+      if (on && 'wakeLock' in navigator && !st.wake) { st.wake = await navigator.wakeLock.request('screen'); st.wake.addEventListener?.('release', () => { st.wake = null; }); }
+      if (!on && st.wake) { await st.wake.release(); st.wake = null; }
+    } catch { st.wake = null; }          /* not allowed here (phone over http, battery saver) */
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!st.on) return;
+    if (document.hidden) {
+      st.hiddenAt = performance.now();
+      W.notice('Alpline is in the background. Warnings may be late.');
+    } else {
+      keepAwake(true);
+      if (st.hiddenAt && performance.now() - st.hiddenAt > 1500) W.notice('Warnings back.');
+      $('liveMsg').textContent = st.hiddenAt ? 'The page was in the background: warnings may have been late or missing meanwhile. Keep Alpline in front during the flight.' : $('liveMsg').textContent;
+      $('liveMsg').className = 'small err';
+      st.hiddenAt = null;
+    }
+  });
   async function disconnect() {
-    clearInterval(st.poll); st.on = false;
+    clearInterval(st.poll); clearInterval(st.tickTimer); st.on = false;
+    keepAwake(false); $('liveSilent').classList.add('hidden');
     $('liveConnect').textContent = '[connect]'; $('liveConnect').classList.remove('danger');
     document.body.classList.remove('live-on');
     W.stop(); pred.visible = false;
@@ -134,6 +165,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (st.manual == null && st.calibN < 5 && spd < 0.8 && Math.abs(s.vspeed || 0) < 0.5 && s.alt != null) {
       st.calibSum += ground + 0.2 - s.alt; st.calibN++; st.calib = st.calibSum / st.calibN;
     }
+    if (!st.pilotChecked && st.calibN >= 3) checkPilot(x, y, s);     // drone on the ground = the takeoff point
     const off = st.manual ?? st.calib ?? 0;
     const z = (s.alt ?? ground) + off;
     const h = (s.heading || 0) * Math.PI / 180;
@@ -162,6 +194,40 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     const r = W.update(cur);
     pred.material.color.set(r.level === 'ok' ? 0xffffff : r.level === 'caution' ? 0xffb000 : 0xff3b30);
     values(cur, s);
+  }
+
+  // ------------------------------------------------------------ is the pilot where the location says?
+  // Signal shadows are computed from the location's pilot point. Taking off far from it means every warning is
+  // computed from the wrong place: say so, and offer to move the pilot point there (rebuilds the shadows).
+  function checkPilot(x, y, s) {
+    st.pilotChecked = true;
+    const p = S.meta.pilot, d = Math.hypot(x - p.x, y - p.y);
+    if (d < 75) return;
+    const dx = x - p.x, dy = y - p.y, brg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+    $('livePilot').classList.remove('hidden');
+    $('livePilotText').innerHTML = `You took off <b>${fmtDist(d)}</b> ${COMPASS[Math.round(brg / 45) % 8]} of this location's pilot point. `
+      + 'The signal shadows and warnings are computed from that point, so they may be wrong here.';
+    $('livePilotSet').disabled = false;
+    $('livePilotSet').onclick = () => setPilot(s.lat, s.lon);
+    W.notice(`Takeoff is ${Math.round(d / 10) * 10} meters from the pilot point. Warnings may be wrong.`);
+  }
+  async function setPilot(lat, lon) {
+    $('livePilotSet').disabled = true;
+    $('livePilotText').textContent = 'Saving the new pilot point and rebuilding the shadows…';
+    try {
+      const r = await fetch('/api/pilot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name, lat, lon }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.status);
+      for (;;) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        const k = await (await fetch(`/api/jobs/${j.job}`)).json();
+        if (k.status === 'running') { $('livePilotText').textContent = `Rebuilding the shadows… ${(k.lines || []).at(-1) || ''}`; continue; }
+        $('livePilotText').innerHTML = k.status === 'done'
+          ? 'Done: the pilot point is now your takeoff point. <b>Disconnect and reload the page</b> to use the new shadows.'
+          : `The rebuild failed: ${(k.lines || []).at(-1) || k.status}`;
+        break;
+      }
+    } catch (e) { $('livePilotText').textContent = `Could not move the pilot point: ${e.message}`; $('livePilotSet').disabled = false; }
   }
 
   function values(c, s) {

@@ -393,6 +393,23 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     JOBS[jid] = dict(id=jid, name="(all scenes)", status="running", lines=[])
                     threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
                     return self._json(dict(job=jid))
+                if u.path == "/api/pilot":       # live flight: move the pilot point to the takeoff point, rebuild
+                    from .locations import set_pilot
+                    scene = b.get("scene", "")
+                    loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
+                    if loc is None:
+                        return self._json(dict(error="no location file for this scene"), 400)
+                    lat, lon = float(b["lat"]), float(b["lon"])
+                    if not (45.5 < lat < 48.0 and 5.8 < lon < 10.7):
+                        return self._json(dict(error="position outside Switzerland"), 400)
+                    if any(j["status"] == "running" and j["name"] == loc.stem for j in JOBS.values()):
+                        return self._json(dict(error="a build of this location is already running"), 409)
+                    set_pilot(loc, lat, lon)
+                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{loc.name}"]
+                    jid = uuid.uuid4().hex[:10]
+                    JOBS[jid] = dict(id=jid, name=loc.stem, status="running", lines=[])
+                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+                    return self._json(dict(job=jid))
                 if u.path == "/api/build":
                     name = b["name"]
                     if not re.match(r"^[\w-]+$", name) or not (ROOT / "locations" / f"{name}.yaml").exists():

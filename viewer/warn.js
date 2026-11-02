@@ -23,8 +23,8 @@
 // in mixed mode every 4th one is the spoken word "Climb".
 // Modes: 'mixed' (default: voice says the sentence once when the situation changes, then only the sound repeats),
 //        'sounds' (never speaks), 'voice' (sentences + the old plain beeps).
-const RANK = { ok: 0, link: 1, caution: 2, urgent: 3, blind: 4, lost: 5 };
-const COLORS = { ok: '#1f6f4a', link: '#9a6b00', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };
+const RANK = { ok: 0, link: 1, outside: 1.5, caution: 2, urgent: 3, blind: 4, lost: 5 };
+const COLORS = { ok: '#1f6f4a', link: '#9a6b00', outside: '#3d4654', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };
 
 export function createWarner({ S, demHeight, el }) {
   const cfg = { mode: 'mixed', lookahead: 5, margin: 5, climbRate: 12 };
@@ -76,7 +76,11 @@ export function createWarner({ S, demHeight, el }) {
     const now = blindAt(s.x, s.y, s.z);
     const L = cfg.lookahead;
     let r = { level: 'ok', text: '', detail: 'line of sight OK' };
-    if (now?.blind) {
+    if (now == null) {
+      // outside the built area (or no shadow data under the drone): never report that as "in sight"
+      r = { level: 'outside', action: 'Turn back to the map', text: 'Outside the map, no line of sight check', short: 'Outside the map',
+        detail: 'the drone left the built area: no shadow data here' };
+    } else if (now.blind) {
       const climb = round5(now.need + cfg.margin), rel = climb > 60 ? escape(s, speed, L) : null;
       const act = climb <= 60 ? `climb ${climb}` : rel != null ? turnOf(rel) : 'turn back';
       r = { level: 'blind', climb, clock: rel != null ? clockOf(rel) : null, action: cap(act),
@@ -147,10 +151,11 @@ export function createWarner({ S, demHeight, el }) {
     const a = (r.action || '').toLowerCase();
     const act = a.startsWith('climb') ? (r.climb > 40 ? 'climb2' : 'climb') : a.includes('left') ? 'left' : a.includes('right') ? 'right' : a.includes('back') ? 'back' : null;
     if (r.level === 'blind') return ['blind', act].filter(Boolean);
+    if (r.level === 'outside') return ['back'];
     if (r.level === 'link' || r.detail?.startsWith('link')) return ['weak', act === 'back' ? 'back' : null].filter(Boolean);
     return act ? [act] : [];
   }
-  const EVERY = { caution: 1600, urgent: 700, blind: 1300, link: 2500 };
+  const EVERY = { caution: 1600, urgent: 700, blind: 1300, link: 2500, outside: 4000 };
   const CLIMB_EVERY = { caution: 900, urgent: 600, blind: 800 };   // the climb sweep repeats faster than the other sounds
   let cueN = 0, climbN = 0;
   const BEEP = { caution: [900, () => tone(880, 0.09)], urgent: [300, () => tone(1320, 0.08)],
@@ -203,7 +208,7 @@ export function createWarner({ S, demHeight, el }) {
     el.box.classList.toggle('hidden', !active || cfg.screen === 'off' || (cfg.screen === 'compact' && r.level === 'ok'));
     el.box.style.background = COLORS[r.level] || COLORS.ok;
     el.title.textContent = r.level === 'urgent' && r.detail?.startsWith('link') ? 'SIGNAL VERY WEAK'
-      : { ok: 'Line of sight OK', link: 'SIGNAL WEAK', caution: 'BLIND ZONE AHEAD', urgent: 'BLIND ZONE CLOSE', blind: 'NO LINE OF SIGHT', lost: 'SIGNAL LOST' }[r.level];
+      : { ok: 'Line of sight OK', link: 'SIGNAL WEAK', outside: 'OUTSIDE THE MAP', caution: 'BLIND ZONE AHEAD', urgent: 'BLIND ZONE CLOSE', blind: 'NO LINE OF SIGHT', lost: 'SIGNAL LOST' }[r.level];
     el.text.textContent = r.level === 'ok' ? r.detail : r.action || r.text;
     el.detail.textContent = r.level === 'ok' ? '' : r.detail || '';
     el.dial.classList.toggle('hidden', !r.clock);
@@ -262,6 +267,23 @@ export function createWarner({ S, demHeight, el }) {
       setTimeout(() => play(['climb']), cfg.mode === 'mixed' ? 2200 : 0);
     },
     get level() { return last.level; },
+    /** a one-off spoken note (page hidden, takeoff far from the pilot point): voice when it speaks, else a tone */
+    notice(text) {
+      if (cfg.mode === 'off') return;
+      if (speaks()) say(text, false); else { audio(); tone(660, 0.18); tone(520, 0.22, 0.24); }
+    },
+    /** what is switched off, so a live flight never starts silent without saying so */
+    silentSummary() {
+      const names = { climb: 'climb', turns: 'left / right', back: 'turn back', blind: 'no sight', weak: 'signal weak', lost: 'signal lost', clear: 'clear' };
+      const out = [];
+      if (cfg.mode === 'off') out.push('all warning sounds and voice are off');
+      else {
+        if (cfg.mode === 'sounds') out.push('no voice (sounds only)');
+        if (cfg.muted.length) out.push(`sounds off: ${cfg.muted.map((g) => names[g] || g).join(', ')}`);
+      }
+      if (cfg.screen === 'off') out.push('no warning box on screen');
+      return out;
+    },
     setScreen(v) { cfg.screen = v; save(); render(last); },
   };
 }
