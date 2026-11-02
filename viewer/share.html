@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpline · open on your phone</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css">
+<script src="/api/mode.js"></script>
+<script src="theme.js"></script>
+<script src="vendor/qrcode.js"></script>
+<style>
+  body { overflow: auto; background: var(--t-bg); color: var(--t-fg); font-family: system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 32px auto; padding: 0 16px; }
+  h1 { font: 700 22px var(--mono); letter-spacing: .5px; margin: 0 0 4px; }
+  h1 small { font: 400 12px var(--mono); color: var(--t-fg2); }
+  .lbl { font: 700 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; display: flex; gap: 8px; align-items: center; margin: 22px 0 10px; }
+  .lbl::after { content: ''; flex: 1; height: 1px; background: var(--t-rule); }
+  .grid { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .qr { background: #fff; padding: 14px; border: 1px solid var(--t-rule2); line-height: 0; }
+  .qr svg { width: 260px; height: 260px; }
+  .url { font: 700 18px var(--mono); color: var(--t-acc); word-break: break-all; }
+  .alt { font: 13px var(--mono); color: var(--t-fg2); margin-top: 6px; }
+  ol { padding-left: 18px; line-height: 1.6; } li { margin-bottom: 4px; }
+  .off { border-left: 3px solid var(--t-acc); background: var(--t-bg2); padding: 10px 12px; }
+  code { padding: 0 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ALPLINE <small>by lieka · open on your phone</small></h1>
+  <div id="out"></div>
+  <div class="lbl">How</div>
+  <ol>
+    <li>Phone and computer on the <b>same Wi-Fi</b>. At the field: switch on the phone's <b>hotspot</b> and connect the laptop to it.</li>
+    <li>Scan the code with the phone's camera (or type the address in Chrome).</li>
+    <li>The first time, Windows may ask whether Python may use the network: allow it on <b>private networks</b>. If the phone can't connect, set the Wi-Fi of the computer to <i>Private</i> (Windows Settings → Network → your Wi-Fi → Network profile type).</li>
+    <li>On the phone, Chrome menu → <b>Add to Home screen</b> gives it an icon.</li>
+  </ol>
+  <p class="muted small">The phone can look, fly the simulator, follow live telemetry and build locations. Deleting and renaming only work on this computer. The radio stays plugged into the computer for live flights.</p>
+</main>
+<script>
+(async () => {
+  const out = document.getElementById('out');
+  let d = null;
+  try { d = await (await fetch('/api/share')).json(); } catch { /* not served by Alpline */ }
+  if (!d || !d.shared || !d.urls.length) {
+    out.innerHTML = `<p class="off">Sharing with the phone is <b>off</b>. In the launcher, click <b>[phone]</b> (or start with <code>python -m fpv3d serve --lan</code>), then reload this page.</p>`;
+    return;
+  }
+  const [main, ...others] = d.urls;
+  const q = qrcode(0, 'M'); q.addData(main); q.make();
+  out.innerHTML = `<div class="lbl">Scan with your phone</div><div class="grid">
+      <div class="qr">${q.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div>
+      <div><div class="url">${main}</div>
+        ${others.length ? `<div class="alt">other addresses of this computer (other networks):<br>${others.join('<br>')}</div>` : ''}
+        <div class="alt">locations map: ${main}map.html</div></div></div>`;
+})();
+</script>
+</body>
+</html>

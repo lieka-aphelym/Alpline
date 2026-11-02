@@ -38,6 +38,8 @@ Double-click **`Alpline.bat`** in the project folder. One window:
 - **Details card** of the selected location: size, terrain detail, build date, last log, and a bar chart of real vs sim logs with their total flight time. *[open in 3d]* (or *[build on the map]* when it isn't built).
 - **Status bar:** server state, how many locations are built (= usable offline, hover for the list), internet yes/no, total real / sim logs, *[check]* (reload) and *[shortcut]* (an *Alpline* desktop shortcut).
 
+**On your phone (Android or any phone with Chrome):** click **[phone]** in the top bar. The server is then shared on your network and the status bar shows the address (e.g. `phone: http://192.168.1.20:8000`); **[qr]** shows a QR code to scan. Phone and computer must be on the same Wi-Fi; at the field, turn on the phone's hotspot and connect the laptop to it. The first time, allow Python on *private networks* when Windows asks. On the phone the panel becomes a sheet at the bottom with the tabs along its top (*[hide]* folds it), buttons are bigger, and *Add to Home screen* in Chrome gives it an icon. The phone can look, fly the simulator, follow live telemetry (radio on the laptop) and build; deleting and renaming only work on the computer. From a terminal: `python -m fpv3d serve --lan`.
+
 Logs count as **sim** when they come from the training flight (`<location>_sim_<date>` or `logs/sim/`), everything else counts as **real**.
 
 **Numbered locations:** a new location gets the next number in front of its name, with as many digits as your existing ones (e.g. `015_gruyere` after `014_vanil_noir`, or `01_...` for the very first). Renaming keeps the number.

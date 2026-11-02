@@ -52,6 +52,22 @@ def python_exe() -> str:
     return venv_exe("python.exe")
 
 
+def lan_addresses() -> list:
+    """IPv4 addresses of this computer on its local networks, best guess first (same as fpv3d.server)."""
+    ips = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.168.1.1", 9))       # no packet is sent: this only picks the route
+            ips.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        ips += [i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
+    except OSError:
+        pass
+    return [ip for i, ip in enumerate(ips) if ip not in ips[:i] and not ip.startswith(("127.", "169.254."))]
+
+
 def port_free(port: int) -> bool:
     with socket.socket() as s:
         if os.name != "nt":                     # like the server: ignore old connections still closing (TIME_WAIT)
@@ -138,6 +154,7 @@ class Launcher:
         self.cfg = load_settings()
         self.proc: subprocess.Popen | None = None
         self.running_mode = None
+        self.running_share = False
         self.port = None
         self.online = None
         root.title("Alpline by lieka")
@@ -164,6 +181,9 @@ class Launcher:
                                     "New locations: 5 m terrain, lighter photo, 20 m signal grid, no 3D buildings.")
         self.mode_info = tk.Label(top, font=SANS, fg=FG2, bg=BG); self.mode_info.pack(side="left")
         self.stop_btn = self.button(top, "[stop]", self.stop); self.stop_btn.pack(side="right")
+        self.share_btn = self.button(top, "[phone]", self.toggle_share); self.share_btn.pack(side="right", padx=(0, 14))
+        Tip(self.share_btn, "Share on your network: open Alpline on your phone (same Wi-Fi, or the phone's hotspot). "
+                            "The phone can look, fly and build; deleting and renaming stay on this computer.")
         Tip(self.stop_btn, "Stop the local server (closing this window does it too).")
         self.button(top, "[locations map]", lambda: self.open("/viewer/map.html")).pack(side="right", padx=(0, 6))
         self.button(top, "[3d viewer]", lambda: self.open("/viewer/"), primary=True).pack(side="right", padx=(0, 6))
@@ -188,6 +208,9 @@ class Launcher:
         Tip(self.net, lambda: "Internet is used for the map background, new downloads and place search. Without it the "
                               "3D viewer still works for built locations." if self.online is not None else "")
         self.flights = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.flights.pack(side="left", padx=(18, 0))
+        self.phone = tk.Label(bar, font=("Consolas", 9, "bold"), fg=ACC, bg=BG); self.phone.pack(side="left", padx=(18, 0))
+        self.qr_btn = self.button(bar, "[qr]", self.show_qr, small=True)
+        Tip(self.qr_btn, "Show a QR code to scan with the phone's camera.")
         sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
         Tip(sc, "Add an 'Alpline' shortcut to your desktop.")
         ck = self.button(bar, "[check]", self.check_offline, small=True); ck.pack(side="right", padx=(0, 6))
@@ -267,12 +290,14 @@ class Launcher:
         args = [python_exe(), "-m", "fpv3d", "serve", "--port", str(port), "--no-browser"]
         if self.mode.get() == "lite":
             args.append("--lite")
+        if self.cfg.get("share"):
+            args.append("--lan")
         LOG.parent.mkdir(exist_ok=True)
         log = open(LOG, "w", encoding="utf-8", errors="replace")
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         self.proc = subprocess.Popen(args, cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT, creationflags=flags,
                                      env={**os.environ, "PYTHONIOENCODING": "utf-8"})
-        self.port, self.running_mode = port, self.mode.get()
+        self.port, self.running_mode, self.running_share = port, self.mode.get(), bool(self.cfg.get("share"))
         for _ in range(60):                     # wait until it answers (max ~15 s)
             if self.proc.poll() is not None:
                 self.say(f"The server stopped right away. See {LOG.relative_to(ROOT)}.")
@@ -288,7 +313,7 @@ class Launcher:
         return True
 
     def open(self, path):
-        if not self.server_alive() or self.running_mode != self.mode.get():
+        if not self.server_alive() or self.running_mode != self.mode.get() or self.running_share != bool(self.cfg.get("share")):
             self.status.configure(text="○ starting…", fg=FG2); self.root.update()
             if not self.start():
                 return
@@ -302,12 +327,41 @@ class Launcher:
                 self.proc.wait(3)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        self.proc, self.running_mode = None, None
+        self.proc, self.running_mode, self.running_share = None, None, False
         self.refresh_status()
+
+    # ------------------------------------------------------------ phone (share on the network)
+    def toggle_share(self):
+        self.cfg["share"] = not self.cfg.get("share")
+        self.save()
+        if self.cfg["share"]:
+            if not self.server_alive() or self.running_share != True:
+                self.status.configure(text="○ starting…", fg=FG2); self.root.update()
+                if not self.start():
+                    return
+            if os.name == "nt":
+                self.say("if Windows asks: allow Python on private networks")
+        elif self.server_alive():
+            self.start()                          # back to this computer only
+        self.refresh_status()
+
+    def show_qr(self):
+        if self.server_alive():
+            webbrowser.open(f"http://127.0.0.1:{self.port}/viewer/share.html")
 
     def refresh_status(self):
         if not hasattr(self, "status"):
             return
+        on = bool(self.cfg.get("share"))
+        self.share_btn.configure(bg=ACC if on else BG2, fg="#000" if on else FG, activebackground=ACC if on else BG3,
+                                 text="[phone: on]" if on else "[phone]")
+        if self.server_alive() and self.running_share:
+            ip = (lan_addresses() or ["?"])[0]
+            self.phone.configure(text=f"phone: http://{ip}:{self.port}", fg=ACC)
+            self.qr_btn.pack(side="left", padx=(6, 0))
+        else:
+            self.phone.configure(text="")
+            self.qr_btn.pack_forget()
         if self.server_alive():
             note = "" if self.running_mode == self.mode.get() else f" (→ {self.mode.get()} on next open)"
             self.status.configure(text=f"● running · {self.running_mode} · :{self.port}{note}", fg="#3ddc84")

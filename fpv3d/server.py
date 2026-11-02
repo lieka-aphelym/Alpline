@@ -171,6 +171,9 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 super().log_message(fmt, *args)
 
         # ---------------------------------------------------------------- helpers
+        def _local(self) -> bool:
+            return self.client_address[0] in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
         def _json(self, obj, status=200):
             body = json.dumps(obj).encode()
             self.send_response(status)
@@ -198,6 +201,11 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             u = urllib.parse.urlparse(self.path)
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             try:
+                if u.path == "/api/share":       # addresses a phone can use (launcher "share on my network")
+                    port = self.server.server_address[1]
+                    lan = self.server.server_address[0] in ("0.0.0.0", "")
+                    return self._json(dict(shared=lan, port=port,
+                                           urls=[f"http://{ip}:{port}/viewer/" for ip in lan_addresses()] if lan else []))
                 if u.path == "/api/mode.js":     # loaded by the pages before anything else: Full or Lite mode
                     from . import mode
                     body = f'window.FPV3D_MODE = "{mode.current()}";\n'.encode()
@@ -284,6 +292,9 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
         # ---------------------------------------------------------------- POST
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
+            # shared on the network (phone): other devices may look, fly and build, but not delete or rename
+            if u.path in LOCAL_ONLY and not self._local():
+                return self._json(dict(error="Deleting and renaming only work on the computer running Alpline."), 403)
             try:
                 b = self._body()
                 if u.path == "/api/locations":
@@ -404,13 +415,38 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
     return Handler
 
 
-def serve(port: int, scenes_dir: Path, cache_dir: Path, open_path: str = "/viewer/", open_browser=True):
+LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename")
+
+
+def lan_addresses() -> list:
+    """IPv4 addresses of this computer on its local networks (Wi-Fi, hotspot, cable), best guess first."""
+    import socket
+    ips = []
+    try:                                     # the interface used to reach the internet / the router
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.168.1.1", 9))   # no packet is sent: this only picks the route
+            ips.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.append(info[4][0])
+    except OSError:
+        pass
+    return [ip for i, ip in enumerate(ips) if ip not in ips[:i] and not ip.startswith(("127.", "169.254."))]
+
+
+def serve(port: int, scenes_dir: Path, cache_dir: Path, open_path: str = "/viewer/", open_browser=True, lan=False):
     import webbrowser
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
-    with socketserver.ThreadingTCPServer(("127.0.0.1", port), make_handler(scenes_dir, cache_dir)) as httpd:
+    host = "0.0.0.0" if lan else "127.0.0.1"
+    with socketserver.ThreadingTCPServer((host, port), make_handler(scenes_dir, cache_dir)) as httpd:
         url = f"http://127.0.0.1:{port}{open_path}"
         print(f"fpv3d: {url}   (map: http://127.0.0.1:{port}/viewer/map.html)   Ctrl+C to stop")
+        if lan:
+            for ip in lan_addresses():
+                print(f"       on your phone (same Wi-Fi / hotspot): http://{ip}:{port}/viewer/")
         if open_browser:
             threading.Timer(0.6, lambda: webbrowser.open(url)).start()
         try:

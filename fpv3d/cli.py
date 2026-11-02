@@ -192,7 +192,7 @@ def cmd_serve(a, path=None):
         mode.set_mode("lite")
     print(f"fpv3d: {mode.current()} mode")
     path = path or ("/viewer/" + (f"?scene={a.scene}" if a.scene else ""))
-    serve(a.port, Path(a.scenes), Path(a.cache), path, not a.no_browser)
+    serve(a.port, Path(a.scenes), Path(a.cache), path, not a.no_browser, lan=getattr(a, "lan", False))
 
 
 def cmd_map(a):
@@ -332,12 +332,14 @@ def main(argv=None):
     s.add_argument("--scene")
     s.add_argument("--no-browser", action="store_true")
     s.add_argument("--lite", action="store_true", help="Lite mode: lighter 3D and lighter defaults for new locations")
+    s.add_argument("--lan", action="store_true", help="share on your network: open it on your phone (same Wi-Fi / hotspot)")
     s.set_defaults(func=cmd_serve)
 
     mp = sub.add_parser("map", help="open the Switzerland map (cached areas, create locations by clicking)")
     mp.add_argument("--port", type=int, default=8000)
     mp.add_argument("--no-browser", action="store_true")
     mp.add_argument("--lite", action="store_true", help="Lite mode: lighter 3D and lighter defaults for new locations")
+    mp.add_argument("--lan", action="store_true", help="share on your network: open it on your phone (same Wi-Fi / hotspot)")
     mp.set_defaults(func=cmd_map, scene=None)
 
     n = sub.add_parser("new", help="create a location file")
