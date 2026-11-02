@@ -34,11 +34,12 @@
   <div class="lbl">How</div>
   <ol>
     <li>Phone and computer on the <b>same Wi-Fi</b>. At the field: switch on the phone's <b>hotspot</b> and connect the laptop to it.</li>
-    <li>Scan the code with the phone's camera (or type the address in Chrome).</li>
-    <li>The first time, Windows may ask whether Python may use the network: allow it on <b>private networks</b>. If the phone can't connect, set the Wi-Fi of the computer to <i>Private</i> (Windows Settings → Network → your Wi-Fi → Network profile type).</li>
+    <li>Scan the code with the phone's camera (or type the address in Chrome and the <b>PIN</b> when asked). The PIN is remembered on the phone.</li>
+    <li id="caStep"><b>Once per phone, for the secure (https) page</b>: on the phone open <span class="url" style="font-size:14px" id="caUrl"></span> to download <i>alpline-ca.crt</i>, then Android <i>Settings → Security → More security settings → Encryption &amp; credentials → Install a certificate → CA certificate</i> and pick it. Until then Chrome shows "Your connection is not private": it still works through <i>Advanced → Proceed</i>, but keeping the screen on and the radio over USB need the certificate.</li>
+    <li>The first time, Windows may ask whether Python may use the network: allow it. If the phone can't connect, the launcher's phone check fixes the Windows firewall; McAfee or a VPN may need an exception too.</li>
     <li>On the phone, Chrome menu → <b>Add to Home screen</b> gives it an icon.</li>
   </ol>
-  <p class="muted small">The phone can look, fly the simulator, follow live telemetry and build locations. Deleting and renaming only work on this computer. The radio stays plugged into the computer for live flights.</p>
+  <p class="muted small">The phone can look, fly the simulator, follow live telemetry and build locations. Deleting and renaming only work on this computer. The radio stays plugged into the computer for live flights. The certificate is made by this PC for this PC only.</p>
 </main>
 <script>
 (async () => {
@@ -50,12 +51,17 @@
     return;
   }
   const [main, ...others] = d.urls;
-  const q = qrcode(0, 'M'); q.addData(main); q.make();
+  const link = d.pin ? `${main}?k=${d.pin}` : main;            // the QR carries the PIN: no typing on the phone
+  const q = qrcode(0, 'M'); q.addData(link); q.make();
   out.innerHTML = `<div class="lbl">Scan with your phone</div><div class="grid">
       <div class="qr">${q.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div>
       <div><div class="url">${main}</div>
+        ${d.pin ? `<div class="alt" style="font-size:18px;margin-top:10px">PIN <b style="color:var(--t-fg);letter-spacing:3px">${d.pin}</b></div>` : ''}
+        ${d.https ? '' : '<div class="alt">plain http: the secure page needs the <i>cryptography</i> library (the launcher offers to install it)</div>'}
         ${others.length ? `<div class="alt">other addresses of this computer (other networks):<br>${others.join('<br>')}</div>` : ''}
         <div class="alt">locations map: ${main}map.html</div></div></div>`;
+  const ca = main.replace(/\/viewer\/$/, '/api/ca.crt');
+  if (d.https) document.getElementById('caUrl').textContent = ca; else document.getElementById('caStep').remove();
 })();
 </script>
 </body>

@@ -321,7 +321,7 @@ class Launcher:
         log = open(LOG, "w", encoding="utf-8", errors="replace")
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         self.proc = subprocess.Popen(args, cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT, creationflags=flags,
-                                     env={**os.environ, "PYTHONIOENCODING": "utf-8"})
+                                     env={**os.environ, "PYTHONIOENCODING": "utf-8", "FPV3D_PIN": self.pin()})
         self.port, self.running_mode, self.running_share = port, self.mode.get(), bool(self.cfg.get("share"))
         for _ in range(60):                     # wait until it answers (max ~15 s)
             if self.proc.poll() is not None:
@@ -356,10 +356,38 @@ class Launcher:
         self.refresh_status()
 
     # ------------------------------------------------------------ phone (share on the network)
+    def pin(self) -> str:
+        """6-digit PIN the phone needs once (kept in launcher.json so the phone's home-screen icon keeps working)."""
+        if not str(self.cfg.get("pin", "")).isdigit():
+            import secrets
+            self.cfg["pin"] = f"{secrets.randbelow(10 ** 6):06d}"; self.save()
+        return str(self.cfg["pin"])
+
+    def https_ready(self) -> bool:
+        """The secure page for the phone needs the 'cryptography' library in .venv; offer to install it once."""
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        ok = subprocess.run([python_exe(), "-c", "import cryptography"], capture_output=True, creationflags=flags).returncode == 0
+        if ok or self.cfg.get("no_https"):
+            return ok
+        from tkinter import messagebox
+        if not messagebox.askyesno("Alpline: phone", "For a secure (https) page on the phone, Alpline needs one more library "
+                                   "(cryptography, about 5 MB). It lets the phone keep its screen on during a live flight.\n\n"
+                                   "Install it now? (needs internet)", parent=self.root):
+            self.cfg["no_https"] = True; self.save()
+            return False
+        self.status.configure(text="○ installing cryptography…", fg=FG2); self.root.update()
+        r = subprocess.run([python_exe(), "-m", "pip", "install", "cryptography==50.0.2"], capture_output=True, text=True,
+                           creationflags=flags)
+        if r.returncode != 0:
+            self.say("could not install cryptography: the phone uses http")
+            return False
+        return True
+
     def toggle_share(self):
         self.cfg["share"] = not self.cfg.get("share")
         self.save()
         if self.cfg["share"]:
+            self.https_ready()
             if not self.server_alive() or self.running_share != True:
                 self.status.configure(text="○ starting…", fg=FG2); self.root.update()
                 if not self.start():
@@ -385,7 +413,7 @@ $r = [ordered]@{}
 $r.nets = @(Get-NetConnectionProfile | ForEach-Object { @{name=$_.Name; alias=$_.InterfaceAlias; category=[string]$_.NetworkCategory} })
 $r.ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object { "$($_.InterfaceAlias) $($_.IPAddress)" })
 $a = Get-NetFirewallRule -DisplayName 'Alpline (phone)' -ErrorAction SilentlyContinue
-$r.rule = @($a | ForEach-Object { @{enabled=[string]$_.Enabled; profile=[string]$_.Profile; action=[string]$_.Action} })
+$r.rule = @($a | ForEach-Object { @{enabled=[string]$_.Enabled; profile=[string]$_.Profile; action=[string]$_.Action; ports=(@($_ | Get-NetFirewallPortFilter).LocalPort -join ',')} })
 $r.pyblock = @(Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue | Where-Object { $_.Program -like '*python*' } | ForEach-Object {
   $x = $_ | Get-NetFirewallRule; @{name=$x.DisplayName; dir=[string]$x.Direction; action=[string]$x.Action; enabled=[string]$x.Enabled; profile=[string]$x.Profile; program=$_.Program} })
 $r.fw = @(Get-NetFirewallProfile -ErrorAction SilentlyContinue | ForEach-Object { @{name=$_.Name; enabled=[string]$_.Enabled; inbound=[string]$_.DefaultInboundAction; local=[string]$_.AllowLocalFirewallRules} })
@@ -411,7 +439,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         lst = lambda v: v if isinstance(v, list) else ([v] if v else [])
         nets, rules, py, fw = lst(d.get("nets")), lst(d.get("rule")), lst(d.get("pyblock")), lst(d.get("fw"))
         public = [n for n in nets if n.get("category") == "Public"]
-        rule_ok = any(r.get("enabled") == "True" and r.get("action") == "Allow" for r in rules)
+        rule_ok = any(r.get("enabled") == "True" and r.get("action") == "Allow" and "8443" in str(r.get("ports", "")) for r in rules)
         blocks = [b for b in py if b.get("dir") == "Inbound" and b.get("action") == "Block" and b.get("enabled") == "True"]
         managed = any(f.get("local") == "False" for f in fw)          # company PCs: local rules are ignored
         problems = []
@@ -433,7 +461,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
             return
         fix = ("The phone can't reach this computer:\n• " + "\n• ".join(problems) + "\n\n"
                "Fix it now? Windows asks for administrator permission once. This will:\n"
-               "• allow incoming connections to Alpline (ports 8000-8019 only)\n"
+               "• allow incoming connections to Alpline (ports 8000-8019 and 8443-8462 only)\n"
                + ("• switch off the rules that block Python\n" if blocks else "")
                + ("• set " + ", ".join(n.get("name", "?") for n in public) + " to Private "
                   "(fine for your home Wi-Fi or your own phone hotspot)\n" if public else "")
@@ -445,7 +473,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         cmds = [f"Start-Transcript -Path '{log}' -Force | Out-Null",
                 f"Get-NetFirewallRule -DisplayName '{self.RULE}' -ErrorAction SilentlyContinue | Remove-NetFirewallRule",
                 f"New-NetFirewallRule -DisplayName '{self.RULE}' -Direction Inbound -Action Allow -Protocol TCP "
-                "-LocalPort 8000-8019 -Profile Any | Out-Null"]
+                "-LocalPort 8000-8019,8443-8462 -Profile Any | Out-Null"]
         for b in blocks:
             cmds.append(f"Get-NetFirewallRule -DisplayName '{b.get('name')}' -ErrorAction SilentlyContinue | "
                         "Where-Object { $_.Direction -eq 'Inbound' -and $_.Action -eq 'Block' } | Disable-NetFirewallRule")
@@ -465,6 +493,12 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.say("Windows will ask for permission…")
         threading.Thread(target=run, daemon=True).start()
 
+    def share_info(self) -> dict:
+        try:
+            return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/share", timeout=1).read())
+        except Exception:
+            return {}
+
     def show_qr(self):
         if self.server_alive():
             webbrowser.open(f"http://127.0.0.1:{self.port}/viewer/share.html")
@@ -477,7 +511,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
                                  text="[phone: on]" if on else "[phone]")
         if self.server_alive() and self.running_share:
             ip = (lan_addresses() or ["?"])[0]
-            self.phone.configure(text=f"phone: http://{ip}:{self.port}", fg=ACC)
+            https = self.share_info().get("https")
+            self.phone.configure(text=f"phone: {'https' if https else 'http'}://{ip}:{self.port + (443 if https else 0)} · PIN {self.pin()}", fg=ACC)
             self.qr_btn.pack(side="left", padx=(6, 0))
         else:
             self.phone.configure(text="")

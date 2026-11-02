@@ -17,11 +17,16 @@ GET  /api/terrain?scene=&which=surface|dtm&step=&c0=&r0=&cols=&rows=   terrain w
 GET  /api/ortho?scene=&x0=&y0=&x1=&y1=&px=   sharp aerial photo crop (jpeg)
 GET  /api/jobs/<id>?since=N     progress of a background build (log lines + progress events from N)
 POST /api/jobs/<id>/cancel      stop a running build
+POST /api/zones {scene}         download the current drone no-fly zones for one scene
+POST /api/pilot {scene,lat,lon} move the pilot point (live flight: takeoff point) and rebuild
+GET  /api/share · /api/ca.crt   phone sharing: addresses + PIN (this PC only) · the private CA for https
 
-Only listens on 127.0.0.1, i.e. it is reachable from this computer only.
+Listens on 127.0.0.1 only (this computer), unless started with --lan (launcher [phone]): then other devices on
+the network can connect too, over http on the port and https on port + 443, after typing the PIN.
 """
 from __future__ import annotations
 
+import html
 import http.server
 import os
 import json
@@ -209,17 +214,61 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             return json.loads(self.rfile.read(n) or b"{}")
 
         # ---------------------------------------------------------------- GET
+        def _gate(self, u) -> bool:
+            """Other devices (the phone) need the PIN shown in the launcher, once: it comes in the QR link as ?k=,
+            or typed on the page below, and is then kept in a cookie for a year. True = request answered here."""
+            if self._local() or u.path in ("/api/ca.crt", "/favicon.ico") or u.path.startswith("/viewer/brand/"):
+                return False
+            pin = SHARE["pin"]
+            cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
+            if pin and cookies.get("alp_pin") == pin:
+                return False
+            q = urllib.parse.parse_qs(u.query)
+            if pin and (q.get("k") or [""])[0] == pin:        # right PIN in the link: remember it, drop it from the URL
+                rest = urllib.parse.urlencode({k: v[0] for k, v in q.items() if k != "k"})
+                self.send_response(302)
+                self.send_header("Set-Cookie", f"alp_pin={pin}; Path=/; Max-Age=31536000; SameSite=Lax"
+                                 + ("; Secure" if SHARE["https_port"] and self.server.server_address[1] == SHARE["https_port"] else ""))
+                self.send_header("Location", u.path + (f"?{rest}" if rest else ""))
+                self.end_headers()
+                return True
+            wrong = bool(q.get("k"))
+            body = (f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Alpline</title>"
+                    "<body style='font:16px system-ui;background:#07090c;color:#f2f5f8;padding:28px'>"
+                    "<h2 style='font-family:monospace'>ALPLINE</h2><p>Type the PIN shown in the Alpline launcher on the computer "
+                    "(status bar, next to the phone address).</p>"
+                    f"{'<p style=color:#ff6b6b>Wrong PIN.</p>' if wrong else ''}"
+                    "<form method=get>" + "".join(f"<input type=hidden name='{html.escape(k)}' value='{html.escape(v[0])}'>"
+                                                  for k, v in q.items() if k != "k") +
+                    "<input name=k inputmode=numeric autocomplete=off autofocus "
+                    "style='font:24px monospace;width:8em;padding:6px'> <button style='font:18px monospace;padding:6px 12px'>open</button></form>").encode()
+            self.send_response(401)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+
         def do_GET(self):
             u = urllib.parse.urlparse(self.path)
+            if self._gate(u):
+                return
             if not self._local() and (u.path.endswith("/") or u.path.endswith(".html")):
                 sys.stderr.write(f"[phone] {self.client_address[0]} opened {u.path}\n")   # shows it reached the PC
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             try:
                 if u.path == "/api/share":       # addresses a phone can use (launcher "share on my network")
-                    port = self.server.server_address[1]
-                    lan = self.server.server_address[0] in ("0.0.0.0", "")
-                    return self._json(dict(shared=lan, port=port,
-                                           urls=[f"http://{ip}:{port}/viewer/" for ip in lan_addresses()] if lan else []))
+                    if not SHARE["on"]:
+                        return self._json(dict(shared=False, urls=[]))
+                    scheme, p = ("https", SHARE["https_port"]) if SHARE["https_port"] else ("http", SHARE["port"])
+                    return self._json(dict(shared=True, https=bool(SHARE["https_port"]), pin=SHARE["pin"] if self._local() else None,
+                                           urls=[f"{scheme}://{ip}:{p}/viewer/" for ip in lan_addresses()]))
+                if u.path == "/api/ca.crt":      # the private CA to install once on the phone (public, no PIN)
+                    from .tlscert import CA_CRT
+                    if not CA_CRT.exists():
+                        return self._json(dict(error="no certificate yet: share with the phone first"), 404)
+                    return self._bin(CA_CRT.read_bytes(), "application/x-x509-ca-cert",
+                                     {"Content-Disposition": 'attachment; filename="alpline-ca.crt"'})
                 if u.path == "/api/mode.js":     # loaded by the pages before anything else: Full or Lite mode
                     from . import mode
                     body = f'window.FPV3D_MODE = "{mode.current()}";\n'.encode()
@@ -306,6 +355,10 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
         # ---------------------------------------------------------------- POST
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
+            if self._gate(u):
+                return
+            if int(self.headers.get("Content-Length") or 0) > 20_000_000:       # 20 MB: a training flight CSV fits
+                return self._json(dict(error="request too large"), 413)
             # shared on the network (phone): other devices may look, fly and build, but not delete or rename
             if u.path in LOCAL_ONLY and not self._local():
                 return self._json(dict(error="Deleting and renaming only work on the computer running Alpline."), 403)
@@ -414,6 +467,18 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     JOBS[jid] = dict(id=jid, name="(all scenes)", status="running", lines=[])
                     threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
                     return self._json(dict(job=jid))
+                if u.path == "/api/zones":       # fresh no-fly zones for one scene (viewer: [refresh zones])
+                    scene = b.get("scene", "")
+                    loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
+                    if loc is None:
+                        return self._json(dict(error="no location file for this scene"), 400)
+                    if busy_job():
+                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): try again when it is done"), 409)
+                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "zones", f"locations/{loc.name}"]
+                    jid = uuid.uuid4().hex[:10]
+                    JOBS[jid] = dict(id=jid, name=loc.stem, status="running", lines=[])
+                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+                    return self._json(dict(job=jid))
                 if u.path == "/api/pilot":       # live flight: move the pilot point to the takeoff point, rebuild
                     from .locations import set_pilot
                     scene = b.get("scene", "")
@@ -476,17 +541,41 @@ def lan_addresses() -> list:
     return [ip for i, ip in enumerate(ips) if ip not in ips[:i] and not ip.startswith(("127.", "169.254."))]
 
 
+SHARE = {"on": False, "pin": None, "port": None, "https_port": None}   # set by serve(lan=True)
+
+
 def serve(port: int, scenes_dir: Path, cache_dir: Path, open_path: str = "/viewer/", open_browser=True, lan=False):
     import webbrowser
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     socketserver.ThreadingTCPServer.daemon_threads = True
     host = "0.0.0.0" if lan else "127.0.0.1"
-    with socketserver.ThreadingTCPServer((host, port), make_handler(scenes_dir, cache_dir)) as httpd:
+    handler = make_handler(scenes_dir, cache_dir)
+    with socketserver.ThreadingTCPServer((host, port), handler) as httpd:
         url = f"http://127.0.0.1:{port}{open_path}"
         print(f"fpv3d: {url}   (map: http://127.0.0.1:{port}/viewer/map.html)   Ctrl+C to stop")
         if lan:
+            import secrets
+            pin = os.environ.get("FPV3D_PIN") or f"{secrets.randbelow(10 ** 6):06d}"
+            SHARE.update(on=True, pin=pin, port=port)
+            scheme, p = "http", port
+            from . import tlscert
+            if tlscert.available():                # https for the phone on port + 443 (8000 -> 8443)
+                try:
+                    import ssl
+                    cert, key = tlscert.ensure(lan_addresses())
+                    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                    ctx.load_cert_chain(cert, key)
+                    hs = socketserver.ThreadingTCPServer((host, port + 443), handler)
+                    hs.socket = ctx.wrap_socket(hs.socket, server_side=True)
+                    threading.Thread(target=hs.serve_forever, daemon=True).start()
+                    scheme, p = "https", port + 443
+                    SHARE["https_port"] = p
+                except Exception as ex:
+                    print(f"       https not available ({ex}); the phone uses http")
+            else:
+                print("       https needs the 'cryptography' library (pip install -r requirements.txt); the phone uses http")
             for ip in lan_addresses():
-                print(f"       on your phone (same Wi-Fi / hotspot): http://{ip}:{port}/viewer/")
+                print(f"       on your phone (same Wi-Fi / hotspot): {scheme}://{ip}:{p}/viewer/   PIN {pin}")
         if open_browser:
             threading.Timer(0.6, lambda: webbrowser.open(url)).start()
         try:

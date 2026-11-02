@@ -684,7 +684,32 @@ function corDistLocal(pts, x, y) {
   }
   return d;
 }
+// how old the zone copy is: zones change (new areas, events, temporary restrictions), so it is shown and refreshable
+function showZoneAge() {
+  const f = S.meta.geozones?.fetched;
+  if (!f) { $('zonesAge').textContent = 'zone data: none yet'; return; }
+  const days = Math.floor((Date.now() - Date.parse(f.replace(' ', 'T'))) / 864e5);
+  $('zonesAge').innerHTML = `zone data from ${f.slice(0, 10)} · ${days <= 0 ? 'today' : days === 1 ? '1 day old' : `${days} days old`}`
+    + (days > 7 ? ' · <b class="warn">refresh before flying</b>' : '');
+}
+async function refreshZones() {
+  const b = $('zonesRefresh'); b.disabled = true; $('zonesAge').textContent = 'downloading the current zones…';
+  try {
+    const r = await fetch('/api/zones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 1000));
+      const k = await (await fetch(`/api/jobs/${j.job}`)).json();
+      if (k.status === 'running') continue;
+      if (k.status !== 'done') throw new Error((k.lines || []).at(-1) || k.status);
+      break;
+    }
+    location.reload();                            // simplest way to redraw the zones everywhere
+  } catch (e) { $('zonesAge').textContent = `could not refresh: ${e.message}`; b.disabled = false; }
+}
+
 function updateZoneSummary() {
+  showZoneAge();
   const z = S.zones;
   if (!z) { $('sumZones').textContent = ''; return; }
   const act = z.zones.filter((zn) => isActive(zn));
@@ -1286,7 +1311,7 @@ function showZone(zn) {
 }
 
 function applyZones() {
-  if (!S.zones) { S.terrainMat.uniforms.uZonesOn.value = 0; fillZoneUi(); return; }
+  if (!S.zones) { S.terrainMat.uniforms.uZonesOn.value = 0; fillZoneUi(); showZoneAge(); return; }
   S.zones.set({ walls: $('zonesWalls').checked && $('zonesOn').checked, showInactive: $('zonesInactive').checked });
   S.terrainMat.uniforms.uZonesOn.value = $('zonesOn').checked ? 1 : 0;
   computeTrackZones(S.track); computeTrackZones(S.cmp);
@@ -1382,6 +1407,7 @@ async function loadScene(name) {
   try { S.zones = await loadZones({ S, scene3, toWorld, demHeight }); } catch (e) { console.warn('geozones', e); S.zones = null; }
   if (S.zones) S.terrainMat.uniforms.uZones.value = S.zones.texture;
   ['zonesOn', 'zonesWalls', 'zonesInactive'].forEach((id) => { $(id).onchange = applyZones; });
+  $('zonesRefresh').onclick = refreshZones;
   applyZones();
   applyShadowMode();
   const span = Math.max(S.W, S.H);
