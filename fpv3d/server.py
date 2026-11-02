@@ -16,6 +16,7 @@ POST /api/rename                rename a location or a log  body: {"kind": "loca
 GET  /api/terrain?scene=&which=surface|dtm&step=&c0=&r0=&cols=&rows=   terrain window (float32)
 GET  /api/ortho?scene=&x0=&y0=&x1=&y1=&px=   sharp aerial photo crop (jpeg)
 GET  /api/jobs/<id>?since=N     progress of a background build (log lines + progress events from N)
+POST /api/jobs/<id>/cancel      stop a running build
 
 Only listens on 127.0.0.1, i.e. it is reachable from this computer only.
 """
@@ -78,6 +79,7 @@ def run_build(job_id: str, args: list):
     try:
         p = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", errors="replace", bufsize=1, env=env)
+        PROCS[job_id] = p
         buf = ""
         while True:
             ch = p.stdout.read(1)
@@ -101,10 +103,20 @@ def run_build(job_id: str, args: list):
                 buf += ch
         if buf.strip():
             job["lines"].append(buf)
-        job["status"] = "done" if p.wait() == 0 else "failed"
+        code = p.wait()
+        job["status"] = "cancelled" if job.get("cancel") else "done" if code == 0 else "failed"
+        PROCS.pop(job_id, None)
     except Exception as ex:
         job["lines"].append(f"error: {ex}")
         job["status"] = "failed"
+
+
+PROCS = {}       # job id -> running build process (kept out of JOBS, which is sent as JSON)
+
+
+def busy_job():
+    """The build that is running now, if any: one build at a time (memory, disk and the same files)."""
+    return next((j for j in JOBS.values() if j["status"] == "running"), None)
 
 
 def location_file_for_scene(scene: str):
@@ -299,6 +311,15 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return self._json(dict(error="Deleting and renaming only work on the computer running Alpline."), 403)
             try:
                 b = self._body()
+                m = re.match(r"^/api/jobs/([\w-]+)/cancel$", u.path)
+                if m:                            # stop a running build (the map page's [cancel])
+                    job, p = JOBS.get(m.group(1)), PROCS.get(m.group(1))
+                    if not job or job["status"] != "running" or p is None:
+                        return self._json(dict(error="no such running build"), 404)
+                    job["cancel"] = True
+                    job["lines"].append("cancelled by the user")
+                    p.terminate()
+                    return self._json(dict(ok=True))
                 if u.path == "/api/locations":
                     out = write_location(
                         b["name"], b.get("title") or b["name"], tuple(b["center"]), tuple(b.get("pilot") or b["center"]),
@@ -370,8 +391,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
                     if loc is None:
                         return self._json(dict(error=f"no location file for scene '{scene}'"), 400)
-                    if any(j["status"] == "running" for j in JOBS.values()):
-                        return self._json(dict(error="a build is already running"), 409)
+                    if busy_job():
+                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
                     changed = patch_links(loc, b.get("links") or [])
                     args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build",
                             str(loc.relative_to(ROOT)), "--reuse-terrain"]
@@ -380,8 +401,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
                     return self._json(dict(job=jid, changed=changed, file=loc.name))
                 if u.path == "/api/refresh-all":
-                    if any(j["status"] == "running" for j in JOBS.values()):
-                        return self._json(dict(error="a build is already running"), 409)
+                    if busy_job():
+                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
                     args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "refresh-all"]
                     if b.get("mode") == "buildings":
                         args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "buildings"]
@@ -402,8 +423,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     lat, lon = float(b["lat"]), float(b["lon"])
                     if not (45.5 < lat < 48.0 and 5.8 < lon < 10.7):
                         return self._json(dict(error="position outside Switzerland"), 400)
-                    if any(j["status"] == "running" and j["name"] == loc.stem for j in JOBS.values()):
-                        return self._json(dict(error="a build of this location is already running"), 409)
+                    if busy_job():
+                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it to finish"), 409)
                     set_pilot(loc, lat, lon)
                     args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{loc.name}"]
                     jid = uuid.uuid4().hex[:10]
@@ -414,8 +435,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     name = b["name"]
                     if not re.match(r"^[\w-]+$", name) or not (ROOT / "locations" / f"{name}.yaml").exists():
                         return self._json(dict(error="unknown location"), 400)
-                    if any(j["status"] == "running" and j["name"] == name for j in JOBS.values()):
-                        return self._json(dict(error="a build of this location is already running"), 409)
+                    if busy_job():
+                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
                     args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{name}.yaml"]
                     if b.get("resolution"):
                         args += ["--resolution", str(float(b["resolution"]))]

@@ -10,7 +10,7 @@
   delete NAME | restore [NAME] | deleted [--purge]    delete a location (restorable), undo, empty the bin
   zones      locations/x.yaml [--no-refresh]           update the drone no-fly / restricted zones of a scene
   prefetch   locations/x.yaml --res 2 5 10              download + memoise terrain at several detail levels
-  cache      info | clear [--raw] [--lod] [--kind dtm]  inspect / clean the tile cache
+  cache      info | clear [--raw] [--lod] [--kind dtm] | prune [--dry-run]   inspect / clean the tile cache
   video-convert FILE [...]                             re-encode H.265 DVR footage to browser-friendly H.264
 """
 from __future__ import annotations
@@ -161,9 +161,34 @@ def cmd_prefetch(a):
     print("\n".join(tc.info()))
 
 
+def location_tile_keys(margin_km: int = 1) -> set:
+    """1 km tile keys ("E-N") used by the location files, + a margin of tiles around each one."""
+    from .config import LocationConfig
+    from .tilecache import tile_keys
+    keep = set()
+    for f in sorted((ROOT / "locations").glob("*.yaml")):
+        try:
+            cfg = LocationConfig.load(f)
+        except Exception as ex:                  # a broken file: keep everything rather than guess
+            raise SystemExit(f"{f.name} cannot be read ({ex}); fix it before cleaning the cache")
+        if cfg.corridor is not None:
+            ks = set(cfg.corridor.tile_keys()) | set(cfg.corridor.context_keys(cfg.pilot.lv95() if cfg.pilot else None))
+        else:
+            ks = set(tile_keys(cfg.grid(10)))
+        for e, n in ks:
+            for de in range(-margin_km, margin_km + 1):
+                for dn in range(-margin_km, margin_km + 1):
+                    keep.add(f"{e + de}-{n + dn}")
+    return keep
+
+
 def cmd_cache(a):
     from .tilecache import TileCache
     tc = TileCache(Path(a.cache))
+    if a.action == "prune":
+        files, size = tc.prune(location_tile_keys(), dry_run=a.dry_run)
+        print(f"{'would free' if a.dry_run else 'freed'} {size / 1e6:.0f} MB ({files} tiles not used by any location file)")
+        return
     if a.action == "clear":
         if not (a.raw or a.lod):
             sys.exit("say what to clear: --raw (downloads), --lod (resampled tiles) or both")
@@ -386,7 +411,9 @@ def main(argv=None):
     pf.set_defaults(func=cmd_prefetch)
 
     ca = sub.add_parser("cache", help="show or clean the tile cache")
-    ca.add_argument("action", choices=["info", "clear"])
+    ca.add_argument("action", choices=["info", "clear", "prune"],
+                    help="prune = delete tiles that no location file uses (keeps 1 km around each location)")
+    ca.add_argument("--dry-run", action="store_true", help="prune: only say how much it would free")
     ca.add_argument("--raw", action="store_true", help="delete raw downloads")
     ca.add_argument("--lod", action="store_true", help="delete resampled tiles")
     ca.add_argument("--kind", choices=["dtm", "dsm", "ortho"])

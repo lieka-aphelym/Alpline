@@ -268,6 +268,26 @@ class TileCache:
                     lines.append(f"lod  {kd.name:5s} {rd.name:>6s}  {tiles:5d} tiles (= {tiles} km²) {size(rd) / 1e6:9.1f} MB")
         return lines or ["cache is empty"]
 
+    def prune(self, keep: set, dry_run=True):
+        """Delete downloaded and resampled tiles whose 1 km key ("E-N") is not in `keep`.
+        Returns (files, bytes) removed, or that would be removed with dry_run."""
+        files = size = 0
+        for coll in set(swisstopo.COLLECTIONS.values()):
+            for f in (self.root / coll).glob("*.tif") if (self.root / coll).exists() else []:
+                m = self._RAW_RE.search(f.name)
+                if m and m.group(2) not in keep:
+                    files += 1; size += f.stat().st_size
+                    if not dry_run:
+                        f.unlink(missing_ok=True)
+        lod = self.root / "lod"
+        if lod.exists():
+            for f in lod.rglob("*"):
+                if f.is_file() and f.suffix in (".npy", ".jpg", ".none") and f.stem not in keep:
+                    files += 1; size += f.stat().st_size
+                    if not dry_run:
+                        f.unlink(missing_ok=True)
+        return files, size
+
     def clear(self, raw=False, lod=False, kind=None):
         if lod:
             target = self.root / "lod" / kind if kind else self.root / "lod"

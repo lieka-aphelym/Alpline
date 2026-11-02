@@ -221,6 +221,8 @@ class Launcher:
         Tip(self.qr_btn, "Show a QR code to scan with the phone's camera.")
         sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
         Tip(sc, "Add an 'Alpline' shortcut to your desktop.")
+        dk = self.button(bar, "[disk]", self.disk_dialog, small=True); dk.pack(side="right", padx=(0, 6))
+        Tip(dk, "How much space Alpline uses, and clean-up (deleted locations, unused map tiles).")
         ck = self.button(bar, "[check]", self.check_offline, small=True); ck.pack(side="right", padx=(0, 6))
         Tip(ck, "Reload the locations and check the internet again.")
         self.msg = tk.Label(bar, font=SANS, fg=ACC, bg=BG); self.msg.pack(side="right", padx=(0, 12))
@@ -537,6 +539,79 @@ $r | ConvertTo-Json -Depth 4 -Compress
     def open_location(self, l):
         if l:
             self.open(f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html")
+
+    # ------------------------------------------------------------ disk space + clean-up
+    @staticmethod
+    def folder_size(p: Path):
+        total = n = 0
+        stack = [p]
+        while stack:
+            d = stack.pop()
+            try:
+                with os.scandir(d) as it:
+                    for e in it:
+                        if e.is_dir(follow_symlinks=False):
+                            stack.append(e.path)
+                        elif e.is_file(follow_symlinks=False):
+                            total += e.stat().st_size; n += 1
+            except OSError:
+                pass
+        return total, n
+
+    def disk_dialog(self):
+        win = tk.Toplevel(self.root); win.title("Alpline · disk space"); win.configure(bg=BG); win.resizable(False, False)
+        hdr = tk.Frame(win, bg=BG); hdr.pack(fill="x", padx=14, pady=(12, 0))
+        self.section("DISK SPACE", hdr)
+        rows = tk.Frame(win, bg=BG); rows.pack(fill="x", padx=14)
+        out = tk.Label(win, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(460))
+        items = [("cache", "download cache (map tiles)", "Tiles from swisstopo. Lets you build offline; tiles no location uses can be removed."),
+                 ("scenes", "built locations", "What the 3D viewer shows. Rebuilt from the cache if deleted."),
+                 ("deleted", "deleted locations", "Kept so you can restore them. Emptying is permanent."),
+                 ("logs", "flight logs", "Your recorded and training flights.")]
+        labels = {}
+        for key, name, tip in items:
+            r = tk.Frame(rows, bg=BG); r.pack(fill="x", pady=1)
+            tk.Label(r, text=name, font=SANS, fg=FG, bg=BG, width=26, anchor="w").pack(side="left")
+            labels[key] = tk.Label(r, text="…", font=MONO, fg=FG, bg=BG, anchor="e", width=18); labels[key].pack(side="left")
+            Tip(labels[key], tip)
+
+        def measure():
+            res = {k: self.folder_size(ROOT / k) for k, *_ in items}
+            def show():
+                for k, (b, n) in res.items():
+                    labels[k].configure(text=f"{b / 1e9:.2f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB")
+                tot = sum(b for b, _ in res.values())
+                out.configure(text=f"Total {tot / 1e9:.1f} GB (Python libraries not counted).")
+            self.root.after(0, show)
+        threading.Thread(target=measure, daemon=True).start()
+
+        def run(args, confirm=None, after=None):
+            from tkinter import messagebox
+            if confirm and not messagebox.askyesno("Alpline", confirm, parent=win):
+                return
+            out.configure(text="working…")
+
+            def work():
+                r = subprocess.run([python_exe(), "-m", "fpv3d"] + args, cwd=str(ROOT), capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                text = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-300:]
+                self.root.after(0, lambda: (out.configure(text=text), after and after(r), threading.Thread(target=measure, daemon=True).start()))
+            threading.Thread(target=work, daemon=True).start()
+
+        def prune():                              # first say how much, then ask
+            def asked(r):
+                if r.returncode == 0 and "would free 0 MB" not in r.stdout:
+                    run(["cache", "prune"], confirm=r.stdout.strip().splitlines()[-1].replace("would free", "This will free")
+                        + ".\n\nTiles of your location files (and 1 km around them) are kept. Delete the rest?")
+            run(["cache", "prune", "--dry-run"], after=asked)
+
+        btns = tk.Frame(win, bg=BG); btns.pack(fill="x", padx=14, pady=(10, 0))
+        b1 = self.button(btns, "[clean unused tiles]", prune); b1.pack(side="left", padx=(0, 6))
+        Tip(b1, "Deletes downloaded tiles that none of your location files uses. Your locations still build offline.")
+        b2 = self.button(btns, "[empty deleted]", lambda: run(["deleted", "--purge"],
+                         confirm="Permanently delete the locations in the 'deleted' folder? They can no longer be restored."))
+        b2.pack(side="left")
+        out.pack(fill="x", padx=14, pady=(8, 14))
 
     # ------------------------------------------------------------ desktop shortcut (Windows)
     def make_shortcut(self):

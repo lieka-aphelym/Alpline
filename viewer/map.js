@@ -320,6 +320,7 @@ async function updatePreview(full = true) {
   const mb = kind === 'dsm' ? 30 : res < 2 ? 25 : 1.5;   // rough MB per raw tile
   $('oTiles').innerHTML = `${keys.length} km²: <b>${nLod}</b> ready, ${nRaw} from earlier downloads, ` +
     `${toDl ? `<b>${toDl}</b> to download (~${Math.round(toDl * mb)} MB)` : 'nothing to download'}`;
+  showSize(Math.pow(Math.round(2 * h / res) + 1, 2), kind);
   tilesL.clearLayers().addTo(map);
   for (const k of keys) {
     const [e, n] = k.split('-').map((v) => +v * TILE);
@@ -328,6 +329,17 @@ async function updatePreview(full = true) {
   }
   if (!full) return;
   pilotHeight();
+}
+
+// size of the scene and memory needed to build it (same rule as fpv3d/buildlock.py: 4 bytes a cell per terrain
+// layer, a second layer for the surface model, about 6 layers of memory at the peak of the build)
+function showSize(cells, kind) {
+  const layer = cells * 4 / 1e6, scene = layer * (kind === 'dsm' ? 2 : 1) + 5, ram = layer * 6 / 1000;
+  draft.est = { scene, ram };
+  const mbs = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)} GB` : `${Math.round(v)} MB`);
+  $('oSize').innerHTML = `scene ≈ <b>${mbs(scene)}</b>, building needs ≈ <b>${ram.toFixed(1)} GB</b> of memory`
+    + (ram > 8 ? '<br><b class="warn">Very large: most PCs will run out of memory. Use a coarser detail or a smaller area.</b>'
+      : ram > 4 ? '<br><b class="warn">Large: the build will take long and may fail on a PC with 8 GB or less.</b>' : '');
 }
 
 function updateRoutePreview() {
@@ -368,6 +380,7 @@ function updateRoutePreview() {
     + `${toDl ? `<b>${toDl}</b> to download (~${Math.round(toDl * mb)} MB)` : 'nothing to download'}`
     + (ctx.length ? `<br><span class="muted">+ ${ctx.length} km² coarse context between pilot and route (10 m, small)</span>` : '')
     + (cells > 150e6 ? `<br><b class="warn">Large box (${Math.round(cells / 1e6)} M cells at ${res} m): choose a coarser detail or split the route.</b>` : '');
+  showSize(cells, kind);
   const [pe, pn] = pil || pts[0];
   $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">LV95 ${fmtLV(pe, pn)}${draft.pilotAuto ? ' · start of the route' : ''}</span>`;
 }
@@ -421,6 +434,7 @@ async function save() {
 
 let PROG = null;
 async function build(name) {
+  if (draft.est?.ram > 4 && !confirm(`This location needs about ${draft.est.ram.toFixed(1)} GB of memory to build and makes a ${Math.round(draft.est.scene)} MB scene. Build anyway?`)) return;
   const r = await fetch('/api/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
   const d = await r.json();
   if (!r.ok) { msg(d.error, 'err'); return; }
@@ -430,6 +444,11 @@ async function build(name) {
   tilesL.remove();                          // the live tiles replace the draft tile preview
   msg('');
   $('bBuild').disabled = true;
+  $('progCancel').classList.remove('hidden'); $('progCancel').disabled = false;
+  $('progCancel').onclick = async () => {
+    $('progCancel').disabled = true;
+    try { await fetch(`/api/jobs/${d.job}/cancel`, { method: 'POST' }); } catch { /* finished meanwhile */ }
+  };
   let since = 0;
   for (;;) {
     await new Promise((ok) => setTimeout(ok, 400));
@@ -438,7 +457,8 @@ async function build(name) {
     since = j.events_total ?? since;
     PROG.update(j);
     if (j.status !== 'running') {
-      $('bBuild').disabled = false;
+      $('bBuild').disabled = false; $('progCancel').classList.add('hidden');
+      if (j.status === 'cancelled') { msg('Build cancelled. The location file is kept; build it again any time.', 'err'); refresh(); break; }
       if (j.status === 'done') {
         msg('', 'ok');
         $('msg').innerHTML = `Built. <a href="index.html?scene=${encodeURIComponent(name)}" style="color:var(--accent)">Open “${name}” in 3D</a>`;

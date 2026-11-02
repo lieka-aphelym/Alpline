@@ -42,6 +42,10 @@ Double-click **`Alpline.bat`** in the project folder. One window:
 
 Logs count as **sim** when they come from the training flight (`<location>_sim_<date>` or `logs/sim/`), everything else counts as **real**.
 
+**Building safely:** the map page shows the size of a new location before you build it (scene size and memory needed) and asks before very large builds; a running build has **[cancel build]**. Only one build runs at a time, and the same location can never be built twice at once (another terminal or window is refused). Downloads from swisstopo are retried 3 times (after 5, 15 and 30 s) when the network hiccups. Library versions are fixed in `requirements.txt`.
+
+**Disk space:** **[disk]** in the launcher shows the size of the download cache, built locations, deleted locations and logs. *[clean unused tiles]* deletes downloaded tiles that none of your location files uses (1 km around each location is kept), *[empty deleted]* empties the deleted folder for good. From a terminal: `python -m fpv3d cache prune --dry-run`, then `python -m fpv3d cache prune`.
+
 **Numbered locations:** a new location gets the next number in front of its name, with as many digits as your existing ones (e.g. `015_gruyere` after `014_vanil_noir`, or `01_...` for the very first). Renaming keeps the number.
 
 The viewer and the map page show the current mode in the small badge next to the title. From a terminal: `python -m fpv3d serve` (Full) or `python -m fpv3d serve --lite`, the same for `map` and `new`. `?mode=lite` / `?mode=full` in the viewer address overrides it for one page.

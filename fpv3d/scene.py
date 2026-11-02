@@ -391,6 +391,23 @@ def previous_tracks(cfg, out: Path, log_paths):
 
 def build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), skip_ortho=False,
           reuse_terrain=False, refresh=False):
+    """Build (or rebuild) a scene; refused while another process builds the same location."""
+    from .buildlock import Busy, estimate, scene_lock, total_ram_gb
+    est, ram = estimate(cfg), total_ram_gb()
+    log(f"[size] {est['cols']} x {est['rows']} cells: scene about {est['scene_mb']:.0f} MB, "
+        "needs about " + (f"{est['ram_gb']:.1f} GB" if est['ram_gb'] >= 1 else f"{est['ram_gb'] * 1000:.0f} MB") + " of memory while building" + (f" (this PC has {ram:.0f} GB)" if ram else ""))
+    if ram and est["ram_gb"] > 0.7 * ram:
+        log("[size] WARNING: that is close to this PC's memory: the build may fail or make the PC very slow. "
+            "Use a coarser terrain detail or a smaller area.")
+    try:
+        with scene_lock(scenes_dir, cfg.name):
+            return _build(cfg, scenes_dir, cache, extra_logs, skip_ortho, reuse_terrain, refresh)
+    except Busy as ex:
+        raise SystemExit(str(ex))
+
+
+def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), skip_ortho=False,
+           reuse_terrain=False, refresh=False):
     out = scenes_dir / cfg.name
     log_paths = list(cfg.logs) + [str(p) for p in extra_logs]
     tracks_for_pilot = []

@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -34,10 +35,32 @@ _TILE_RE = re.compile(r"_(\d{4}-\d{4})$")
 _UA = {"User-Agent": "fpv3d/0.1 (FPV flight visualiser)"}
 
 
+def _retry(fn, what: str, tries: int = 3):
+    """Run fn(); on a network hiccup (time-out, dropped connection, server busy 429/5xx) wait 5 s, 15 s and retry.
+    A real 'not found' (4xx) is not retried."""
+    import time
+    for attempt in range(tries):
+        try:
+            return fn()
+        except urllib.error.HTTPError as ex:
+            if ex.code != 429 and ex.code < 500 or attempt == tries - 1:
+                raise
+            err = f"HTTP {ex.code}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as ex:
+            if attempt == tries - 1:
+                raise
+            err = ex.__class__.__name__
+        wait = (5, 15, 30)[attempt]
+        print(f"\n    {what}: {err}, retrying in {wait} s", file=sys.stderr)
+        time.sleep(wait)
+
+
 def _get_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers=_UA)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.load(r)
+    def get():
+        req = urllib.request.Request(url, headers=_UA)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)
+    return _retry(get, "swisstopo catalogue")
 
 
 def stac_items(collection: str, bbox_wgs84) -> List[dict]:
@@ -88,6 +111,10 @@ def download(url: str, cache_dir: Path, on_progress=None) -> Path:
     if dest.exists() and dest.stat().st_size > 0:
         return dest
     tmp = dest.with_suffix(dest.suffix + ".part")
+    return _retry(lambda: _download_once(url, dest, tmp, on_progress), dest.name)
+
+
+def _download_once(url: str, dest: Path, tmp: Path, on_progress=None) -> Path:
     req = urllib.request.Request(url, headers=_UA)
     with urllib.request.urlopen(req, timeout=300) as r, open(tmp, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
