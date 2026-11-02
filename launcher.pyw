@@ -26,6 +26,12 @@ LOG = ROOT / "logs" / "server.log"
 BG, BG2, BG3, FG, FG2, RULE, ACC = "#07090c", "#10141a", "#171c24", "#f2f5f8", "#a9b4c2", "#2a313c", "#ffd60a"
 MONO = ("Consolas", 10)
 SANS = ("Segoe UI", 10)
+UI = 1.0                                             # screen scaling (1.5 on a 150 % Windows display), set at start
+
+
+def S(v: float) -> int:
+    """pixel size scaled for the screen (fonts in points scale by themselves)"""
+    return round(v * UI)
 
 
 def venv_exe(name: str) -> str:
@@ -83,7 +89,7 @@ class Tip:
             return
         self.top = tk.Toplevel(self.w); self.top.wm_overrideredirect(True)
         self.top.wm_geometry(f"+{self.w.winfo_rootx()}+{self.w.winfo_rooty() + self.w.winfo_height() + 4}")
-        tk.Label(self.top, text=t, font=SANS, fg=FG, bg=BG3, justify="left", wraplength=340, padx=8, pady=5,
+        tk.Label(self.top, text=t, font=SANS, fg=FG, bg=BG3, justify="left", wraplength=S(340), padx=S(8), pady=S(5),
                  highlightthickness=1, highlightbackground=RULE).pack()
 
     def hide(self, _=None):
@@ -166,10 +172,10 @@ class Launcher:
         # ---- middle: map | locations table + details card
         mid = tk.Frame(root, bg=BG); mid.pack(fill="both", padx=14, pady=10)
         self.map = SwissMap(self, mid)
-        right = tk.Frame(mid, bg=BG, width=390, height=self.map.h + 36)   # fixed size: the window never jumps
+        right = tk.Frame(mid, bg=BG, width=S(390), height=self.map.h + S(36))   # fixed size: the window never jumps
         right.pack(side="left", fill="y", padx=(12, 0)); right.pack_propagate(False)
         self.loc_title = self.section("LOCATIONS", right)
-        self.table = Table(self, right, height=max(6, (self.map.h - 205) // 21))
+        self.table = Table(self, right, height=max(6, (self.map.h - S(205)) // S(21)))
         self.card = Card(self, right)
 
         # ---- status bar
@@ -198,7 +204,7 @@ class Launcher:
             st.theme_use("clam")
         except tk.TclError:
             pass
-        st.configure("L.Treeview", background=BG2, fieldbackground=BG2, foreground=FG, font=MONO, rowheight=21,
+        st.configure("L.Treeview", background=BG2, fieldbackground=BG2, foreground=FG, font=MONO, rowheight=S(21),
                      borderwidth=0, relief="flat")
         st.map("L.Treeview", background=[("selected", ACC)], foreground=[("selected", "#000")])
         st.configure("L.Treeview.Heading", background=BG, foreground=FG2, font=("Consolas", 8, "bold"), relief="flat",
@@ -392,7 +398,7 @@ class Table:
         for c, label, w, anchor in (("num", "#", 42, "w"), ("name", "LOCATION", 190, "w"),
                                     ("real", "REAL", 54, "e"), ("sim", "SIM", 54, "e")):
             self.tv.heading(c, text=label, anchor=anchor)
-            self.tv.column(c, width=w, anchor=anchor, stretch=c == "name")
+            self.tv.column(c, width=S(w), anchor=anchor, stretch=c == "name")
         self.tv.tag_configure("nb", foreground=GREY)
         sb = ttk.Scrollbar(box, orient="vertical", command=self.tv.yview, style="L.Vertical.TScrollbar")
         def autohide(lo, hi):                   # the scrollbar only shows when the list is longer than the box
@@ -443,9 +449,9 @@ class Card:
         f = tk.Frame(parent, bg=RULE, padx=1, pady=1); f.pack(fill="x", pady=(10, 0))
         inner = tk.Frame(f, bg=BG, padx=10, pady=8); inner.pack(fill="both")
         self.title = tk.Label(inner, font=("Consolas", 10, "bold"), fg=FG, bg=BG, anchor="w"); self.title.pack(fill="x")
-        self.info = tk.Label(inner, font=("Consolas", 9), fg=FG2, bg=BG, anchor="w", justify="left", wraplength=350)
+        self.info = tk.Label(inner, font=("Consolas", 9), fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(350))
         self.info.pack(fill="x", pady=(2, 6))
-        self.cv = tk.Canvas(inner, width=330, height=46, bg=BG, highlightthickness=0); self.cv.pack(anchor="w")
+        self.cv = tk.Canvas(inner, width=S(330), height=S(46), bg=BG, highlightthickness=0); self.cv.pack(anchor="w")
         row = tk.Frame(inner, bg=BG); row.pack(fill="x", pady=(8, 0))
         self.open_btn = app.button(row, "[open in 3d]", lambda: app.open_location(app.map.current()), primary=True)
         self.open_btn.pack(side="left")
@@ -471,19 +477,19 @@ class Card:
         # bar chart: real vs sim logs (bars scaled to the location with the most logs)
         most = max([1] + [max(x["stats"]["real"], x["stats"]["sim"]) for x in self.app.map.locs if x.get("stats")])
         for i, (k, label, col) in enumerate((("real", "REAL", ACC), ("sim", "SIM", "#8fb3ff"))):
-            y = 4 + i * 22
+            y, bw, x0, h = S(4 + i * 22), S(self.BAR_W), S(40), S(14)
             n, secs = st.get(k, 0), st.get(k + "_s", 0)
-            self.cv.create_text(0, y + 7, text=label, anchor="w", fill=FG2, font=("Consolas", 8, "bold"))
-            self.cv.create_rectangle(40, y, 40 + self.BAR_W, y + 14, fill=BG2, outline="")
+            self.cv.create_text(0, y + h / 2, text=label, anchor="w", fill=FG2, font=("Consolas", 8, "bold"))
+            self.cv.create_rectangle(x0, y, x0 + bw, y + h, fill=BG2, outline="")
             if n:
-                self.cv.create_rectangle(40, y, 40 + max(3, self.BAR_W * n / most), y + 14, fill=col, outline="")
-            self.cv.create_text(48 + self.BAR_W, y + 7, anchor="w", fill=FG if n else GREY, font=("Consolas", 9),
+                self.cv.create_rectangle(x0, y, x0 + max(3, bw * n / most), y + h, fill=col, outline="")
+            self.cv.create_text(x0 + bw + S(8), y + h / 2, anchor="w", fill=FG if n else GREY, font=("Consolas", 9),
                                 text=f"{n}  {fmt_dur(secs)}" if n else "0")
 
 
 # ---------------------------------------------------------------- Switzerland map
 # swisstopo grey map + FOCA drone restrictions (the same tiles as the locations map page), downloaded once
-# at zoom 8, cropped to Switzerland and kept in cache/launcher/ so the map also shows offline.
+# at zoom 8 (9 on high-DPI screens), cropped to Switzerland and kept in cache/launcher/ so the map also shows offline.
 
 MAP_DIR = ROOT / "cache" / "launcher"
 BBOX = (5.85, 45.75, 10.6, 47.9)                    # lon/lat west, south, east, north
@@ -492,8 +498,9 @@ MAP_W = 600                                          # canvas width (px)
 TILE_URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
 
 
-def merc(lon, lat, z=Z):
+def merc(lon, lat, z=None):
     """lon/lat -> global pixel coordinates at zoom z (Web Mercator, 256 px tiles)."""
+    z = Z if z is None else z
     n = 256 * 2 ** z
     x = (lon + 180) / 360 * n
     la = math.radians(lat)
@@ -610,14 +617,14 @@ class SwissMap:
             tag = f"loc_{l['name']}"
             if l.get("corridor"):
                 pts = [c for la, lo in l["corridor"]["points"] for c in self.px(la, lo)]
-                w = max(3, 2 * l["corridor"]["width_m"] / 611 * self.scale)
+                w = max(3, 2 * l["corridor"]["width_m"] / (156543.03 / 2 ** Z) * self.scale)
                 cv.create_line(*pts, fill="#000", width=w + 2, tags=tag)
                 cv.create_line(*pts, fill=col, width=w, tags=tag)
                 lx, ly = pts[-2], pts[-1]
             else:
                 cx, cy = self.px(*l["center"])
-                # metres -> px: 1 px at zoom 8 is ~611 m / cos(lat) on the ground... at scale `self.scale`
-                r = max(4, l["half_size_m"] / (611.5 * math.cos(math.radians(l["center"][0]))) * self.scale)
+                # metres -> px: one tile pixel is 156543 m / 2^Z at the equator (x cos(lat)), then `self.scale`
+                r = max(4, l["half_size_m"] / (156543.03 / 2 ** Z * math.cos(math.radians(l["center"][0]))) * self.scale)
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline="#000", width=3, tags=tag)
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline=col, width=2,
                                     fill=col if l.get("built") else "", stipple="gray50" if l.get("built") else "", tags=tag)
@@ -625,8 +632,9 @@ class SwissMap:
             label = split_name(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
             if l["name"] == self.selected:                          # selected in the list: a ring around it
                 rx, ry = (cx, cy) if not l.get("corridor") else (pts[0], pts[1])
-                cv.create_oval(rx - 14, ry - 14, rx + 14, ry + 14, outline="#000", width=4)
-                cv.create_oval(rx - 14, ry - 14, rx + 14, ry + 14, outline=ACC, width=2)
+                rr = S(14)
+                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline="#000", width=S(4))
+                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline=ACC, width=S(2))
             box = (lx + 3, ly - 13, lx + 6 + 7 * len(label), ly + 1)
             if not any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3] for o in labels):
                 labels.append(box)                  # names that would overlap another one are left out (hover shows them)
@@ -641,7 +649,27 @@ class SwissMap:
 
 
 
+def sharp_on_windows():
+    """Tell Windows this window draws itself at the real screen resolution. Without it, on a display scaled to
+    125 % / 150 %, Windows stretches a 100 % picture of the window: that is the blurry, 'hazy' look."""
+    if os.name != "nt":
+        return
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)       # per-monitor (Windows 8.1+)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()          # older Windows
+        except Exception:
+            pass
+
+
 if __name__ == "__main__":
+    sharp_on_windows()
     root = tk.Tk()
+    UI = max(1.0, root.winfo_fpixels("1i") / 96)            # 1.25, 1.5 ... on scaled displays
+    root.tk.call("tk", "scaling", UI * 96 / 72)              # fonts in points follow the same factor
+    MAP_W = S(600)                                           # map width in real screen pixels
+    Z = 8 if MAP_W <= 860 else 9                             # sharper tiles when the map is drawn larger
     Launcher(root)
     root.mainloop()
