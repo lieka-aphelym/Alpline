@@ -4,7 +4,8 @@
 // patch a 0.5 m scene looks like a 2-8 m one.
 import * as THREE from 'three';
 
-const N = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite' ? 384 : 768;   // cells per side (Lite 384, Full 768)
+const PHONE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900;
+const N = PHONE ? 256 : (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite' ? 384 : 768;   // cells per side (phone 256, Lite 384, Full 768)
 
 export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which }) {
   const g = S.view.grid;                      // full-resolution grid of the displayed ground

@@ -21,10 +21,14 @@ const MAX_LINKS = 4;
 // ------------------------------------------------------------------ Full / Lite mode
 // chosen when the program starts (launcher or --lite; served as /api/mode.js); ?mode=lite|full overrides
 const LITE = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite';
+// a phone or tablet (touch screen, small): always the light settings, even in Full mode. A 0.5 m location in
+// full quality needs more graphics memory than a phone has, and the browser tab just reloads or stays blank.
+const PHONE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900;
+const LIGHT = LITE || PHONE;
 
 // ------------------------------------------------------------------ renderer / camera
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, LITE ? 1.25 : 2));   // Lite: fewer pixels on high-DPI screens
+renderer.setPixelRatio(Math.min(devicePixelRatio, PHONE ? 1.5 : LITE ? 1.25 : 2));   // Lite: fewer pixels on high-DPI screens
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 $('view').appendChild(renderer.domElement);
@@ -47,7 +51,7 @@ function fitRenderer() {
 // Lite: the scene is only drawn when something changes (camera, playback, simulator, live data, UI),
 // instead of 60 times per second. Full mode draws continuously. ?render=always / ?render=demand override.
 const RENDER_PARAM = new URLSearchParams(location.search).get('render');
-const RENDER_ALWAYS = RENDER_PARAM === 'always' || (!LITE && RENDER_PARAM !== 'demand');
+const RENDER_ALWAYS = RENDER_PARAM === 'always' || (!LIGHT && RENDER_PARAM !== 'demand');   // phones: on demand (battery)
 let renderUntil = 0;
 function requestRender(ms = 250) { renderUntil = Math.max(renderUntil, performance.now() + ms); }
 for (const ev of ['input', 'change', 'click', 'keydown', 'keyup', 'wheel', 'pointerup']) addEventListener(ev, () => requestRender(400), true);
@@ -104,7 +108,7 @@ function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coor
 const API = '/api';
 async function loadOverview(which) {
   const fileMeta = which === 'dtm' && S.meta.terrain_dtm ? S.meta.terrain_dtm : { file: S.meta.terrain, grid: S.meta.grid };
-  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || (LITE ? 800 : 1500));   // overview mesh: Lite 800 x 800, Full 1500 x 1500
+  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || (PHONE ? 600 : LITE ? 800 : 1500));   // overview mesh: phone 600, Lite 800, Full 1500
   const step = Math.max(1, Math.ceil(Math.max(g.cols, g.rows) / maxSide));
   let dem = null, cols, rows, api = null;
   try {
