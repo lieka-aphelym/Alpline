@@ -60,6 +60,8 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   $('liveConnect').onclick = () => (st.on ? disconnect() : connect());
   $('warnMode').value = W.cfg.mode;
   $('warnMode').onchange = () => { W.cfg.mode = $('warnMode').value; W.save(); };
+  $('warnScreen').value = W.cfg.screen;
+  $('warnScreen').onchange = () => W.setScreen($('warnScreen').value);
   $('warnBoard').onclick = (e) => { const s = e.target.closest('button')?.dataset.s; if (s) W.play(s); };
   for (const cb of $('warnBoard').querySelectorAll('input[data-g]')) {
     cb.checked = !W.cfg.muted.includes(cb.dataset.g);

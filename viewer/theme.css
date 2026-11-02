@@ -169,3 +169,24 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 
 /* app name: ALPLINE by lieka */
 #panel h1 .by { text-transform: none; font: 400 10.5px var(--mono); letter-spacing: 0; color: var(--t-fg2); margin-left: 2px; }
+
+/* training flight box: foldable to one line (H) */
+#simLive .simhead { display: flex; align-items: center; gap: 8px; }
+#simLive .simhead b { font: 700 11px var(--mono); letter-spacing: 1px; flex: 1; }
+#simLive .simhead .muted { font-family: var(--mono); border: 1px solid var(--t-rule); padding: 0 4px; }
+#simLive #simHide { padding: 2px 8px; }
+#simLive #simBody { margin-top: 6px; }
+#simLive.folded { width: auto !important; right: auto !important; padding: 6px 8px !important; }
+#simLive.folded #simBody { display: none; }
+
+/* warning box: compact = a small tag in the top-right corner */
+#warnBox { cursor: pointer; }
+#warnBox[data-size="compact"] { top: 8px !important; right: 8px; left: auto !important; transform: none !important; min-width: 0 !important;
+  max-width: 46vw !important; padding: 4px 10px !important; gap: 0; border-radius: 0; box-shadow: none; }
+#warnBox[data-size="compact"] .dial, #warnBox[data-size="compact"] #warnDetail { display: none !important; }
+#warnBox[data-size="compact"] #warnTitle { font-size: 11px !important; }
+#warnBox[data-size="compact"] #warnText { font-size: 12px !important; margin-top: 0; }
+#warnBox { border-radius: 0; }
+#simLive button, #simLive input { background: var(--t-bg2) !important; color: var(--t-fg) !important; border: 1px solid var(--t-rule2) !important;
+  border-radius: 0 !important; font-family: var(--mono); font-size: 12px; }
+#simLive button.primary { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }

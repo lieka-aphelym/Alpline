@@ -89,6 +89,7 @@ export function initSim(app) {
     if (e.code === 'Escape') stop();
     if (e.code === 'KeyR') reset();
     if (e.code === 'KeyV') { st.view = st.view === 'fpv' ? 'chase' : 'fpv'; }
+    if (e.code === 'KeyH') toggleBox();
     if (e.code === 'Enter') st.kbArm = true;      // used when no arm switch is mapped
     if (e.code !== 'F5' && e.code !== 'F12') { e.preventDefault(); e.stopPropagation(); }
   }, true);
@@ -432,6 +433,13 @@ export function initSim(app) {
     $('simStart').textContent = 'Start training flight';
     $('simLive').classList.toggle('hidden', !st.active);
   }
+  // the training-flight box can be folded to one line (button or H): it covers less of the FPV view
+  function toggleBox(force) {
+    const box = $('simLive'), hide = force ?? !box.classList.contains('folded');
+    box.classList.toggle('folded', hide);
+    $('simHide').textContent = hide ? '[show]' : '[hide]';
+    try { localStorage.setItem('fpv3d:simFolded', hide ? '1' : ''); } catch { /* private mode */ }
+  }
   function bindUi() {
     const set = (id, path, conv = Number) => {
       const el = $(id), parts = path.split('.');
@@ -468,6 +476,8 @@ export function initSim(app) {
     $('simStart').onclick = () => (st.active ? stop() : start());
     $('simSave').onclick = save;
     $('simReset').onclick = reset;
+    $('simHide').onclick = () => toggleBox();
+    try { toggleBox(localStorage.getItem('fpv3d:simFolded') === '1'); } catch { /* private mode */ }
     $('simExit').onclick = stop;
     $('simMapBtn').onclick = openMapping;
     status();

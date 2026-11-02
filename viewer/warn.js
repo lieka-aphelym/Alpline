@@ -31,7 +31,8 @@ export function createWarner({ S, demHeight, el }) {
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('fpv3d:warn') || '{}')); } catch { /* private mode */ }
   if (!['mixed', 'sounds', 'voice', 'off'].includes(cfg.mode)) cfg.mode = 'mixed';
   delete cfg.voice; delete cfg.beeps;                       // settings of the older version
-  if (!Array.isArray(cfg.muted)) cfg.muted = [];            // sound groups switched off (see GROUP)
+  if (!Array.isArray(cfg.muted)) cfg.muted = [];
+  if (!['full', 'compact', 'off'].includes(cfg.screen)) cfg.screen = 'full';   // warning box on screen            // sound groups switched off (see GROUP)
   const save = () => { try { localStorage.setItem('fpv3d:warn', JSON.stringify(cfg)); } catch { /* ignore */ } };
   let last = { level: 'ok' }, lastSpoke = 0, lastText = '', lastKind = '', active = false;
 
@@ -189,9 +190,17 @@ export function createWarner({ S, demHeight, el }) {
   }
 
   // ------------------------------------------------------------ screen (spotter)
+  // the box on screen: full, compact (a small tag in the corner, only while there is a warning) or off.
+  // Clicking it switches full <-> compact.
+  if (el?.box && !el.box.dataset.bound) {
+    el.box.dataset.bound = '1';
+    el.box.title = 'Click: smaller / bigger';
+    el.box.addEventListener('click', () => { cfg.screen = cfg.screen === 'full' ? 'compact' : 'full'; save(); render(last); });
+  }
   function render(r) {
     if (!el) return;
-    el.box.classList.toggle('hidden', !active);
+    el.box.dataset.size = cfg.screen;
+    el.box.classList.toggle('hidden', !active || cfg.screen === 'off' || (cfg.screen === 'compact' && r.level === 'ok'));
     el.box.style.background = COLORS[r.level] || COLORS.ok;
     el.title.textContent = r.level === 'urgent' && r.detail?.startsWith('link') ? 'SIGNAL VERY WEAK'
       : { ok: 'Line of sight OK', link: 'SIGNAL WEAK', caution: 'BLIND ZONE AHEAD', urgent: 'BLIND ZONE CLOSE', blind: 'NO LINE OF SIGHT', lost: 'SIGNAL LOST' }[r.level];
@@ -253,5 +262,6 @@ export function createWarner({ S, demHeight, el }) {
       setTimeout(() => play(['climb']), cfg.mode === 'mixed' ? 2200 : 0);
     },
     get level() { return last.level; },
+    setScreen(v) { cfg.screen = v; save(); render(last); },
   };
 }

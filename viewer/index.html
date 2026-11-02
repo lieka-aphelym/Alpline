@@ -243,6 +243,11 @@
       <label><input type="checkbox" data-g="lost" checked> signal lost</label><span><button data-s="lost">[play]</button></span>
       <label><input type="checkbox" data-g="clear" checked> clear</label><span><button data-s="clear">[play]</button></span>
     </div>
+    <label class="row">On screen <select id="warnScreen">
+      <option value="full">Full box</option>
+      <option value="compact">Small, only when warning</option>
+      <option value="off">Off (sound only)</option>
+    </select></label>
     <div class="row btns"><button id="warnTest">[test a warning]</button></div>
     <details class="adv"><summary>Advanced</summary>
       <label class="row">Warn this far ahead <output id="warnLookOut"></output></label>
@@ -282,13 +287,16 @@
 <div id="pick" class="hidden"></div>
 
 <div id="simLive" class="hidden">
+  <div class="simhead"><b>TRAINING FLIGHT</b><span class="muted small">H</span><button id="simHide" title="Hide / show this box (H)">[hide]</button></div>
+  <div id="simBody">
   <p class="muted small">Arm with your arm switch (or <b>Enter</b>), throttle up and fly. <b>R</b> reset · <b>V</b> FPV / chase view · <b>Esc</b> exit.
     Keyboard: W/S throttle, A/D yaw, arrows pitch/roll.</p>
   <div class="row btns"><button id="simReset">Reset (R)</button><button id="simExit">Exit (Esc)</button></div>
   <label class="row">Save as <input id="simName" placeholder="training 1" style="flex:1;min-width:0"></label>
   <div class="row btns"><button id="simSave" class="primary">Save training flight</button></div>
   <div id="simMsg" class="small muted"></div>
-    </div>
+  </div>
+</div>
 
 <div id="simVideoFx"><span>NO SIGNAL</span></div>
 <div id="simOsd"></div>
