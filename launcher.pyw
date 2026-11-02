@@ -219,6 +219,8 @@ class Launcher:
 
         self.set_mode(self.mode.get(), save=False)
         self.check_offline()
+        if self.cfg.get("share") and os.name == "nt":         # sharing was left on: check the phone can get in
+            root.after(1200, lambda: self.check_phone_access(ask=True))
 
     # ------------------------------------------------------------ widgets
     def style(self):
@@ -287,7 +289,7 @@ class Launcher:
         if port is None:
             self.say("No free port between 8000 and 8019: close the other Alpline windows.")
             return False
-        args = [python_exe(), "-m", "fpv3d", "serve", "--port", str(port), "--no-browser"]
+        args = [python_exe(), "-u", "-m", "fpv3d", "serve", "--port", str(port), "--no-browser"]
         if self.mode.get() == "lite":
             args.append("--lite")
         if self.cfg.get("share"):
@@ -340,10 +342,75 @@ class Launcher:
                 if not self.start():
                     return
             if os.name == "nt":
-                self.say("if Windows asks: allow Python on private networks")
+                self.check_phone_access(ask=True)
         elif self.server_alive():
             self.start()                          # back to this computer only
         self.refresh_status()
+
+    # Windows blocks connections from other devices unless (1) the firewall lets them in and (2) the Wi-Fi is a
+    # "Private" network (on "Public" networks Windows refuses them, whatever the firewall says for Private).
+    RULE = "Alpline (phone)"
+
+    def ps(self, cmd: str) -> str:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", cmd], capture_output=True, text=True,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=20)
+        return (r.stdout or "").strip()
+
+    def check_phone_access(self, ask=False):
+        def work():
+            try:
+                nets = json.loads(self.ps("Get-NetConnectionProfile | Select-Object Name,InterfaceAlias,"
+                                          "@{n='Category';e={[string]$_.NetworkCategory}} | ConvertTo-Json -Compress") or "[]")
+                nets = nets if isinstance(nets, list) else [nets]
+                rule = self.ps(f"if (Get-NetFirewallRule -DisplayName '{self.RULE}' -ErrorAction SilentlyContinue) {{'yes'}}") == "yes"
+            except Exception as ex:
+                return self.root.after(0, lambda: self.say(f"could not check the network ({ex.__class__.__name__})"))
+            public = [n for n in nets if n.get("Category") == "Public"]
+            self.root.after(0, lambda: self.phone_access_result(nets, public, rule, ask))
+        threading.Thread(target=work, daemon=True).start()
+
+    def phone_access_result(self, nets, public, rule, ask):
+        from tkinter import messagebox
+        names = ", ".join(f"{n.get('Name')} ({n.get('InterfaceAlias')})" for n in public)
+        if rule and not public:
+            self.say("phone access: ok (firewall open, network private)")
+            return
+        problems = []
+        if not rule:
+            problems.append("the Windows firewall does not let the phone in yet")
+        if public:
+            problems.append(f"your network {names} is set to Public, where Windows blocks other devices")
+        if not ask:
+            self.say("phone access: " + "; ".join(problems))
+            return
+        fix = ("The phone can't reach this computer because " + " and ".join(problems) + ".\n\n"
+               "Fix it now? Windows will ask for permission once (administrator). This will:\n"
+               "• allow incoming connections to Alpline (ports 8000-8019) on private networks"
+               + (f"\n• set {names} to Private (fine for your home Wi-Fi or your own phone hotspot, "
+                  "not for public Wi-Fi)" if public else ""))
+        if not messagebox.askyesno("Alpline: phone access", fix, parent=self.root):
+            self.say("phone access not fixed: the phone won't load the page")
+            return
+        cmds = []
+        if not rule:
+            cmds.append(f"New-NetFirewallRule -DisplayName '{self.RULE}' -Direction Inbound -Action Allow "
+                        "-Protocol TCP -LocalPort 8000-8019 -Profile Private,Domain | Out-Null")
+        for n in public:
+            cmds.append(f"Set-NetConnectionProfile -InterfaceAlias '{n.get('InterfaceAlias')}' -NetworkCategory Private")
+        script = "; ".join(cmds)
+        # one elevated PowerShell (UAC prompt), then check again
+        import base64
+        enc = base64.b64encode(script.encode("utf-16-le")).decode()   # no quoting problems with -EncodedCommand
+
+        def run():
+            try:
+                self.ps("Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden "
+                        f"-ArgumentList '-NoProfile','-EncodedCommand','{enc}'")
+            except Exception:
+                pass
+            self.root.after(0, lambda: self.check_phone_access(ask=False))
+        self.say("Windows will ask for permission…")
+        threading.Thread(target=run, daemon=True).start()
 
     def show_qr(self):
         if self.server_alive():

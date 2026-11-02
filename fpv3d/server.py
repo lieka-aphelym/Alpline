@@ -199,6 +199,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
         # ---------------------------------------------------------------- GET
         def do_GET(self):
             u = urllib.parse.urlparse(self.path)
+            if not self._local() and (u.path.endswith("/") or u.path.endswith(".html")):
+                sys.stderr.write(f"[phone] {self.client_address[0]} opened {u.path}\n")   # shows it reached the PC
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             try:
                 if u.path == "/api/share":       # addresses a phone can use (launcher "share on my network")
