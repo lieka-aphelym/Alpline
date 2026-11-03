@@ -44,6 +44,7 @@ import numpy as np
 
 from .geo import wgs84_to_lv95
 from .locations import ROOT, list_locations, write_location
+from .netinfo import lan_addresses  # shared with the launcher
 from .tilecache import TILE, TileCache
 
 UA = {"User-Agent": "fpv3d/0.1 (local FPV planning tool)"}
@@ -521,24 +522,6 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
 
 
 LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename")
-
-
-def lan_addresses() -> list:
-    """IPv4 addresses of this computer on its local networks (Wi-Fi, hotspot, cable), best guess first."""
-    import socket
-    ips = []
-    try:                                     # the interface used to reach the internet / the router
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("192.168.1.1", 9))   # no packet is sent: this only picks the route
-            ips.append(s.getsockname()[0])
-    except OSError:
-        pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ips.append(info[4][0])
-    except OSError:
-        pass
-    return [ip for i, ip in enumerate(ips) if ip not in ips[:i] and not ip.startswith(("127.", "169.254."))]
 
 
 SHARE = {"on": False, "pin": None, "port": None, "https_port": None}   # set by serve(lan=True)

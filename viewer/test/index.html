@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpline checks</title>
+<script src="/api/mode.js"></script>
+<script src="../theme.js"></script>
+<link rel="stylesheet" href="../theme.css">
+<style>
+  body { margin: 0; padding: 16px; font: 13px/1.5 ui-monospace, Consolas, monospace; background: var(--t-bg, #111); color: var(--t-fg, #eee); }
+  #sum { font-size: 15px; font-weight: 700; margin: 8px 0 12px; }
+  .pass { color: #3ddc84; } .fail { color: #ff4d5e; }
+  pre { white-space: pre-wrap; margin: 0; }
+</style>
+</head>
+<body>
+<header><h1>Alpline checks</h1></header>
+<p>Warnings, radio range and file names, with a fake scene, clock and sound: nothing is played aloud.</p>
+<div id="sum">running…</div>
+<pre id="out"></pre>
+<script type="module">
+  import { runAll } from './cases.js';
+  const out = document.getElementById('out'), sum = document.getElementById('sum');
+  const lines = [];
+  const { passed, failed } = await runAll((t) => { lines.push(t); });
+  out.innerHTML = lines.map((l) => l.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]))
+    .map((l) => l.startsWith('  FAIL') ? `<span class="fail">${l}</span>` : l.startsWith('  ok') ? `<span class="pass">${l}</span>` : l).join('\n');
+  sum.className = failed.length ? 'fail' : 'pass';
+  sum.textContent = failed.length ? `${failed.length} FAILED, ${passed} passed` : `all ${passed} checks passed`;
+  document.title = sum.textContent;
+</script>
+</body>
+</html>

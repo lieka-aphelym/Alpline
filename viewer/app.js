@@ -6,6 +6,10 @@ import { initCameraModes } from './camera.js';
 import { initSim } from './sim.js';
 import { loadVolumes } from './volume.js';
 import { initTabs } from './tabs.js';
+import { LITE, PHONE, LIGHT } from './env.js';
+import { createHud } from './hud.js';
+import { createLinks } from './links.js';
+import { initRename } from './rename.js';
 import { makeMovable } from './dock.js';
 import { initDetail } from './detail.js';
 import { loadBuildings } from './buildings.js';
@@ -19,12 +23,8 @@ const SCENES = '../scenes/';
 const MAX_LINKS = 4;
 
 // ------------------------------------------------------------------ Full / Lite mode
-// chosen when the program starts (launcher or --lite; served as /api/mode.js); ?mode=lite|full overrides
-const LITE = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite';
-// a phone or tablet (touch screen, small): always the light settings, even in Full mode. A 0.5 m location in
-// full quality needs more graphics memory than a phone has, and the browser tab just reloads or stays blank.
-const PHONE = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900;
-const LIGHT = LITE || PHONE;
+// decided once in theme.js (see env.js). A phone always gets the light settings, even in Full mode: a 0.5 m
+// location in full quality needs more graphics memory than a phone has, and the tab just reloads or stays blank.
 
 // ------------------------------------------------------------------ renderer / camera
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
@@ -555,72 +555,11 @@ function updateDrone() {
   if ($('losFollow').checked) pickLosLayer(tr.agl[S.idx]);
   $('scrub').value = Math.round((S.time / tr.t[tr.n - 1]) * 1000);
   $('clock').textContent = `${fmtTime(S.time)} / ${fmtTime(tr.t[tr.n - 1])}`;
-  renderHud(st);
+  HUD.render(st);
   placeGhost();
 }
 
-// clean names for common telemetry columns (EdgeTX, simulator)
-const TEL_NAMES = { '1RSS_dB': 'RSSI ant. 1|dBm', '2RSS_dB': 'RSSI ant. 2|dBm', 'RQly_%': 'Control LQ|%', 'RSNR_dB': 'SNR|dB',
-  'TPWR_mW': 'TX power|mW', 'RxBt_V': 'Battery|V', 'GSpd_kmh': 'GPS speed|km/h', 'Sats': 'Satellites|', 'Curr_A': 'Current|A',
-  'Capa_mAh': 'Used|mAh', 'speed_m_s': null };
-function telName(k) {
-  if (k in TEL_NAMES) return TEL_NAMES[k];
-  const m = /^(RSSI|LQ|SNR_margin)_sim_(.+?)(_dBm|_dB)?$/.exec(k);
-  if (m) return null;                        // simulator values are shown in the signal block
-  return k.replace(/_/g, ' ');
-}
-function lqFor(tr, i, linkName) {           // link quality from the log for this link, if any
-  const key = `LQ_sim_${linkName.replace(/[^A-Za-z0-9]+/g, '_')}`.replace(/_+$/, '');
-  const ctrl = (S.meta.links.find((l) => l.name === linkName)?.freq_mhz ?? 0) < 3000;   // ELRS LQ = control link only
-  const v = tr.telemetry[key]?.[i] ?? (ctrl ? tr.telemetry['RQly_%']?.[i] : null);
-  return v == null ? null : Math.round(v);
-}
-let hudMore = false;
-try { hudMore = localStorage.getItem('fpv3d:hudMore') === '1'; } catch { /* private mode */ }
-
-function renderHud(st) {
-  const tr = S.track, i = S.idx;
-  const tile = (v, k) => `<div class="tile"><b>${v}</b><span>${k}</span></div>`;
-  const speed = tr.speed ? `${tr.speed[i].toFixed(0)}<small> km/h</small>` : '–';
-  // signal: one line per radio link, margin bar + LQ from the log
-  const sig = Object.entries(tr.margin).map(([name, arr]) => {
-    const m = arr[i], lq = lqFor(tr, i, name);
-    const col = m == null ? '#8b96a8' : m < 0 ? '#ff2d55' : m < 10 ? '#ffb000' : '#3ddc84';
-    const w = m == null ? 0 : Math.max(3, Math.min(100, (m / 40) * 100));
-    return `<div class="sig"><div class="h"><span>${name}</span><span><b style="color:${col}">${m == null ? '–' : `${m.toFixed(0)} dB`}</b>`
-      + `${lq != null ? `<span class="muted"> · LQ ${lq}</span>` : ''}</span></div><i class="bar"><i style="width:${w}%;background:${col}"></i></i></div>`;
-  }).join('');
-  // drone zone: only when inside one
-  let zone = '';
-  if (S.zones && tr.zoneSev && tr.zoneIdx[i] >= 0) {
-    const zs = S.zones.zones[tr.zoneIdx[i]];
-    zone = `<div class="zone" style="border-color:${zs.info.color};color:${zs.info.color}">${zs.info.label} · <span>${zs.name}</span></div>`;
-  }
-  // details (collapsed by default)
-  const more = [];
-  more.push(['Altitude', `${tr.z[i]?.toFixed(0)} m`]);
-  if (tr.vx) {
-    more.push(['Vertical speed', `${tr.vz[i] >= 0 ? '+' : ''}${tr.vz[i].toFixed(1)} m/s`]);
-    more.push(['Acceleration', `${tr.accG[i].toFixed(2)} g`]);
-  }
-  more.push(['Line of sight', tr.clearance[i] < 0 ? `blocked by ${(-tr.clearance[i]).toFixed(0)} m` : `clear by ${Math.min(tr.clearance[i], 9999).toFixed(0)} m`]);
-  for (const [k, v] of Object.entries(tr.telemetry)) {
-    const n = telName(k);
-    if (!n || v[i] == null) continue;
-    const [label, unit = ''] = n.split('|');
-    more.push([label, `${Math.round(v[i] * 10) / 10}${unit ? ` ${unit}` : ''}`]);
-  }
-  $('hud').innerHTML = `<div class="status" style="background:${st.css}22;color:${st.css}">${st.label}</div>
-    <div class="tiles">${tile(fmtDist(tr.dist[i]), 'distance')}${tile(`${tr.agl[i]?.toFixed(0)}<small> m</small>`, 'height')}${tile(speed, 'speed')}</div>
-    ${zone}<div class="sigs">${sig}</div>
-    <button class="more" id="hudMoreBtn">${hudMore ? '[less]' : '[more]'}</button>
-    ${hudMore ? `<table>${more.map(([a, b]) => `<tr><td class="muted">${a}</td><td>${b}</td></tr>`).join('')}</table>` : ''}`;
-  $('hudMoreBtn').onclick = () => {
-    hudMore = !hudMore;
-    try { localStorage.setItem('fpv3d:hudMore', hudMore ? '1' : '0'); } catch { /* private mode */ }
-    renderHud(st);
-  };
-}
+const HUD = createHud({ S, $, fmtDist });   // info box: hud.js
 
 // ------------------------------------------------------------------ LOS layers
 async function pickLosLayer(agl) {
@@ -847,7 +786,7 @@ function initUI() {
   $('losOpacity').oninput = () => { S.terrainMat.uniforms.uLosOpacity.value = +$('losOpacity').value; };
   $('linkList').innerHTML = m.links.map((l, i) => `<label class="link"><input type="checkbox" data-i="${i}" ${i === m.primary_link ? 'checked' : ''}>
       <span class="sw" style="background:${l.color}"></span>${l.name}<span class="r" id="lnkRange${i}">${fmtDist(l.range_m)}</span></label>`).join('');
-  initLinkEditor();
+  LINKS.init();
   $('linkList').querySelectorAll('input[data-i]').forEach((cb) => cb.onchange = () => {
     S.spheres[+cb.dataset.i].visible = cb.checked; updateRangeUniforms();
   });
@@ -856,7 +795,7 @@ function initUI() {
     s.userData.wire.material.opacity = Math.min(1, +$('sphereOpacity').value * 2.5);
   });
   fillTrackPickers();
-  initRename();
+  initRename({ S, $, refreshTracks });
   $('cmpPick').onchange = () => loadCompare($('cmpPick').value);
   $('trackPick').onchange = () => { rememberFlight($('trackPick').value); loadTrack($('trackPick').value); };
   $('colorMode').onchange = () => S.track && buildTrackObjects();
@@ -1001,7 +940,7 @@ function placeGhost() {
 
 async function loadCompare(file) {
   S.cmp = file ? await getJSON(S.base + file) : null;
-  if (S.cmp) { shiftTrackMargins(S.cmp); computeKinematics(S.cmp, +$('smooth').value); computeTrackZones(S.cmp); }
+  if (S.cmp) { LINKS.shiftTrackMargins(S.cmp); computeKinematics(S.cmp, +$('smooth').value); computeTrackZones(S.cmp); }
   buildCompareObjects(); renderCompare();
 }
 
@@ -1016,263 +955,17 @@ function fillTrackPickers(selectFile) {
   if ([...$('cmpPick').options].some((o) => o.value === cur)) $('cmpPick').value = cur;
 }
 
-// ------------------------------------------------------------------ rename location / log (clean ASCII file names)
-const slugify = (s) => s.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9-]+/g, '_').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, '').slice(0, 60);
-const noEmoji = (s) => s.replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, '').replace(/\s{2,}/g, ' ').trim();
-async function postRename(body) {
-  const r = await fetch('/api/rename', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  let j = {}; try { j = await r.json(); } catch { /* not the fpv3d server */ }
-  if (!r.ok || j.error) throw new Error(j.error || `server answered ${r.status} (start it with python -m fpv3d serve)`);
-  return j;
-}
-function initRename() {
-  const msg = (id, text, cls = '') => { $(id).textContent = text; $(id).className = 'small ' + cls; };
-  // flight log
-  $('trkRenBtn').onclick = () => {
-    if (!S.track) return;
-    $('trkRen').classList.toggle('hidden'); $('trkRenName').value = S.track.name; msg('trkRenMsg', ''); $('trkRenName').select();
-  };
-  $('trkRenCancel').onclick = () => $('trkRen').classList.add('hidden');
-  $('trkRenName').oninput = () => msg('trkRenMsg', slugify($('trkRenName').value) ? `→ ${slugify($('trkRenName').value)}` : '', 'muted');
-  $('trkRenName').onkeydown = (e) => { if (e.key === 'Enter') $('trkRenOk').click(); };
-  $('trkRenOk').onclick = async () => {
-    const old = S.track?.name, nn = slugify($('trkRenName').value);
-    if (!old || !nn) return;
-    if (nn === old) { $('trkRen').classList.add('hidden'); return; }
-    msg('trkRenMsg', 'renaming…', 'muted');
-    try {
-      const j = await postRename({ kind: 'log', scene: S.meta.name, old, new: nn });
-      try {   // keep the video sync saved for this log
-        const pre = `fpv3d:sync:${S.meta.name}:${old}:`;
-        for (const k of Object.keys(localStorage)) if (k.startsWith(pre)) { localStorage.setItem(`fpv3d:sync:${S.meta.name}:${j.name}:` + k.slice(pre.length), localStorage.getItem(k)); localStorage.removeItem(k); }
-      } catch { /* private mode */ }
-      const cmp = $('cmpPick').value;
-      await refreshTracks(j.file);
-      if (cmp && cmp !== `tracks/${old}.json`) $('cmpPick').value = cmp;
-      $('trkRen').classList.add('hidden');
-    } catch (e) { msg('trkRenMsg', e.message, 'err'); }
-  };
-  // location
-  const showLoc = () => { $('locNameShow').innerHTML = `<b>${S.meta.title}</b> <span class="muted">(${S.meta.name})</span>`; };
-  showLoc();
-  $('locRenBtn').onclick = () => {
-    $('locRen').classList.toggle('hidden'); $('locRenTitle').value = S.meta.title; $('locRenName').value = S.meta.name;
-    delete $('locRenName').dataset.touched; msg('locRenMsg', '');
-  };
-  $('locRenCancel').onclick = () => $('locRen').classList.add('hidden');
-  $('locDelBtn').onclick = () => { $('locDel').classList.toggle('hidden'); $('locRen').classList.add('hidden'); };
-  $('locDelCancel').onclick = () => $('locDel').classList.add('hidden');
-  $('locDelOk').onclick = async () => {
-    msg('locDelMsg', 'deleting…', 'muted');
-    try {
-      const r = await fetch('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: S.meta.name }) });
-      let j = {}; try { j = await r.json(); } catch { /* not the fpv3d server */ }
-      if (!r.ok || j.error) throw new Error(j.error || `server answered ${r.status}`);
-      location.href = 'map.html';
-    } catch (e) { msg('locDelMsg', e.message, 'err'); }
-  };
-  $('locRenTitle').oninput = () => { if (!$('locRenName').dataset.touched) $('locRenName').value = slugify($('locRenTitle').value); };
-  $('locRenName').oninput = () => { $('locRenName').dataset.touched = '1'; };
-  $('locRenOk').onclick = async () => {
-    const nn = slugify($('locRenName').value), title = noEmoji($('locRenTitle').value);
-    if (!nn) { msg('locRenMsg', 'file name is empty', 'err'); return; }
-    msg('locRenMsg', 'renaming…', 'muted');
-    try {
-      const old = S.meta.name;
-      const j = await postRename({ kind: 'location', old, new: nn, title });
-      try {   // move this browser's saved antenna edits / video sync along
-        for (const k of Object.keys(localStorage)) {
-          const nk = k === `fpv3d:links:${old}` ? `fpv3d:links:${j.name}`
-            : k.startsWith(`fpv3d:sync:${old}:`) ? `fpv3d:sync:${j.name}:` + k.slice(`fpv3d:sync:${old}:`.length) : null;
-          if (nk && nk !== k) { localStorage.setItem(nk, localStorage.getItem(k)); localStorage.removeItem(k); }
-        }
-      } catch { /* private mode */ }
-      location.search = `?scene=${encodeURIComponent(j.name)}`;
-    } catch (e) { msg('locRenMsg', e.message, 'err'); }
-  };
-}
-
 async function refreshTracks(selectFile) {
   S.meta = await getJSON(S.base + 'scene.json');
-  if (S.links0) applyLinks();
+  if (S.links0) LINKS.apply();
   fillTrackPickers(selectFile);
   if (selectFile) { rememberFlight(selectFile); await loadTrack(selectFile); }
 }
 
-// ------------------------------------------------------------------ radio link editor (antennas / power -> range)
-const fsplDb = (d, f) => 20 * Math.log10(Math.max(d, 1) / 1000) + 20 * Math.log10(f) + 32.44;
-const LINK_KEYS = ['tx_power_dbm', 'tx_gain_dbi', 'rx_gain_dbi', 'rx_sensitivity_dbm', 'misc_losses_db', 'fade_margin_db'];
-const MW = [25, 50, 100, 200, 250, 350, 400, 500, 600, 700, 800, 1000, 1200, 1600, 2000];
-const ANT = [
-  ['', 'custom'], [2, 'dipole / pagoda / lollipop (2 dBi)'], [3, 'stubby or omni+ (3 dBi)'], [5, 'small patch (5 dBi)'],
-  [8, 'patch (8 dBi)'], [10, 'helical / moxon (10 dBi)'], [12, 'big helical (12 dBi)'], [14, 'yagi / tracker (14 dBi)'],
-];
-// ready-made setups: transmit power + antenna gains [label, mW, tx antenna dBi, rx antenna dBi]
-// (video: tx = drone, rx = goggles · control: tx = radio, rx = drone). Receiver sensitivity,
-// losses and safety margin keep the location's values (they are under Advanced).
-const PRESETS = {
-  video: [
-    ['25 mW · stock antennas (CH / EU limit)', 25, 2, 2],
-    ['25 mW · patch on the goggles', 25, 2, 8],
-    ['200 mW · stock antennas', 200, 2, 2],
-    ['500 mW · stock antennas', 500, 2, 2],
-    ['500 mW · patch on the goggles', 500, 2, 8],
-    ['1 W · helical on the goggles', 1000, 3, 12],
-  ],
-  ctl24: [
-    ['100 mW · stock antennas (CH / EU limit)', 100, 2, 2],
-    ['250 mW · stock antennas', 250, 2, 2],
-    ['500 mW · stock antennas', 500, 2, 2],
-    ['1 W · stock antennas', 1000, 2, 2],
-    ['1 W · directional on the radio', 1000, 8, 2],
-  ],
-  ctl900: [
-    ['25 mW · stock antennas (common EU limit)', 25, 2, 2],
-    ['100 mW · stock antennas', 100, 2, 2],
-    ['250 mW · stock antennas', 250, 2, 2],
-    ['1 W · stock antennas', 1000, 2, 2],
-  ],
-  other: [['25 mW · stock antennas', 25, 2, 2], ['100 mW · stock antennas', 100, 2, 2], ['500 mW · stock antennas', 500, 2, 2], ['1 W · stock antennas', 1000, 2, 2]],
-};
-const presetKind = (f) => (f >= 5000 ? 'video' : f >= 2300 && f <= 2500 ? 'ctl24' : f >= 800 && f <= 1000 ? 'ctl900' : 'other');
-function presetIndex(l) {
-  const mw = 10 ** (l.tx_power_dbm / 10);
-  return PRESETS[presetKind(l.freq_mhz)].findIndex(([, w, tg, rg]) => Math.abs(w - mw) / w < 0.03 && Math.abs(tg - l.tx_gain_dbi) < 0.26 && Math.abs(rg - l.rx_gain_dbi) < 0.26);
-}
-const linkKey = () => `fpv3d:links:${S.meta.name}`;
-const linkBudget = (l) => l.tx_power_dbm + l.tx_gain_dbi + l.rx_gain_dbi - l.misc_losses_db - l.rx_sensitivity_dbm - l.fade_margin_db;
-const hasParams = (l) => LINK_KEYS.every((k) => typeof l[k] === 'number');
-
-function loadLinkOverrides() { try { return JSON.parse(localStorage.getItem(linkKey()) || '{}'); } catch { return {}; } }
-function saveLinkOverrides(ov) { try { localStorage.setItem(linkKey(), JSON.stringify(ov)); } catch { /* ignore */ } }
-
-/** Apply edited radio values: sphere sizes, terrain rings, simulator, and track margins (shifted by the budget change). */
-function applyLinks() {
-  const ov = loadLinkOverrides();
-  S.linkDelta = {};
-  S.links0.forEach((l0, i) => {
-    const l = { ...l0, ...(ov[l0.name] || {}) };
-    const b0 = hasParams(l0) ? linkBudget(l0) : fsplDb(l0.range_m, l0.freq_mhz);
-    const b = hasParams(l) ? linkBudget(l) : b0;
-    l.range_m = Math.pow(10, (b - 20 * Math.log10(l.freq_mhz) - 32.44) / 20) * 1000;
-    S.meta.links[i] = l;
-    S.linkDelta[l.name] = b - b0;
-    const sp = S.spheres[i]; if (sp) { sp.userData.k = l.range_m / l0.range_m; sp.scale.set(sp.userData.k, sp.userData.k * S.exag, sp.userData.k); }
-    if (i < MAX_LINKS) S.terrainMat.uniforms.uRanges.value.setComponent(i, l.range_m);
-    const r = $(`lnkRange${i}`);
-    if (r) r.innerHTML = Math.abs(b - b0) > 0.05 ? `<b style="color:var(--warn)">${fmtDist(l.range_m)}</b> <span class="muted">(${b > b0 ? '+' : ''}${(b - b0).toFixed(1)} dB)</span>` : fmtDist(l.range_m);
-  });
-  const dirty = Object.values(S.linkDelta).some((d) => Math.abs(d) > 0.05);
-  $('lnkDirty')?.classList.toggle('hidden', !dirty);
-  if (S.vol) {                            // predicted-loss shadows (2D + 3D) follow the edited budget
-    const name = S.vol.link || S.meta.links[S.meta.primary_link].name, want = S.linkDelta[name] || 0;
-    const r = S.vol.setLossDelta(want);
-    S.lastAgl = null; pickLosLayer();
-    const note = $('lnkShadowNote');
-    if (note) note.innerHTML = !S.vol.live ? 'The red "signal lost" colours update after a refresh of this scene (<code>python -m fpv3d refresh-all</code>).'
-      : r.exact ? 'Save to keep it.'
-        : 'The red "signal lost" colours are approximate for this big change; saving makes them exact.';
-  }
-  for (const tr of [S.track, S.cmp]) shiftTrackMargins(tr);
-  if (S.track) { buildTrackObjects(); renderCompare(); }
-}
-function shiftTrackMargins(tr) {
-  if (!tr || !tr.margin || !S.linkDelta) return;
-  if (!tr.margin0) tr.margin0 = structuredClone(tr.margin);
-  for (const [name, arr] of Object.entries(tr.margin0)) {
-    const d = S.linkDelta[name] || 0;
-    tr.margin[name] = arr.map((v) => (v == null ? null : v + d));
-  }
-}
-
-function initLinkEditor() {
-  S.links0 ||= structuredClone(S.meta.links);   // the saved values (S.meta.links follows the edits)
-  const box = $('linkEdit');
-  if (!S.links0.every(hasParams)) {
-    box.innerHTML = '<p class="muted small">To edit antennas and power here, refresh this scene once (<code>python -m fpv3d refresh-all</code>).</p>';
-    return;
-  }
-  const ov = loadLinkOverrides();
-  const opt = (arr, v) => arr.map(([val, lab]) => `<option value="${val}" ${String(val) === String(v) ? 'selected' : ''}>${lab}</option>`).join('');
-  // simple view: one "setup" choice per radio link
-  const setups = S.links0.map((l0, i) => {
-    const l = { ...l0, ...(ov[l0.name] || {}) }, k = presetKind(l0.freq_mhz), cur = presetIndex(l);
-    return `<label class="row setup"><span><span class="sw" style="background:${l0.color}"></span> ${l0.name.replace(/ \d.*$/, '')}</span>
-      <select data-preset="${l0.name}">${PRESETS[k].map(([lab], j) => `<option value="${j}" ${j === cur ? 'selected' : ''}>${lab}</option>`).join('')}
-      <option value="custom" ${cur < 0 ? 'selected' : ''}>Custom (see Advanced)</option></select></label>`;
-  }).join('');
-  const exact = S.links0.map((l0, i) => {
-    const l = { ...l0, ...(ov[l0.name] || {}) }, mw = Math.round(10 ** (l.tx_power_dbm / 10));
-    const ant = (v) => (ANT.some(([a]) => a === v) ? v : '');
-    return `<details class="lnk" data-name="${l0.name}"><summary><span class="sw" style="background:${l0.color}"></span> ${l0.name}</summary>
-      <label class="row">TX power <select data-k="mw">${MW.map((w) => `<option value="${w}" ${w === mw ? 'selected' : ''}>${w} mW (${(10 * Math.log10(w)).toFixed(1)} dBm)</option>`).join('')}${MW.includes(mw) ? '' : `<option selected value="${mw}">${mw} mW</option>`}</select></label>
-      <label class="row">Drone antenna <select data-k="tx_ant">${opt(ANT, ant(l.tx_gain_dbi))}</select><input type="number" step="0.5" data-k="tx_gain_dbi" value="${l.tx_gain_dbi}"> dBi</label>
-      <label class="row">Ground antenna <select data-k="rx_ant">${opt(ANT, ant(l.rx_gain_dbi))}</select><input type="number" step="0.5" data-k="rx_gain_dbi" value="${l.rx_gain_dbi}"> dBi</label>
-      <label class="row">Receiver sensitivity <input type="number" step="1" data-k="rx_sensitivity_dbm" value="${l.rx_sensitivity_dbm}"> dBm</label>
-      <label class="row">Cable / misc losses <input type="number" step="0.5" data-k="misc_losses_db" value="${l.misc_losses_db}"> dB</label>
-      <label class="row">Safety (fade) margin <input type="number" step="1" data-k="fade_margin_db" value="${l.fade_margin_db}"> dB</label>
-    </details>`;
-  }).join('');
-  box.innerHTML = `<p class="muted small">Pick your setup: the range, the colours on the map and the warnings follow right away.</p>${setups}
-    <div id="lnkDirty" class="small hidden"><span style="color:var(--warn)">Changed, not saved yet.</span> <span id="lnkShadowNote"></span></div>
-    <div class="row btns"><button id="lnkReset">Undo changes</button><button id="lnkSave" class="primary">Save for this location</button></div>
-    <div id="lnkMsg" class="small muted"></div>
-    <details class="adv" id="lnkAdv"><summary>Advanced: exact radio values</summary>${exact}
-      <p class="muted small">Legal limits in Switzerland / EU (EIRP): 25 mW at 5.8 GHz, 100 mW at 2.4 GHz.</p></details>`;
-  box.querySelectorAll('select[data-preset]').forEach((sel) => sel.onchange = () => {
-    if (sel.value === 'custom') { $('lnkAdv').open = true; return; }
-    const name = sel.dataset.preset, l0 = S.links0.find((x) => x.name === name);
-    const [, mw, tg, rg] = PRESETS[presetKind(l0.freq_mhz)][+sel.value];
-    const d = box.querySelector(`details.lnk[data-name="${CSS.escape(name)}"]`), q = (k) => d.querySelector(`[data-k="${k}"]`);
-    if (![...q('mw').options].some((o) => +o.value === mw)) q('mw').insertAdjacentHTML('beforeend', `<option value="${mw}">${mw} mW</option>`);
-    q('mw').value = String(mw); q('tx_gain_dbi').value = tg; q('rx_gain_dbi').value = rg;
-    q('tx_ant').value = ANT.some(([a]) => a === tg) ? tg : ''; q('rx_ant').value = ANT.some(([a]) => a === rg) ? rg : '';
-    q('mw').dispatchEvent(new Event('input'));
-  });
-  box.querySelectorAll('details.lnk').forEach((d) => {
-    const name = d.dataset.name, q = (k) => d.querySelector(`[data-k="${k}"]`);
-    const write = () => {
-      const o = loadLinkOverrides();
-      o[name] = { tx_power_dbm: +(10 * Math.log10(+q('mw').value)).toFixed(2), tx_gain_dbi: +q('tx_gain_dbi').value, rx_gain_dbi: +q('rx_gain_dbi').value,
-        rx_sensitivity_dbm: +q('rx_sensitivity_dbm').value, misc_losses_db: +q('misc_losses_db').value, fade_margin_db: +q('fade_margin_db').value };
-      saveLinkOverrides(o); applyLinks();
-      const sel = box.querySelector(`select[data-preset="${CSS.escape(name)}"]`);   // keep the simple choice in sync
-      const i = presetIndex({ ...S.links0.find((x) => x.name === name), ...o[name] });
-      if (sel) sel.value = i < 0 ? 'custom' : String(i);
-    };
-    q('tx_ant').onchange = () => { if (q('tx_ant').value !== '') q('tx_gain_dbi').value = q('tx_ant').value; write(); };
-    q('rx_ant').onchange = () => { if (q('rx_ant').value !== '') q('rx_gain_dbi').value = q('rx_ant').value; write(); };
-    d.querySelectorAll('input, select[data-k="mw"]').forEach((el) => el.addEventListener('input', () => {
-      if (el.dataset.k === 'tx_gain_dbi') q('tx_ant').value = ANT.some(([a]) => String(a) === el.value) ? el.value : '';
-      if (el.dataset.k === 'rx_gain_dbi') q('rx_ant').value = ANT.some(([a]) => String(a) === el.value) ? el.value : '';
-      write();
-    }));
-  });
-  $('lnkReset').onclick = () => { saveLinkOverrides({}); initLinkEditor(); applyLinks(); };
-  $('lnkSave').onclick = saveLinksToLocation;
-  applyLinks();
-}
-
-async function saveLinksToLocation() {
-  const msg = $('lnkMsg');
-  const links = S.meta.links.map((l) => Object.fromEntries([['name', l.name], ...LINK_KEYS.map((k) => [k, l[k]])]));
-  try {
-    const r = await fetch('/api/links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name, links }) });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || r.statusText);
-    msg.textContent = `Saved to locations/${d.file} - recomputing the signal shadows…`;
-    for (;;) {
-      await new Promise((ok) => setTimeout(ok, 1000));
-      const j = await (await fetch(`/api/jobs/${d.job}`)).json();
-      msg.textContent = j.lines.at(-1) || '…';
-      if (j.status !== 'running') {
-        if (j.status === 'done') { saveLinkOverrides({}); msg.textContent = 'Done - reloading…'; setTimeout(() => location.reload(), 600); }
-        else msg.textContent = 'Rebuild failed: ' + j.lines.slice(-3).join(' ');
-        break;
-      }
-    }
-  } catch (e) { msg.textContent = `Could not save (${e.message}). Is the fpv3d server running?`; }
-}
+// radio link editor: links.js
+const LINKS = createLinks({ S, $, fmtDist, maxLinks: MAX_LINKS,
+  onShadows: () => { S.lastAgl = null; pickLosLayer(); },
+  onTracks: () => { buildTrackObjects(); renderCompare(); } });
 
 // ------------------------------------------------------------------ drone geozones
 function computeTrackZones(tr) {
@@ -1351,7 +1044,7 @@ async function loadTrack(file) {
   S.trackFile = file;
   if ($('trkRenBtn')) $('trkRenBtn').disabled = false;
   if (S.beam) S.beam.visible = true;
-  shiftTrackMargins(S.track);
+  LINKS.shiftTrackMargins(S.track);
   computeKinematics(S.track, +$('smooth').value);
   computeTrackZones(S.track);
   const tm = S.meta.tracks.find((t) => t.file === file);
@@ -1391,7 +1084,7 @@ async function loadScene(name) {
   if (S.vol?.overlay) {   // any height works now: offer a finer list
     $('losAgl').innerHTML = [5, 10, 20, 30, 45, 60, 90, 120, 150, 200, 300].map((a) => `<option value="${a}" ${a === 30 ? 'selected' : ''}>${a} m above the ground</option>`).join('');
   }
-  if (S.links0) applyLinks();
+  if (S.links0) LINKS.apply();
   S.lastAgl = null; await pickLosLayer();
   S.prof = initProfile({ S, scene3, toWorld, demHeight, el: { box: $('profile'), canvas: $('profCanvas'), info: $('profInfo') } });
   $('profBtn').classList.toggle('hidden', !S.prof);

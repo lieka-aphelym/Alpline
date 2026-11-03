@@ -4,6 +4,7 @@
 import { initTabs } from './tabs.js';
 import { createBuildProgress } from './buildprog.js';
 import { stripTiles, contextTiles, stripShapes, routeLength, stripArea, boxCells } from './corridor.js';
+import { LITE } from './env.js';
 const $ = (id) => document.getElementById(id);
 const TILE = 1000;
 
@@ -394,7 +395,7 @@ async function pilotHeight() {
   } catch { if (id === heightReq) $('oHeight').textContent = '–'; }
 }
 // default terrain detail of a new location: Full mode 2 m, Lite mode 5 m
-$('fRes').value = (new URLSearchParams(location.search).get('mode') || window.FPV3D_MODE) === 'lite' ? '5' : '2';
+$('fRes').value = LITE ? '5' : '2';
 ['fHalf', 'fRes', 'fSurface'].forEach((id) => $(id).addEventListener('input', () => updatePreview(false)));
 
 function loadIntoForm(l) {

@@ -24,7 +24,7 @@ fpv3d/
 ├─ logs/             put your flight logs here
 ├─ scenes/           generated output (created by `build`)
 ├─ cache/            downloaded swisstopo tiles (reused between builds)
-└─ tests/            self-tests, a mock STAC server, demo-log generator
+└─ tests/            checks (run_all.py), a mock STAC server, demo-log generator
 ```
 
 
@@ -82,7 +82,7 @@ cd fpv3d
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python tests/test_basic.py      # quick self-test
+python tests/run_all.py         # all checks (see Checks below)
 ```
 
 ## Use it
@@ -325,6 +325,20 @@ Things you'll want to edit in a location file:
 3. **Predicted margin.** This is FSPL plus a single knife-edge diffraction loss (ITU-R P.526). Black areas or red track samples mean the model expects the link to drop.
 
 It's a planning aid. Multipath, your body and goggles, antenna patterns and polarisation, interference and foliage all matter in reality. `dtm` ignores trees completely. Compare the predicted margin with the logged RSSI/LQ, then tune `fade_margin_db` until the two match for your gear.
+
+## Checks
+
+```bash
+python tests/run_all.py             # basics, server, warnings
+python tests/run_all.py --browser   # + opens the pages in a hidden browser (needs: pip install playwright; python -m playwright install chromium)
+```
+
+- **Basics:** coordinates, log readers, radio maths, the telemetry parser.
+- **Server:** the pages load, bad requests are refused, other devices need the PIN and cannot delete or rename, one build per location, cache cleaning keeps used tiles, the https certificate.
+- **Warnings:** 26 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
+- **Browser:** opens the checks page, the map, the share page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
+
+Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`.
 
 ## Data
 

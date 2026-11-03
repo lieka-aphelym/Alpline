@@ -53,19 +53,13 @@ def python_exe() -> str:
 
 
 def lan_addresses() -> list:
-    """IPv4 addresses of this computer on its local networks, best guess first (same as fpv3d.server)."""
-    ips = []
+    """IPv4 addresses of this computer on its local networks, best guess first (fpv3d.netinfo, shared with the server)."""
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.connect(("192.168.1.1", 9))       # no packet is sent: this only picks the route
-            ips.append(s.getsockname()[0])
-    except OSError:
-        pass
-    try:
-        ips += [i[4][0] for i in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)]
-    except OSError:
-        pass
-    return [ip for i, ip in enumerate(ips) if ip not in ips[:i] and not ip.startswith(("127.", "169.254."))]
+        sys.path.insert(0, str(ROOT))
+        from fpv3d.netinfo import lan_addresses as la
+        return la()
+    except Exception:
+        return []
 
 
 def port_free(port: int) -> bool:
@@ -425,7 +419,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
             try:
                 d = json.loads(self.ps(self.CHECK) or "{}")
             except Exception as ex:
-                return self.root.after(0, lambda: self.say(f"could not check the network ({ex.__class__.__name__})"))
+                return self.root.after(0, lambda n=ex.__class__.__name__: self.say(f"could not check the network ({n})"))
             try:
                 (ROOT / "logs").mkdir(exist_ok=True)
                 (ROOT / "logs" / "phone_check.txt").write_text(json.dumps(d, indent=2), encoding="utf-8")
