@@ -162,6 +162,7 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
   async function saveLinksToLocation() {
     const msg = $('lnkMsg');
     const links = S.meta.links.map((l) => Object.fromEntries([['name', l.name], ...LINK_KEYS.map((k) => [k, l[k]])]));
+    window.alpBusy?.(true);
     try {
       const r = await fetch('/api/links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name, links }) });
       const d = await r.json();
@@ -178,6 +179,7 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
         }
       }
     } catch (e) { msg.textContent = `Could not save (${e.message}). Is the fpv3d server running?`; }
+    finally { window.alpBusy?.(false); }
   }
 
   return { apply: applyLinks, init: initLinkEditor, shiftTrackMargins };

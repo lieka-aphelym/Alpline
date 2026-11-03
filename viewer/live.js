@@ -214,6 +214,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   async function setPilot(lat, lon) {
     $('livePilotSet').disabled = true;
     $('livePilotText').textContent = 'Saving the new pilot point and rebuilding the shadows…';
+    window.alpBusy?.(true);
     try {
       const r = await fetch('/api/pilot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name, lat, lon }) });
       const j = await r.json();
@@ -228,6 +229,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
         break;
       }
     } catch (e) { $('livePilotText').textContent = `Could not move the pilot point: ${e.message}`; $('livePilotSet').disabled = false; }
+    finally { window.alpBusy?.(false); }
   }
 
   function values(c, s) {

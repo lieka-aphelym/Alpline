@@ -194,3 +194,27 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 /* logo in front of ALPLINE */
 #panel h1 { display: inline-flex; align-items: center; gap: 6px; }
 #panel h1 svg.logo { width: 22px; height: 22px; flex: none; }
+
+/* ---------------------------------------------------------------- logo animation
+   spin-up once when a page opens (the propeller spools up, the tree grows from the stem),
+   busy while something loads or builds (html.alp-busy, set by alpBusy() in theme.js; always on the loading screen) */
+svg.logo .lg-sw { transform-origin: 32px 32px; }
+@keyframes lg-spinup { 0% { transform: rotate(-540deg); opacity: 0; } 15% { opacity: 1; } 100% { transform: rotate(0); } }
+@keyframes lg-draw { from { stroke-dasharray: 1; stroke-dashoffset: 1; } to { stroke-dasharray: 1; stroke-dashoffset: 0; } }
+svg.logo.lg-intro .lg-sw { animation: lg-spinup 1.6s cubic-bezier(.15, .7, .2, 1) both; }
+svg.logo.lg-intro .lg-stem { animation: lg-draw .6s .5s ease-out both; }
+svg.logo.lg-intro .lg-c2 { animation: lg-draw .4s .8s ease-out both; }
+svg.logo.lg-intro .lg-c1 { animation: lg-draw .4s 1s ease-out both; }
+svg.logo.lg-intro .lg-c0 { animation: lg-draw .45s 1.2s ease-out both; }
+@keyframes lg-spin { to { transform: rotate(360deg); } }
+@keyframes lg-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+html.alp-busy svg.logo .lg-sw, #loading svg.logo .lg-sw { animation: lg-spin 1.4s linear infinite; }
+html.alp-busy svg.logo .lg-c2, #loading svg.logo .lg-c2 { animation: lg-pulse 1.4s 0s infinite; }
+html.alp-busy svg.logo .lg-c1, #loading svg.logo .lg-c1 { animation: lg-pulse 1.4s .23s infinite; }
+html.alp-busy svg.logo .lg-c0, #loading svg.logo .lg-c0 { animation: lg-pulse 1.4s .47s infinite; }
+#loading { gap: 14px; align-content: center; }
+#loading svg.logo { width: 76px; height: 76px; display: block; margin: 0 auto; }
+#loading.err svg.logo { display: none; }
+@media (prefers-reduced-motion: reduce) {     /* no spinning: only the branches pulse while busy */
+  svg.logo .lg-sw, svg.logo.lg-intro * { animation: none !important; }
+}

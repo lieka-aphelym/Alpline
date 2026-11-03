@@ -633,6 +633,7 @@ function showZoneAge() {
 }
 async function refreshZones() {
   const b = $('zonesRefresh'); b.disabled = true; $('zonesAge').textContent = 'downloading the current zones…';
+  window.alpBusy?.(true);
   try {
     const r = await fetch('/api/zones', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scene: S.meta.name }) });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status);
@@ -644,7 +645,7 @@ async function refreshZones() {
       break;
     }
     location.reload();                            // simplest way to redraw the zones everywhere
-  } catch (e) { $('zonesAge').textContent = `could not refresh: ${e.message}`; b.disabled = false; }
+  } catch (e) { $('zonesAge').textContent = `could not refresh: ${e.message}`; b.disabled = false; window.alpBusy?.(false); }
 }
 
 function updateZoneSummary() {
@@ -1110,6 +1111,7 @@ async function loadScene(name) {
   scene3.fog = new THREE.Fog(0x9fb8cf, span * 1.5, span * 6);
   if (S.meta.tracks.length) { const f = rememberedFlight(); $('trackPick').value = f; await loadTrack(f); }
   $('loading').remove();
+  window.alpBusy?.(false); window.alpIntro?.();
 }
 
 async function boot() {
@@ -1162,4 +1164,4 @@ const _lastCamPos = new THREE.Vector3(), _lastCamQuat = new THREE.Quaternion();
 
 S.requestRender = requestRender;
 window.fpv3d = { S, camera, controls, THREE, SIM, requestRender };
-boot().catch((e) => { console.error(e); const l = $('loading'); l.classList.add('err'); l.textContent = e.message; });
+boot().catch((e) => { console.error(e); window.alpBusy?.(false); const l = $('loading'); l.classList.add('err'); l.textContent = e.message; });

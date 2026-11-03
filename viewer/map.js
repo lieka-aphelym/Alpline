@@ -451,7 +451,8 @@ async function build(name) {
     try { await fetch(`/api/jobs/${d.job}/cancel`, { method: 'POST' }); } catch { /* finished meanwhile */ }
   };
   let since = 0;
-  for (;;) {
+  window.alpBusy?.(true);
+  try { for (;;) {
     await new Promise((ok) => setTimeout(ok, 400));
     let j;
     try { j = await (await fetch(`/api/jobs/${d.job}?since=${since}`)).json(); } catch { continue; }
@@ -466,9 +467,13 @@ async function build(name) {
       } else msg('Build failed - open “Technical details” above.', 'err');
       refresh(); break;
     }
-  }
+  } } finally { window.alpBusy?.(false); }
 }
-async function refreshAll(mode) {
+function refreshAll(mode) {             // the logo spins until the job ends, however it ends
+  window.alpBusy?.(true);
+  return refreshAllJob(mode).finally(() => window.alpBusy?.(false));
+}
+async function refreshAllJob(mode) {
   const r = await fetch('/api/refresh-all', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mode, missing: $('fMissing').checked }) });
   const d = await r.json(), m = $('allMsg');

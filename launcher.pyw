@@ -164,9 +164,7 @@ class Launcher:
 
         # ---- top bar: title, mode, open buttons
         top = tk.Frame(root, bg=BG); top.pack(fill="x", padx=14, pady=(10, 8))
-        self.logo = self.brand_image("logo-dark", S(30))
-        if self.logo:
-            tk.Label(top, image=self.logo, bg=BG).pack(side="left", padx=(0, 8))
+        self.logo = LogoAnim(root, top, S(30))           # spins up once now, spins while the launcher works
         tk.Label(top, text="ALPLINE", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(side="left")
         tk.Label(top, text="by lieka", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(6, 0), pady=(6, 0))
         self.mode = tk.StringVar(value=self.cfg.get("mode", "full"))
@@ -296,6 +294,13 @@ class Launcher:
         return self.proc is not None and self.proc.poll() is None
 
     def start(self) -> bool:
+        self.logo.busy(True)
+        try:
+            return self._start()
+        finally:
+            self.logo.busy(False)
+
+    def _start(self) -> bool:
         self.stop()
         base = int(self.cfg.get("port", 8000))
         for _ in range(12):                     # same port as before if possible: the browser keeps your settings per port
@@ -327,7 +332,8 @@ class Launcher:
                 urllib.request.urlopen(f"http://127.0.0.1:{port}/api/mode.js", timeout=0.5).read()
                 break
             except Exception:
-                self.root.update(); time.sleep(0.25)
+                for _ in range(5):                  # keep the window (and the spinning logo) alive meanwhile
+                    self.root.update(); time.sleep(0.05)
         self.refresh_status()
         return True
 
@@ -415,7 +421,15 @@ $r | ConvertTo-Json -Depth 4 -Compress
 """
 
     def check_phone_access(self, ask=False):
+        self.logo.busy(True)
+
         def work():
+            try:
+                work_()
+            finally:
+                self.root.after(0, lambda: self.logo.busy(False))
+
+        def work_():
             try:
                 d = json.loads(self.ps(self.CHECK) or "{}")
             except Exception as ex:
@@ -620,7 +634,15 @@ $r | ConvertTo-Json -Depth 4 -Compress
                 return
             out.configure(text="working…")
 
+            self.logo.busy(True)
+
             def work():
+                try:
+                    work_()
+                finally:
+                    self.root.after(0, lambda: self.logo.busy(False))
+
+            def work_():
                 r = subprocess.run([python_exe(), "-m", "fpv3d"] + args, cwd=str(ROOT), capture_output=True, text=True,
                                    encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 text = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-300:]
@@ -663,6 +685,73 @@ def split_name(name):
     """'007_moleson' -> ('007', 'moleson'); 'test' -> ('', 'test')"""
     head, _, rest = name.partition("_")
     return (head, rest) if head.isdigit() and rest else ("", name)
+
+
+class LogoAnim:
+    """The logo in the top bar: spins up once when the launcher opens, spins steadily while it works (starting the
+    server, checking phone access, cleaning the cache). Frames: viewer/brand/anim-*-<size>.png, made from the web logo
+    by tools/render_logo_frames.py. Without them the still logo is shown."""
+    MS = {"intro": 60, "busy": 70}
+
+    def __init__(self, root, parent, px):
+        self.root, self.n_busy, self.mode, self.i, self.job = root, 0, None, 0, None
+        self.still = Launcher.brand_image("logo-dark", px)
+        self.frames = {k: self._load(k, px) for k in self.MS}
+        self.label = None
+        if self.still:
+            self.label = tk.Label(parent, image=self.still, bg=BG)
+            self.label.pack(side="left", padx=(0, 8))
+            root.after(250, self.intro)
+
+    @staticmethod
+    def _load(kind, px):
+        brand = ROOT / "viewer" / "brand"
+        sizes = [int(p.stem.rsplit("-", 1)[1]) for p in brand.glob(f"anim-{kind}-*.png") if p.stem.rsplit("-", 1)[1].isdigit()]
+        if not sizes:
+            return []
+        n = min(sizes, key=lambda s: abs(s - px))
+        try:
+            sheet = tk.PhotoImage(file=str(brand / f"anim-{kind}-{n}.png"))
+        except tk.TclError:
+            return []
+        out = []
+        for i in range(sheet.width() // n):
+            f = tk.PhotoImage(width=n, height=n)
+            f.tk.call(f, "copy", sheet, "-from", i * n, 0, (i + 1) * n, n, "-to", 0, 0)
+            out.append(f)
+        return out
+
+    def intro(self):
+        if self.frames["intro"] and self.mode is None:
+            self._play("intro")
+
+    def busy(self, on: bool):
+        """busy(True) ... busy(False) around work; nested calls are counted. Call from the Tk thread."""
+        self.n_busy = max(0, self.n_busy + (1 if on else -1))
+        if self.n_busy and self.mode is None and self.frames["busy"]:
+            self._play("busy")
+
+    def _play(self, mode):
+        self.mode, self.i = mode, 0
+        if self.job is None:
+            self._tick()
+
+    def _tick(self):
+        self.job = None
+        if self.label is None or self.mode is None:
+            return
+        fr = self.frames[self.mode]
+        if self.i >= len(fr):                       # the intro ended, or one busy turn ended
+            if self.n_busy and self.frames["busy"]:
+                self.mode, self.i = "busy", 0
+                fr = self.frames["busy"]
+            else:
+                self.mode = None
+                self.label.configure(image=self.still)
+                return
+        self.label.configure(image=fr[self.i])
+        self.i += 1
+        self.job = self.root.after(self.MS[self.mode], self._tick)
 
 
 class Table:
