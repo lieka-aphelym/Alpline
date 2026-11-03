@@ -218,7 +218,7 @@
       <label class="row">Speed <select id="liveSpeed"><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
     </div>
     <div class="row btns"><button id="liveConnect" class="primary">[connect]</button></div>
-    <div id="liveStatus" class="small muted"></div>
+    <div class="droneRow"><span id="liveDrone"></span><div><b id="liveLinkTxt">not connected</b><div id="liveStatus" class="small muted"></div></div></div>
     <div id="liveMsg" class="small"></div>
     <div id="liveSilent" class="summary small hidden"></div>
     <div id="livePilot" class="renbox hidden"><div id="livePilotText" class="small"></div>
@@ -292,6 +292,7 @@
 <div id="simLive" class="hidden">
   <div class="simhead"><b>TRAINING FLIGHT</b><span class="muted small">H</span><button id="simHide" title="Hide / show this box (H)">[hide]</button></div>
   <div id="simBody">
+  <div class="droneRow"><span id="simDrone"></span><b id="simDroneTxt">waiting: arm to take off</b></div>
   <p class="muted small">Arm with your arm switch (or <b>Enter</b>), throttle up and fly. <b>R</b> reset · <b>V</b> FPV / chase view · <b>Esc</b> exit.
     Keyboard: W/S throttle, A/D yaw, arrows pitch/roll.</p>
   <div class="row btns"><button id="simReset">Reset (R)</button><button id="simExit">Exit (Esc)</button></div>

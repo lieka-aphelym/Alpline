@@ -2,6 +2,7 @@
 // warnings for the pilot, and the last known position + likely impact zone when the link is lost.
 import * as THREE from 'three';
 import { createWarner } from './warn.js';
+import { mountDrone } from './drone.js';
 
 const $ = (id) => document.getElementById(id);
 function toLV95(lat, lon) {
@@ -37,6 +38,13 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   const pinHead = new THREE.Mesh(new THREE.SphereGeometry(7, 14, 10), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
   lostPin.add(pinPole, pinHead); lostPin.visible = false; scene3.add(lostPin);
   let zoneMesh = null;
+
+  // ------------------------------------------------------------ the drone icon: the link at a glance
+  // grey = not connected · scanning corners = connecting · arming = first data · pings = link, slower and amber /
+  // red as the link quality drops · take-off when it leaves the ground · grey again when the signal is lost
+  const D = mountDrone($('liveDrone'), { size: 56 });
+  D.off(true);
+  const linkTxt = (t) => { $('liveLinkTxt').textContent = t; };
 
   // ------------------------------------------------------------ UI
   const srcSel = $('liveSrc');
@@ -76,6 +84,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   // ------------------------------------------------------------ connect / poll
   async function connect() {
     $('liveMsg').textContent = 'connecting…'; $('liveMsg').className = 'small muted';
+    D.off(false); D.flying(false); D.loop('scan'); linkTxt('connecting…');
     W.unlock();                                 // a click is needed before the browser plays sound
     const body = { scene: S.meta.name, source: srcSel.value };
     if (srcSel.value === 'serial') body.port = $('livePort').value;
@@ -84,7 +93,8 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       const r = await fetch('/api/live/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || r.status);
-    } catch (e) { $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err'; return; }
+    } catch (e) { $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err'; D.loop(null); D.off(true); linkTxt('not connected'); return; }
+    Object.assign(st, { armedShown: false, flying: false, seenGround: false });
     Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
     tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
     $('liveConnect').textContent = '[disconnect]'; $('liveConnect').classList.add('danger');
@@ -128,6 +138,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     $('liveConnect').textContent = '[connect]'; $('liveConnect').classList.remove('danger');
     document.body.classList.remove('live-on');
     W.stop(); pred.visible = false;
+    D.loop(null); D.flying(false); D.off(true); linkTxt('not connected');
     try {
       const r = await fetch('/api/live/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: $('liveSave').checked }) });
       const j = await r.json();
@@ -148,12 +159,15 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     j.samples = j.samples.filter((s) => s.seq > st.seq);
     if (j.status === 'error') { $('liveMsg').textContent = j.error; $('liveMsg').className = 'small err'; disconnect(); return; }
     if (j.samples.length && $('liveMsg').textContent === 'connecting…') $('liveMsg').textContent = '';
+    if (!st.armedShown && (j.samples.length || (j.frame_age != null && j.frame_age < 1.5))) {   // first data: the quad arms
+      st.armedShown = true; D.play('arm', () => D.loop('ping')); D.loop('ping'); linkTxt('link');
+    }
     j.samples.forEach((s, i) => ingest(s, i === j.samples.length - 1));   // warnings only for the newest point
     if (j.samples.length) st.seq = j.samples.at(-1).seq;
     status(j);
     // link loss: no GPS frame for 1.5 s while we had a position
     if (st.last && j.gps_age != null && j.gps_age > 1.5 && !st.lost) markLost(j);
-    if (st.lost && j.gps_age != null && j.gps_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); }
+    if (st.lost && j.gps_age != null && j.gps_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); D.off(false); }
     if (j.status === 'ended' && !st.endedShown) { st.endedShown = true; $('liveMsg').textContent = 'Replay finished.'; }
   }
 
@@ -173,6 +187,16 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (vz == null && st.last) vz = (z - st.last.z) / Math.max(s.t - st.last.t, 0.05);
     const cur = { t: s.t, x, y, z, agl: z - ground, vx: spd * Math.sin(h), vy: spd * Math.cos(h), vz: vz || 0, heading: s.heading || 0, lq: s.lq, raw: s };
     st.prev = st.last; st.last = cur;
+    if (cur.agl < 3 && spd < 1) st.seenGround = true;      // every sample: a batch may hold the takeoff
+    if (newest) {
+      D.link(s.lq);
+      linkTxt(s.lq != null ? `LQ ${Math.round(s.lq)} %` : 'link');
+      if (!st.flying && cur.agl > 5 && spd > 2) {          // take-off, only if we saw it on the ground (else: connected mid-air)
+        st.flying = true;
+        if (st.seenGround) D.play('takeoff', () => D.loop('ping')); else D.flying(true);
+      }
+      else if (st.flying && cur.agl < 2 && spd < 1) { st.flying = false; D.flying(false); }
+    }
     // drone + trail
     drone.visible = true;
     toWorld(x, y, z, drone.position);
@@ -254,6 +278,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   // ------------------------------------------------------------ lost: last known position + likely impact zone
   function markLost(j) {
     st.lost = true;
+    D.off(true); linkTxt('signal lost');
     const c = st.last, p = S.meta.pilot;
     toWorld(c.x, c.y, demHeight(c.x, c.y), lostPin.position);
     const hgt = 40 * S.exag; pinPole.scale.y = hgt; pinPole.position.y = hgt / 2; pinHead.position.y = hgt;

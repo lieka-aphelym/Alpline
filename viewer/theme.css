@@ -231,3 +231,75 @@ html.alp-busy svg.logo:not(.lg-intro) .lg-w2, #loading svg.logo:not(.lg-intro) .
 @media (prefers-reduced-motion: reduce) {     /* no spinning: only the waves pulse while busy */
   svg.logo .lg-sw, svg.logo.lg-intro * { animation: none !important; }
 }
+
+/* ---------------------------------------------------------------- drone icon (drone.js)
+   once: a-power (frame draws out, motors spin up), a-arm (motors twitch 1-4 like arming, then spin up),
+   a-takeoff (props spin up, lifts, legs fold away); the signal is sent at the end of each.
+   loops: l-ping (live link: brackets radiate, a pulse runs up the stem and lights the waves; speed = --pd),
+   l-props (propellers turn), l-scan (corners light one after another), l-hover (floats, props turning). */
+svg.drn { overflow: visible; flex: none; --spark: #fff7c8; --pd: 1.4s; }
+html[data-theme="light"] svg.drn { --spark: #ffb3aa; }
+svg.drn .dr, svg.drn .core { transform-origin: 32px 32px; }
+svg.drn .tail { transform-origin: 32px 42px; transition: opacity .35s, transform .35s; }
+svg.drn .mot { transform-box: view-box; }
+svg.drn.flying .tail { opacity: 0; transform: scaleY(0); }
+svg.drn.off { filter: grayscale(1); opacity: .45; }
+svg.drn.off * { animation: none !important; }
+svg.drn.lq-mid { --t-acc: #ffb000; }
+svg.drn.lq-low { --t-acc: #ff3b30; }
+@keyframes drn-rise { from { opacity: 0; transform: translateY(3px); } to { opacity: var(--o, 1); transform: none; } }
+@keyframes drn-send { 0% { opacity: 0; transform: translateY(4.4px); } 25% { opacity: 1; } 100% { opacity: var(--o); transform: none; } }
+@keyframes drn-tx { 0%, 100% { opacity: var(--o); } 20% { opacity: 1; filter: brightness(1.35); } 45% { opacity: var(--o); } }
+@keyframes drn-draw { from { stroke-dasharray: 60; stroke-dashoffset: 60; } to { stroke-dasharray: 60; stroke-dashoffset: 0; } }
+@keyframes drn-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes drn-spinup { to { transform: rotate(calc(var(--dir) * 900deg)); } }
+@keyframes drn-spin { to { transform: rotate(calc(var(--dir) * 360deg)); } }
+@keyframes drn-twitch { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(calc(var(--dir) * 90deg)); } }
+@keyframes drn-blink { 0%, 100% { opacity: 1; } 50% { opacity: .2; } }
+@keyframes drn-lift { 0%, 40% { transform: translateY(0); } 100% { transform: translateY(-3px); } }
+@keyframes drn-fold { 0%, 45% { transform: none; opacity: 1; } 100% { transform: scaleY(0); opacity: 0; } }
+@keyframes drn-ping { 0% { transform: none; opacity: var(--o); } 100% { transform: translate(calc(var(--sx) * 3.5px), calc(var(--sy) * 3.5px)); opacity: 0; } }
+@keyframes drn-lit { 0%, 100% { opacity: .25; } 12% { opacity: 1; } 35% { opacity: .25; } }
+@keyframes drn-hover { 0%, 100% { transform: translateY(1px) rotate(-1.5deg); } 50% { transform: translateY(-1.5px) rotate(1.5deg); } }
+@keyframes drn-spark { 0% { stroke-dasharray: .3 2; stroke-dashoffset: .3; opacity: 1; } 28% { stroke-dashoffset: -1; opacity: 1; }
+  29%, 100% { stroke-dasharray: .3 2; stroke-dashoffset: -1; opacity: 0; } }
+/* the signal is sent at the end of every opening; the stem comes in with the first wave, never alone */
+svg.drn.a-power, svg.drn.a-arm, svg.drn.a-takeoff { --ease: cubic-bezier(.22, 1, .36, 1); }
+svg.drn.a-power { --t0: 1.5s; } svg.drn.a-arm { --t0: 2.4s; } svg.drn.a-takeoff { --t0: .6s; }
+svg.drn:is(.a-power, .a-arm, .a-takeoff) .w0 { animation: drn-send .5s var(--t0) var(--ease) both; }
+svg.drn:is(.a-power, .a-arm, .a-takeoff) .w1 { animation: drn-send .6s calc(var(--t0) + .15s) var(--ease) both; }
+svg.drn:is(.a-power, .a-arm, .a-takeoff) .w2 { animation: drn-send .7s calc(var(--t0) + .3s) var(--ease) both; }
+svg.drn:is(.a-power, .a-arm, .a-takeoff) .stem, svg.drn:is(.a-power, .a-arm) .tail { animation: drn-rise .5s var(--t0) var(--ease) both; }
+svg.drn.a-power .frame { animation: drn-draw .7s .1s ease-out both; }
+svg.drn.a-power .mot { animation: drn-pop .35s var(--ease) both, drn-spinup 1.1s cubic-bezier(.3, .6, .3, 1) both; }
+svg.drn.a-power .m4 .mot { animation-delay: .55s, .55s; } svg.drn.a-power .m2 .mot { animation-delay: .65s, .65s; }
+svg.drn.a-power .m1 .mot { animation-delay: .75s, .75s; } svg.drn.a-power .m3 .mot { animation-delay: .85s, .85s; }
+svg.drn.a-power .brs { animation: drn-rise .5s 1.1s var(--ease) both; }
+svg.drn.a-arm .mot { animation: drn-twitch .25s both, drn-spinup 1s 1.5s cubic-bezier(.3, .6, .3, 1) both; }
+svg.drn.a-arm .m1 .mot { animation-delay: .2s, 1.5s; } svg.drn.a-arm .m2 .mot { animation-delay: .5s, 1.5s; }
+svg.drn.a-arm .m3 .mot { animation-delay: .8s, 1.5s; } svg.drn.a-arm .m4 .mot { animation-delay: 1.1s, 1.5s; }
+svg.drn.a-arm .m1 .prop { animation: drn-blink .25s .2s; } svg.drn.a-arm .m2 .prop { animation: drn-blink .25s .5s; }
+svg.drn.a-arm .m3 .prop { animation: drn-blink .25s .8s; } svg.drn.a-arm .m4 .prop { animation: drn-blink .25s 1.1s; }
+svg.drn.a-takeoff .mot { animation: drn-spinup 1.4s cubic-bezier(.4, 0, .3, 1) both; }
+svg.drn.a-takeoff .dr { animation: drn-lift 1.6s var(--ease) both; }
+svg.drn.a-takeoff .tail { animation: drn-fold 1.4s .2s var(--ease) both; }
+/* loops */
+svg.drn:is(.l-props, .l-hover, .l-ping) .mot { animation: drn-spin .35s linear infinite; }
+svg.drn.l-ping .br { animation: drn-ping var(--pd) ease-out infinite; }
+svg.drn.l-ping .br1 { animation-delay: calc(var(--pd) * .18); }
+svg.drn:is(.l-ping, .l-props, .l-hover) .spark { animation: drn-spark var(--pd) linear infinite; }
+svg.drn:is(.l-ping, .l-props, .l-hover) .legs { animation: drn-tx var(--pd) calc(var(--pd) * -.18) infinite; }
+svg.drn:is(.l-ping, .l-props, .l-hover) .w0 { animation: drn-tx var(--pd) calc(var(--pd) * .086) infinite; }
+svg.drn:is(.l-ping, .l-props, .l-hover) .w1 { animation: drn-tx var(--pd) calc(var(--pd) * .214) infinite; }
+svg.drn:is(.l-ping, .l-props, .l-hover) .w2 { animation: drn-tx var(--pd) calc(var(--pd) * .343) infinite; }
+svg.drn.l-scan .brs { animation: drn-lit 1.6s infinite; }
+svg.drn.l-scan .m2 .brs { animation-delay: .4s; } svg.drn.l-scan .m1 .brs { animation-delay: .8s; } svg.drn.l-scan .m3 .brs { animation-delay: 1.2s; }
+svg.drn.l-hover .dr { animation: drn-hover 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { svg.drn * { animation: none !important; } }
+/* places */
+.droneRow { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+.droneRow b { font: 700 14px ui-monospace, Consolas, monospace; letter-spacing: .04em; }
+.droneEmpty { display: flex; align-items: center; gap: 12px; }
+#loading .droneSplash svg.drn { display: block; margin: 0 auto 14px; }
+.progHead { align-items: center !important; } .progHead b { flex: 1; } #progDrone:empty { display: none; }
+.shareDrone { display: flex; align-items: center; gap: 14px; margin: 4px 0 14px; color: var(--muted); font-size: 13px; }

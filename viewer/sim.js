@@ -58,6 +58,8 @@ export const PRESETS = {
   tinywhoop: { label: 'Tiny whoop', twr: 3, topSpeed: 45, response: 35, uptilt: 15, rates: { center: 150, max: 600, expo: 0.3 } },
 };
 
+import { mountDrone } from './drone.js';
+
 export function initSim(app) {
   // app: { THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration, onSaved(file), panelEl }
   const { THREE, camera, renderer, S } = app;
@@ -233,9 +235,20 @@ export function initSim(app) {
   }
 
   // ---------------------------------------------------------------- start / stop
+  // the drone in the training box: hovers while waiting, takes off when armed, props turning in flight
+  let D = null;
+  const droneTxt = (t) => { const e = document.getElementById('simDroneTxt'); if (e) e.textContent = t; };
+  function droneIcon() {
+    if (!D && document.getElementById('simDrone')) D = mountDrone(document.getElementById('simDrone'), { size: 48 });
+    return D;
+  }
   function setArmed(on) {
     if (on && st.crashed) return;
-    if (on && !st.armed) { st.rec = []; st.t = 0; st.recT = 0; st.trailPts = []; }
+    if (on && !st.armed) { st.rec = []; st.t = 0; st.recT = 0; st.trailPts = []; droneIcon()?.play('takeoff', () => D.loop('props')); droneTxt('flying · recording'); }
+    if (!on && st.armed) {
+      droneIcon()?.flying(false); D?.loop(st.crashed ? null : 'hover'); D?.off(!!st.crashed);
+      droneTxt(st.crashed ? `${st.crashed}: R to reset` : 'disarmed: arm to take off');
+    }
     st.armed = on; status();
   }
   function startPose() {
@@ -248,7 +261,10 @@ export function initSim(app) {
     const yaw = Math.atan2(-toC.x, toC.y);   // face away from the pilot
     st.q.setFromEuler(new THREE.Euler(0, yaw, 0, 'YXZ'));
   }
-  function reset() { st.crashed = false; st.failsafe = 0; st.ctrlBadFor = 0; setFrozen(false); setArmed(false); startPose(); }
+  function reset() {
+    if (st.crashed) { D?.off(false); D?.loop('hover'); droneTxt('waiting: arm to take off'); }
+    st.crashed = false; st.failsafe = 0; st.ctrlBadFor = 0; setFrozen(false); setArmed(false); startPose();
+  }
 
   function start() {
     if (st.active) return;
@@ -262,6 +278,7 @@ export function initSim(app) {
     reset();
     buildTrail();
     status();
+    droneIcon()?.flying(false); D?.loop('hover'); droneTxt('waiting: arm to take off');
   }
   function stop() {
     if (!st.active) return;

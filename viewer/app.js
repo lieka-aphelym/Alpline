@@ -10,6 +10,7 @@ import { LITE, PHONE, LIGHT } from './env.js';
 import { createHud } from './hud.js';
 import { createLinks } from './links.js';
 import { initRename } from './rename.js';
+import { mountDrone } from './drone.js';
 import { makeMovable } from './dock.js';
 import { initDetail } from './detail.js';
 import { loadBuildings } from './buildings.js';
@@ -949,7 +950,10 @@ function fillTrackPickers(selectFile) {
   const tr = S.meta.tracks;
   const label = (t) => t.name;
   $('trackPick').innerHTML = tr.length ? '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight yet)</option>';
-  if (!tr.length) $('trackInfo').innerHTML = 'No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight or record one live (both in <b>[fly]</b>).';
+  if (!tr.length) {                         // empty: a hovering drone and how to get a first flight
+    $('trackInfo').innerHTML = '<span class="droneEmpty"><span id="noFlightDrone"></span><span>No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight or record one live (both in <b>[fly]</b>).</span></span>';
+    mountDrone($('noFlightDrone'), { size: 44 }).loop('hover');
+  }
   $('trackPick').value = selectFile || (S.track ? S.trackFile || '' : '');
   const cur = $('cmpPick').value;
   $('cmpPick').innerHTML = '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');
@@ -1179,4 +1183,16 @@ const _lastCamPos = new THREE.Vector3(), _lastCamQuat = new THREE.Quaternion();
 
 S.requestRender = requestRender;
 window.fpv3d = { S, camera, controls, THREE, SIM, requestRender };
-boot().catch((e) => { console.error(e); window.alpBusy?.(false); const l = $('loading'); if (!l) return; l.classList.add('err'); loadStep(e.message); });
+boot().catch((e) => {
+  console.error(e); window.alpBusy?.(false);
+  const l = $('loading'); if (!l) return;
+  l.classList.add('err');
+  const name = params.get('scene');
+  loadStep(/: 404$/.test(e.message) && name ? `Location “${name}” was not found.\nPick another one in the launcher or on the locations map.` : e.message);
+  // nothing to show: the drone hovers instead of the logo
+  const lg = l.querySelector('svg.logo'); if (lg) lg.style.display = 'none';
+  const box = document.createElement('div'); box.className = 'droneSplash'; l.prepend(box);
+  mountDrone(box, { size: 112 }).loop('hover');
+  const a = document.createElement('a'); a.href = 'map.html'; a.textContent = '[locations map]'; a.className = 'navlink';
+  a.style.marginTop = '14px'; l.append(a);
+});

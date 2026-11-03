@@ -5,6 +5,7 @@ import { initTabs } from './tabs.js';
 import { createBuildProgress } from './buildprog.js';
 import { stripTiles, contextTiles, stripShapes, routeLength, stripArea, boxCells } from './corridor.js';
 import { LITE } from './env.js';
+import { mountDrone } from './drone.js';
 const $ = (id) => document.getElementById(id);
 const TILE = 1000;
 
@@ -103,6 +104,10 @@ function drawLocations(locs) {
   groups.locs.clearLayers();
   const ul = $('locList'); ul.innerHTML = '';
   $('fRadio').innerHTML = '<option value="">defaults</option>' + locs.filter((l) => !l.error).map((l) => `<option value="${l.name}">${l.title}</option>`).join('');
+  if (!locs.length) {                      // empty: a hovering drone and how to make the first location
+    ul.innerHTML = '<li class="droneEmpty"><span id="noLocDrone"></span><span class="small">No locations yet. Click the map where you fly, then <b>Save &amp; build</b>.</span></li>';
+    mountDrone($('noLocDrone'), { size: 44 }).loop('hover');
+  }
   for (const l of locs) {
     const li = document.createElement('li');
     if (l.error) { li.innerHTML = `<span class="t">[error] ${l.file}</span><span class="badge">error</span>`; li.title = l.error; ul.appendChild(li); continue; }
@@ -433,7 +438,7 @@ async function save() {
   msg(`Saved ${d.file}`, 'ok'); await refresh(); return d.name || name;   // the server adds the number (015_name)
 }
 
-let PROG = null;
+let PROG = null, BUILD_DRONE = null;
 async function build(name) {
   if (draft.est?.ram > 4 && !confirm(`This location needs about ${draft.est.ram.toFixed(1)} GB of memory to build and makes a ${Math.round(draft.est.scene)} MB scene. Build anyway?`)) return;
   const r = await fetch('/api/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
@@ -442,6 +447,8 @@ async function build(name) {
   PROG ||= createBuildProgress({ map, toWGS, el: { card: $('prog'), title: $('progTitle'), pct: $('progPct'), steps: $('progSteps'),
     bar: $('progBar'), now: $('progNow'), stats: $('progStats'), log: $('jobLog') } });
   PROG.start(`Building “${$('fTitle').value.trim() || name}”`);
+  BUILD_DRONE ||= mountDrone($('progDrone'), { size: 34 });      // props spinning while it builds
+  BUILD_DRONE.off(false); BUILD_DRONE.loop('props');
   tilesL.remove();                          // the live tiles replace the draft tile preview
   msg('');
   $('bBuild').disabled = true;
@@ -460,6 +467,7 @@ async function build(name) {
     PROG.update(j);
     if (j.status !== 'running') {
       $('bBuild').disabled = false; $('progCancel').classList.add('hidden');
+      BUILD_DRONE.loop(null); BUILD_DRONE.off(j.status !== 'done');
       if (j.status === 'cancelled') { msg('Build cancelled. The location file is kept; build it again any time.', 'err'); refresh(); break; }
       if (j.status === 'done') {
         msg('', 'ok');

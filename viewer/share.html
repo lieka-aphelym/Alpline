@@ -30,6 +30,7 @@
 <body>
 <main>
   <h1 data-logo style="display:flex;align-items:center;gap:10px">ALPLINE <small>by lieka · open on your phone</small></h1>
+  <div class="shareDrone"><span id="shareDrone"></span><span>Your phone talks to this computer over the local network: no internet needed at the field.</span></div>
   <div id="out"></div>
   <div class="lbl">How</div>
   <ol>
@@ -63,6 +64,10 @@
   const ca = main.replace(/\/viewer\/$/, '/api/ca.crt');
   if (d.https) document.getElementById('caUrl').textContent = ca; else document.getElementById('caStep').remove();
 })();
+</script>
+<script type="module">
+  import { mountDrone } from './drone.js';
+  mountDrone(document.getElementById('shareDrone'), { size: 72 }).loop('ping');
 </script>
 </body>
 </html>

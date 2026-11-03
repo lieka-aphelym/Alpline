@@ -1,6 +1,8 @@
 # Logo concepts kept for later
 
-From Maël's sketches (November 2026), not used in the app yet.
+From Maël's sketches (November 2026). The drone schema is now drawn by `viewer/drone.js` (bigger propellers, no second
+tail line) and used in the app: live link indicator, training box, build card, share page, empty pages. These
+files are the original concept drawings.
 
 - `drone-schema-*.svg`: the drone seen from above as the whole logo, without the swirl. It has the X frame, motor
   crosses, nested brackets for the propellers and their signal, and the signal arrow with landing legs in the middle.
