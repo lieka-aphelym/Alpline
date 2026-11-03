@@ -1066,13 +1066,16 @@ async function loadTrack(file) {
 // ------------------------------------------------------------------ boot
 async function loadScene(name) {
   S.base = `${SCENES}${name}/`;
+  loadStep('Opening the location…');
   S.meta = await getJSON(S.base + 'scene.json');
+  loadStep(`${S.meta.title || name} · terrain…`);
   const g = S.meta.grid;
   S.W = g.max_e - g.min_e; S.H = g.max_n - g.min_n; S.hBase = S.meta.elevation.min;
   S.ground = groundChoice();
   await loadOverview(S.ground === 'bare' ? 'dtm' : 'surface');
   buildTerrain();
   if (S.meta.ortho) {
+    loadStep(`${S.meta.title || name} · aerial photo…`);
     const t = await loadTex(S.base + S.meta.ortho);
     S.terrainMat.uniforms.uOrtho.value = t; S.terrainMat.uniforms.uUseOrtho.value = 1;
   }
@@ -1081,6 +1084,7 @@ async function loadScene(name) {
   buildPilot();
   initUI();
   await pickLosLayer();
+  loadStep(`${S.meta.title || name} · signal shadows…`);
   try { S.vol = await loadVolumes({ scene3, S, demHeight }); } catch (e) { console.warn('3D volumes', e); S.vol = null; }
   if (S.vol?.overlay) {   // any height works now: offer a finer list
     $('losAgl').innerHTML = [5, 10, 20, 30, 45, 60, 90, 120, 150, 200, 300].map((a) => `<option value="${a}" ${a === 30 ? 'selected' : ''}>${a} m above the ground</option>`).join('');
@@ -1110,8 +1114,19 @@ async function loadScene(name) {
   camera.position.set(-span * 0.35, p.y + span * 0.45, span * 0.75);
   scene3.fog = new THREE.Fog(0x9fb8cf, span * 1.5, span * 6);
   if (S.meta.tracks.length) { const f = rememberedFlight(); $('trackPick').value = f; await loadTrack(f); }
-  $('loading').remove();
-  window.alpBusy?.(false); window.alpIntro?.();
+  await closeSplash();
+}
+
+// ------------------------------------------------------------------ launch screen
+const splashT0 = performance.now();
+const loadStep = (t) => { const m = $('loadMsg'); if (m) m.textContent = t; };
+async function closeSplash() {
+  const l = $('loading'); if (!l) return;
+  const wait = 1900 - (performance.now() - splashT0);              // let the spin-up finish (signal sent)
+  if (wait > 0) await new Promise((ok) => setTimeout(ok, wait));
+  l.classList.add('out');
+  window.alpBusy?.(false);
+  setTimeout(() => l.remove(), 500);
 }
 
 async function boot() {
@@ -1164,4 +1179,4 @@ const _lastCamPos = new THREE.Vector3(), _lastCamQuat = new THREE.Quaternion();
 
 S.requestRender = requestRender;
 window.fpv3d = { S, camera, controls, THREE, SIM, requestRender };
-boot().catch((e) => { console.error(e); window.alpBusy?.(false); const l = $('loading'); l.classList.add('err'); l.textContent = e.message; });
+boot().catch((e) => { console.error(e); window.alpBusy?.(false); const l = $('loading'); if (!l) return; l.classList.add('err'); loadStep(e.message); });

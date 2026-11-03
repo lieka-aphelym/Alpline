@@ -211,13 +211,23 @@ svg.logo.lg-intro .lg-w1 { animation: lg-send .7s .7s cubic-bezier(.22, 1, .36, 
 svg.logo.lg-intro .lg-w2 { animation: lg-send .85s .9s cubic-bezier(.22, 1, .36, 1) both; }
 @keyframes lg-spin { to { transform: rotate(360deg); } }
 @keyframes lg-tx { 0%, 100% { opacity: var(--o, 1); } 20% { opacity: 1; filter: brightness(1.35); } 45% { opacity: var(--o, 1); } }
-html.alp-busy svg.logo .lg-sw, #loading svg.logo .lg-sw { animation: lg-spin 1.4s linear infinite; }
-html.alp-busy svg.logo .lg-w0, #loading svg.logo .lg-w0 { animation: lg-tx 1.4s 0s infinite; }
-html.alp-busy svg.logo .lg-w1, #loading svg.logo .lg-w1 { animation: lg-tx 1.4s .2s infinite; }
-html.alp-busy svg.logo .lg-w2, #loading svg.logo .lg-w2 { animation: lg-tx 1.4s .4s infinite; }
-#loading { gap: 14px; align-content: center; }
-#loading svg.logo { width: 76px; height: 76px; display: block; margin: 0 auto; }
-#loading.err svg.logo { display: none; }
+html.alp-busy svg.logo:not(.lg-intro) .lg-sw, #loading svg.logo:not(.lg-intro) .lg-sw { animation: lg-spin 1.4s linear infinite; }
+html.alp-busy svg.logo:not(.lg-intro) .lg-w0, #loading svg.logo:not(.lg-intro) .lg-w0 { animation: lg-tx 1.4s 0s infinite; }
+html.alp-busy svg.logo:not(.lg-intro) .lg-w1, #loading svg.logo:not(.lg-intro) .lg-w1 { animation: lg-tx 1.4s .2s infinite; }
+html.alp-busy svg.logo:not(.lg-intro) .lg-w2, #loading svg.logo:not(.lg-intro) .lg-w2 { animation: lg-tx 1.4s .4s infinite; }
+/* launch screen of the viewer: logo, name, one line, then what is loading. Covers everything (also the panel) until the
+   scene is ready; the logo plays the spin-up first and transmits after that. */
+#loading { z-index: 50; display: flex !important; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+  background: var(--t-bg, var(--bg)); transition: opacity .45s ease; }
+#loading.out { opacity: 0; pointer-events: none; }
+#loading svg.logo { width: 112px; height: 112px; display: block; margin: 0 0 18px; }
+#loading .spName { font: 700 26px/1.1 ui-monospace, Consolas, monospace; letter-spacing: .14em; color: var(--t-fg, var(--fg)); }
+#loading .spName small { font-size: 12px; font-weight: 400; letter-spacing: .04em; color: var(--muted); margin-left: 6px; }
+#loading .spTag { margin-top: 8px; font-size: 13px; color: var(--muted); text-align: center; padding: 0 20px; }
+#loading .spMsg { margin-top: 26px; font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-height: 1.4em;
+  white-space: pre-wrap; text-align: center; padding: 0 20px; max-width: 640px; }
+#loading.err .spMsg { color: var(--bad); }
+#loading.err svg.logo * { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {     /* no spinning: only the waves pulse while busy */
   svg.logo .lg-sw, svg.logo.lg-intro * { animation: none !important; }
 }

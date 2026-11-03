@@ -12,7 +12,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
 BRAND = ROOT / "viewer" / "brand"
-SIZES = (24, 32, 40, 48, 64)
+SIZES = (24, 32, 40, 48, 64, 96)
 FRAMES = {"intro": (30, 60), "busy": (20, 70)}     # frames, ms per frame (intro 1.8 s once, busy 1.4 s loop)
 PAGE = """<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="{v}/theme.css"><script src="{v}/theme.js"></script>
 <style>html,body{{margin:0;padding:0;background:transparent!important}} svg.logo{{width:{n}px;height:{n}px;display:block;

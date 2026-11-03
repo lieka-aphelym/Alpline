@@ -897,6 +897,7 @@ class SwissMap:
         self.imgs = {}
         self.locs = []
         self.selected = app.cfg.get("selected")
+        self.downloading, self.spin, self.spin_i = False, None, 0
         if not all((MAP_DIR / f"ch_{k}_{MAP_W}.png").exists() for k in ("base", "zones")):
             self.download()
 
@@ -923,8 +924,22 @@ class SwissMap:
             self.selected = self.locs[0]["name"] if self.locs else None
 
     def download(self, force=False):
-        self.cv.delete("all")
-        self.cv.create_text(MAP_W / 2, self.h / 2, text="downloading the map of Switzerland…", fill=FG2, font=MONO)
+        if self.downloading:                        # [update map] pressed again while it runs
+            return
+        self.downloading = True
+        logo = getattr(self.app, "logo", None)
+        if logo:
+            logo.busy(True)
+        self.draw(save=False)                       # the old map stays under the loading box
+
+        def done(msg=None):
+            self.downloading = False
+            if logo:
+                logo.busy(False)
+            if msg is None:
+                self.imgs.clear()
+            self.draw()
+            self.info.configure(text=msg or self.hint)
 
         def work():
             try:
@@ -954,10 +969,10 @@ class SwissMap:
                 MAP_DIR.mkdir(parents=True, exist_ok=True)
                 base.save(MAP_DIR / f"ch_base_{MAP_W}.png")
                 Image.alpha_composite(base, out["zones"]).save(MAP_DIR / f"ch_zones_{MAP_W}.png")
-                self.app.root.after(0, lambda: (self.imgs.clear(), self.draw(), self.info.configure(text=self.hint)))
+                self.app.root.after(0, done)
             except Exception as ex:
                 msg = f"map not downloaded ({ex.__class__.__name__}): needs internet once"
-                self.app.root.after(0, lambda: (self.draw(), self.info.configure(text=msg)))
+                self.app.root.after(0, lambda: done(msg))
         threading.Thread(target=work, daemon=True).start()
 
     # ---------------------------------------------------------- drawing
@@ -975,7 +990,7 @@ class SwissMap:
                 cv.create_image(0, 0, image=self.imgs[key], anchor="nw")
             except tk.TclError:
                 pass
-        else:
+        elif not self.downloading:
             cv.create_text(MAP_W / 2, 20, text="no map yet: [update map] when online", fill=FG2, font=MONO)
         labels = []
         for l in sorted(self.locs, key=lambda l: not l.get("built")):   # built ones get their name first
@@ -1012,6 +1027,29 @@ class SwissMap:
             cv.tag_bind(tag, "<Leave>", lambda e: (self.cv.configure(cursor=""), self.info.configure(text=self.hint)))
             cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.app.select(l["name"]))   # click: select (table + card)
             cv.tag_bind(tag, "<Double-Button-1>", lambda e, l=l: self.app.open_location(l))
+        self.busy_box()
+
+    def busy_box(self):
+        """While the map updates: a box in the middle with the transmitting logo and 'updating the map…'."""
+        if not self.downloading:
+            return
+        if self.spin is None:
+            self.spin = LogoAnim._load("busy", S(64))
+        cx, cy, w, h = MAP_W / 2, self.h / 2, S(210), S(118)
+        self.cv.create_rectangle(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, fill=BG, outline=RULE, tags="busy")
+        if self.spin:
+            self.cv.create_image(cx, cy - S(14), image=self.spin[self.spin_i % len(self.spin)], tags=("busy", "busyimg"))
+        self.cv.create_text(cx, cy + h / 2 - S(16), text="updating the map…", fill=FG2, font=MONO, tags="busy")
+        if self.spin and not getattr(self, "_spin_job", None):
+            self._spin_tick()
+
+    def _spin_tick(self):
+        self._spin_job = None
+        if not self.downloading or not self.spin:
+            return
+        self.spin_i += 1
+        self.cv.itemconfigure("busyimg", image=self.spin[self.spin_i % len(self.spin)])
+        self._spin_job = self.app.root.after(LogoAnim.MS["busy"], self._spin_tick)
 
 
 
