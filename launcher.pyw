@@ -388,6 +388,12 @@ class Launcher:
         """A window that stopped within 5 s did not open: say so, and show the page in the browser instead
         (exit code 1 = the window already did that itself, after writing the reason to logs/window.log)."""
         code = w.poll()
+        if code not in (None, 0):
+            try:
+                with open(ROOT / "logs" / "window.log", "a", encoding="utf-8") as f:
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + f"window process ended with code {code} ({code & 0xFFFFFFFF:#x})\n")
+            except OSError:
+                pass
         if code is None:
             self.say("opened in an Alpline window · keep this window open")
         elif code != 0:

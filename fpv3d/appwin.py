@@ -45,6 +45,19 @@ def main(argv=None) -> int:
             sys.stderr = sys.stderr or out
         except OSError:
             pass
+    # a hard crash inside the web engine leaves no Python error: the crash tracer and pywebview's own log say where
+    try:
+        import faulthandler
+        import logging
+        _crash = open(DATA / "logs" / "window.log", "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(file=_crash, all_threads=True)
+        h = logging.StreamHandler(_crash)
+        h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+        lg = logging.getLogger("pywebview")
+        lg.addHandler(h); lg.setLevel(logging.DEBUG)
+    except Exception:
+        pass
+    _log(f"python {sys.version.split()[0]} at {sys.executable}")
     try:
         return _run(url)
     except BaseException:                               # never fail silently: log it, and show the page anyway
@@ -72,6 +85,7 @@ def _run(url: str) -> int:
     gui = "edgechromium" if sys.platform == "win32" else None     # the Edge engine; an error rather than an old fallback
     _log(f"open {url} (pywebview {getattr(webview, '__version__', '?')}, gui {gui or 'auto'})")
     webview.start(gui=gui, private_mode=False, storage_path=str(store), icon=str(icon) if icon.exists() else None)
+    _log("window closed")
     return 0
 
 
