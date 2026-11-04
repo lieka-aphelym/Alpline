@@ -44,6 +44,7 @@ import numpy as np
 
 from .geo import wgs84_to_lv95
 from .locations import ROOT, list_locations, write_location
+from .paths import APP, cli_cmd
 from .netinfo import lan_addresses  # shared with the launcher
 from .tilecache import TILE, TileCache
 
@@ -78,7 +79,7 @@ def cached_height(cache: TileCache, e: float, n: float):
 
 def run_build(job_id: str, args: list):
     job = JOBS[job_id]
-    cmd = [sys.executable, "-u", "-m", "fpv3d"] + args
+    cmd = cli_cmd(unbuffered=True) + args
     job["cmd"] = " ".join(args)
     job.setdefault("events", [])
     env = dict(os.environ, FPV3D_PROGRESS="1", PYTHONIOENCODING="utf-8")
@@ -153,7 +154,7 @@ def save_sim_track(scenes_dir: Path, cache_dir: Path, b: dict):
         out = out.with_name(f"{stem}.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(b.get("csv", ""), encoding="utf-8")
-    r = subprocess.run([sys.executable, "-m", "fpv3d", "--scenes", str(scenes_dir), "--cache", str(cache_dir),
+    r = subprocess.run(cli_cmd() + ["--scenes", str(scenes_dir), "--cache", str(cache_dir),
                         "add-log", str(loc.relative_to(ROOT)), str(out.relative_to(ROOT)),
                         "--altitude-mode", "amsl", "--altitude-offset", "0", "--altitude-scale", "1"],
                        cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -171,7 +172,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                           ".f32": "application/octet-stream", ".webmanifest": "application/manifest+json"}
 
         def __init__(self, *a, **kw):
-            super().__init__(*a, directory=str(ROOT), **kw)
+            super().__init__(*a, directory=str(APP), **kw)       # the pages (viewer/) come with the program
 
         def translate_path(self, path):
             # /scenes/... is served from the configured scenes folder (default: ./scenes)
@@ -427,7 +428,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     if b.get("save") and st["csv"] and st["gps_count"] >= 10 and st.get("scene"):
                         loc = location_file_for_scene(st["scene"])
                         if loc is not None:
-                            r = subprocess.run([sys.executable, "-m", "fpv3d", "--scenes", str(scenes_dir), "--cache", str(cache_dir),
+                            r = subprocess.run(cli_cmd() + ["--scenes", str(scenes_dir), "--cache", str(cache_dir),
                                                 "add-log", str(loc.relative_to(ROOT)), st["csv"]],
                                                cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
                             stem = Path(st["csv"]).stem

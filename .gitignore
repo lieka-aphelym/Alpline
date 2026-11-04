@@ -10,3 +10,6 @@ logs/
 # editor
 .idea/
 launcher.json
+# app build (build_app.bat)
+build/
+dist/

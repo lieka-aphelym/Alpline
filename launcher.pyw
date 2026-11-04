@@ -1,8 +1,10 @@
 """Alpline (by lieka) launcher: pick Full or Lite mode, see your locations on a map of Switzerland, open the 3D viewer.
 
-Double-click Alpline.bat (or the desktop shortcut it can create). The window starts the local server in the
-chosen mode, opens your browser, and stops the server when you close it. It also tells you whether your
-locations are ready to use offline at the field.
+Double-click Alpline.bat (or the desktop shortcut it can create), or start the installed Alpline app. The window
+starts the local server in the chosen mode, opens Alpline windows (or your browser), and stops the server when you
+close it. It also tells you whether your locations are ready to use offline at the field.
+
+Packaged app: the same file is Alpline.exe; `Alpline.exe --window <url>` opens one Alpline window (fpv3d.appwin).
 """
 from __future__ import annotations
 
@@ -18,7 +20,11 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fpv3d import paths  # noqa: E402  (standard library only)
+
+APP = paths.APP                                      # the program: viewer pages, logo frames, icon
+ROOT = paths.DATA                                    # your files: launcher.json, logs, scenes, cache, locations
 SETTINGS = ROOT / "launcher.json"
 LOG = ROOT / "logs" / "server.log"
 
@@ -38,7 +44,7 @@ def venv_exe(name: str) -> str:
     """python.exe / pythonw.exe of the project's virtual environment (.venv), where numpy, rasterio, PyYAML...
     are installed. Asked for explicitly: with the Microsoft Store Python, sys.executable inside a venv points
     to the base Python, which does not have those libraries."""
-    for d in (ROOT / ".venv" / "Scripts", ROOT / ".venv" / "bin", Path(sys.prefix) / "Scripts", Path(sys.prefix) / "bin"):
+    for d in (APP / ".venv" / "Scripts", APP / ".venv" / "bin", Path(sys.prefix) / "Scripts", Path(sys.prefix) / "bin"):
         for n in (name, name.replace(".exe", ""), "python3" if name.startswith("python.") else name):
             if (d / n).exists():
                 return str(d / n)
@@ -55,7 +61,6 @@ def python_exe() -> str:
 def lan_addresses() -> list:
     """IPv4 addresses of this computer on its local networks, best guess first (fpv3d.netinfo, shared with the server)."""
     try:
-        sys.path.insert(0, str(ROOT))
         from fpv3d.netinfo import lan_addresses as la
         return la()
     except Exception:
@@ -147,6 +152,8 @@ class Launcher:
         self.root = root
         self.cfg = load_settings()
         self.proc: subprocess.Popen | None = None
+        self.windows: list = []                             # Alpline windows opened from here (closed with the launcher)
+        self._win_ok = None
         self.running_mode = None
         self.running_share = False
         self.port = None
@@ -156,7 +163,7 @@ class Launcher:
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.quit)
         try:                                       # window / taskbar icon: the red Alpline square
-            self.icon = tk.PhotoImage(file=str(ROOT / "viewer" / "brand" / "icon-64.png"))
+            self.icon = tk.PhotoImage(file=str(APP / "viewer" / "brand" / "icon-64.png"))
             root.iconphoto(True, self.icon)
         except tk.TclError:
             pass
@@ -212,6 +219,10 @@ class Launcher:
         self.qr_btn = self.button(bar, "[qr]", self.show_qr, small=True)
         Tip(self.qr_btn, "Show a QR code to scan with the phone's camera.")
         sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
+        self.where_btn = self.button(bar, self.where_text(), self.toggle_open_in, small=True)
+        self.where_btn.pack(side="right", padx=(0, 6))
+        Tip(self.where_btn, "Where the 3D viewer and the locations map open: in Alpline windows (no browser bar) "
+                            "or in your web browser.")
         Tip(sc, "Add an 'Alpline' shortcut to your desktop.")
         dk = self.button(bar, "[disk]", self.disk_dialog, small=True); dk.pack(side="right", padx=(0, 6))
         Tip(dk, "How much space Alpline uses, and clean-up (deleted locations, unused map tiles).")
@@ -228,13 +239,13 @@ class Launcher:
     @staticmethod
     def brand_image(name, px):
         """viewer/brand/<name>-<size>.png closest to px (pre-rendered sizes), or None"""
-        sizes = sorted(int(p.stem.rsplit("-", 1)[1]) for p in (ROOT / "viewer" / "brand").glob(f"{name}-*.png")
+        sizes = sorted(int(p.stem.rsplit("-", 1)[1]) for p in (APP / "viewer" / "brand").glob(f"{name}-*.png")
                        if p.stem.rsplit("-", 1)[1].isdigit())
         if not sizes:
             return None
         best = min(sizes, key=lambda s: abs(s - px))
         try:
-            return tk.PhotoImage(file=str(ROOT / "viewer" / "brand" / f"{name}-{best}.png"))
+            return tk.PhotoImage(file=str(APP / "viewer" / "brand" / f"{name}-{best}.png"))
         except tk.TclError:
             return None
 
@@ -311,7 +322,7 @@ class Launcher:
         if port is None:
             self.say("No free port between 8000 and 8019: close the other Alpline windows.")
             return False
-        args = [python_exe(), "-u", "-m", "fpv3d", "serve", "--port", str(port), "--no-browser"]
+        args = paths.cli_cmd(unbuffered=True) + ["serve", "--port", str(port), "--no-browser"]
         if self.mode.get() == "lite":
             args.append("--lite")
         if self.cfg.get("share"):
@@ -342,8 +353,44 @@ class Launcher:
             self.status.configure(text="○ starting…", fg=FG2); self.root.update()
             if not self.start():
                 return
-        webbrowser.open(f"http://127.0.0.1:{self.port}{path}")
+        self.open_url(f"http://127.0.0.1:{self.port}{path}")
+
+    # ------------------------------------------------------------ Alpline windows (or the browser)
+    def window_ok(self) -> bool:
+        """pywebview available (always in the packaged app; in the .venv when installed)."""
+        if self._win_ok is None:
+            if paths.FROZEN:
+                self._win_ok = True
+            else:
+                try:
+                    self._win_ok = subprocess.run([python_exe(), "-c", "import webview"], capture_output=True, timeout=20,
+                                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode == 0
+                except Exception:
+                    self._win_ok = False
+        return self._win_ok
+
+    def open_url(self, url):
+        if self.cfg.get("open_in", "window") == "window" and self.window_ok():
+            try:
+                self.windows = [w for w in self.windows if w.poll() is None]
+                self.windows.append(subprocess.Popen(paths.window_cmd(url), cwd=str(APP),
+                                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)))
+                self.say("opened in an Alpline window · keep this window open")
+                return
+            except OSError:
+                pass
+        webbrowser.open(url)
         self.say("opened in your browser · keep this window open")
+
+    def toggle_open_in(self):
+        self.cfg["open_in"] = "browser" if self.cfg.get("open_in", "window") == "window" else "window"
+        self.save()
+        self.where_btn.configure(text=self.where_text())
+        if self.cfg["open_in"] == "window" and not self.window_ok():
+            self.say("Alpline windows need pywebview: pip install -r requirements.txt (in the .venv), meanwhile the browser")
+
+    def where_text(self):
+        return "[open in: window]" if self.cfg.get("open_in", "window") == "window" else "[open in: browser]"
 
     def stop(self):
         if self.server_alive():
@@ -366,6 +413,8 @@ class Launcher:
     def https_ready(self) -> bool:
         """The secure page for the phone needs the 'cryptography' library in .venv; offer to install it once."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if paths.FROZEN:
+            return True                                   # the packaged app comes with it
         ok = subprocess.run([python_exe(), "-c", "import cryptography"], capture_output=True, creationflags=flags).returncode == 0
         if ok or self.cfg.get("no_https"):
             return ok
@@ -509,7 +558,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
 
     def show_qr(self):
         if self.server_alive():
-            webbrowser.open(f"http://127.0.0.1:{self.port}/viewer/share.html")
+            self.open_url(f"http://127.0.0.1:{self.port}/viewer/share.html")
 
     def refresh_status(self):
         if not hasattr(self, "status"):
@@ -534,6 +583,9 @@ $r | ConvertTo-Json -Depth 4 -Compress
             self.stop_btn.configure(state="disabled")
 
     def quit(self):
+        for w in self.windows:                              # the windows show nothing without the server
+            if w.poll() is None:
+                w.terminate()
         self.stop()
         self.root.destroy()
 
@@ -643,7 +695,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
                     self.root.after(0, lambda: self.logo.busy(False))
 
             def work_():
-                r = subprocess.run([python_exe(), "-m", "fpv3d"] + args, cwd=str(ROOT), capture_output=True, text=True,
+                r = subprocess.run(paths.cli_cmd() + args, cwd=str(ROOT), capture_output=True, text=True,
                                    encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
                 text = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-300:]
                 self.root.after(0, lambda: (out.configure(text=text), after and after(r), threading.Thread(target=measure, daemon=True).start()))
@@ -669,11 +721,14 @@ $r | ConvertTo-Json -Depth 4 -Compress
         if os.name != "nt":
             self.say("Desktop shortcuts are made on Windows only.")
             return
-        pyw = venv_exe("pythonw.exe")             # the project's .venv, so the map can read your locations
+        if paths.FROZEN:                          # the installed app: Alpline.exe
+            target, arg, icon = paths.EXE_DIR / "Alpline.exe", "", paths.EXE_DIR / "Alpline.exe"
+        else:                                     # from the source folder: the project's .venv, so the map can read your locations
+            target, arg, icon = venv_exe("pythonw.exe"), f'\"{APP / "launcher.pyw"}\"', APP / "viewer" / "brand" / "icon.ico"
         ps = ("$d=[Environment]::GetFolderPath('Desktop');"
               "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Alpline.lnk'));"
-              f"$s.TargetPath='{pyw}';$s.Arguments='\"{ROOT / 'launcher.pyw'}\"';$s.WorkingDirectory='{ROOT}';"
-              f"$s.IconLocation='{ROOT / 'viewer' / 'brand' / 'icon.ico'},0';"
+              f"$s.TargetPath='{target}';$s.Arguments='{arg}';$s.WorkingDirectory='{ROOT}';"
+              f"$s.IconLocation='{icon},0';"
               "$s.Description='Alpline by lieka: FPV line of sight on Swiss terrain';$s.Save()")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -705,7 +760,7 @@ class LogoAnim:
 
     @staticmethod
     def _load(kind, px):
-        brand = ROOT / "viewer" / "brand"
+        brand = APP / "viewer" / "brand"
         sizes = [int(p.stem.rsplit("-", 1)[1]) for p in brand.glob(f"anim-{kind}-*.png") if p.stem.rsplit("-", 1)[1].isdigit()]
         if not sizes:
             return []
@@ -911,8 +966,7 @@ class SwissMap:
     # ---------------------------------------------------------- data
     def load_locations(self):
         try:
-            sys.path.insert(0, str(ROOT))
-            sp = ROOT / ".venv" / "Lib" / "site-packages"   # in case this window was started without the .venv
+            sp = APP / ".venv" / "Lib" / "site-packages"   # in case this window was started without the .venv
             if sp.exists() and str(sp) not in sys.path:
                 sys.path.append(str(sp))
             from fpv3d.locations import list_locations
@@ -1068,9 +1122,40 @@ def sharp_on_windows():
             pass
 
 
+def first_start_folder(root) -> bool:
+    """Installed app, very first start: where should your files go? True = continue, False = restart needed / quit."""
+    from tkinter import filedialog, messagebox
+    ans = messagebox.askyesnocancel(
+        "Alpline: your files",
+        "Where should Alpline keep your locations, flights and downloaded maps?\n\n"
+        f"Yes: in {paths.DEFAULT_DATA}\n"
+        "No: choose a folder (for example your existing fpv3d project folder, to keep everything you already have)",
+        parent=root)
+    if ans is None:
+        return False
+    folder = paths.DEFAULT_DATA
+    if ans is False:
+        pick = filedialog.askdirectory(parent=root, title="Folder for Alpline's files", mustexist=False,
+                                       initialdir=str(Path.home()))
+        if not pick:
+            return False
+        folder = Path(pick)
+    paths.set_data(folder)
+    subprocess.Popen([sys.executable] + sys.argv[1:])       # start again with the chosen folder
+    return False
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 2 and sys.argv[1] == "--window":      # Alpline.exe --window <url>: one Alpline window
+        from fpv3d.appwin import main as window_main
+        sys.exit(window_main(sys.argv[2:]))
     sharp_on_windows()
     root = tk.Tk()
+    if not paths.data_chosen():
+        root.withdraw()
+        first_start_folder(root)
+        sys.exit(0)
+    paths.ensure_data()
     UI = max(1.0, root.winfo_fpixels("1i") / 96)            # 1.25, 1.5 ... on scaled displays
     root.tk.call("tk", "scaling", UI * 96 / 72)              # fonts in points follow the same factor
     MAP_W = S(600)                                           # map width in real screen pixels

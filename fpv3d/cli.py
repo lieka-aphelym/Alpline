@@ -19,7 +19,9 @@ import argparse
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import DATA
+
+ROOT = DATA          # your files: locations/, scenes/, cache/ (see fpv3d/paths.py)
 
 
 

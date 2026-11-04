@@ -6,3 +6,4 @@ Pillow==12.3.0
 PyYAML==6.0.3
 pyserial==3.5   # optional: live telemetry from the radio
 cryptography==50.0.2   # optional: secure (https) page for the phone
+pywebview==6.2.1   # optional: Alpline windows instead of the browser (Windows: uses the Edge WebView2 engine)

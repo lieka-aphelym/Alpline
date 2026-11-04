@@ -10,7 +10,9 @@ from typing import Optional
 
 import yaml
 
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import DATA
+
+ROOT = DATA          # your files (locations, scenes, cache, logs); the program itself is paths.APP
 LOC_DIR = ROOT / "locations"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")
 

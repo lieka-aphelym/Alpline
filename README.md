@@ -75,6 +75,24 @@ Existing location files keep their own values in both modes; edit them to change
 - **Dark / light theme:** the *[dark] [light]* switch next to the title, remembered per browser. Dark for indoors, light for sunlight at the field.
 - **Playback bar:** small, and you can drag it anywhere by its grip (double-click the grip to put it back). In *[flights]*, the flight **(none)** hides the path, the drone, the info box and the bar.
 
+## Alpline as an app
+
+**Windows app.** The viewer and the locations map open in **Alpline windows** (no browser bar, own taskbar entry) when
+*pywebview* is installed: it comes with `pip install -r requirements.txt` and uses the Edge WebView2 engine built into
+Windows 10 / 11. *[open in: window / browser]* in the launcher's status bar switches between the two. Your settings in
+the pages (theme, warnings, antenna edits) live in `cache/webview/`, so they are separate from the browser's.
+
+To make an installable program: double-click **`build_app.bat`** (a few minutes). It makes `dist\Alpline\Alpline.exe`
+(Python and all libraries inside, about 200–300 MB) and, if [Inno Setup 6](https://jrsoftware.org/isinfo.php) is
+installed, the installer `dist\AlplineSetup.exe` (installs for your user only, Start menu + desktop icon, uninstall in
+Windows settings). The first start asks where your files go: *Documents\Alpline*, or pick this project folder to keep
+your locations, flights and downloaded maps. Inside: `Alpline.exe` (launcher and windows) and `alpline-cli.exe` (the
+server and builds, runs hidden). Recipe: `packaging/alpline.spec`.
+
+**Phone app.** With phone sharing on and the secure page set up (see *Phone*), Chrome on the phone offers
+**Install app**: Alpline gets its own icon and opens full screen without the browser bar. It still needs Alpline
+running on the computer; when it can't reach it, it says so instead of a browser error page.
+
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 
 ```bash
