@@ -6,7 +6,7 @@
 //   d.loop('ping' | 'props' | 'scan' | 'hover' | null)
 //   d.link(lq)        live link quality 0-100 (or null): the ping slows down and turns amber / red as it drops
 //   d.off(true)       grey and still (not connected, signal lost, build failed)
-//   d.flying(true)    landing legs folded away
+//   d.flying(true)    in the air: the propellers show as spinning discs (the antenna always stays out)
 const FG = 'var(--t-fg)', ACC = 'var(--t-acc)';
 const P = (d, w, col, op, cls, cap = 'square') =>
   `<path class="${cls}" d="${d}" style="stroke:${col};fill:none;--o:${op}" opacity="${op}" stroke-width="${w}" stroke-linecap="${cap}" stroke-linejoin="miter"/>`;
@@ -15,7 +15,8 @@ const MOTORS = [['m1', 48, 48, 1], ['m2', 48, 16, -1], ['m3', 16, 48, -1], ['m4'
 const R = 5.4;                                   // propeller half-length
 
 export function droneSVG(cls = '') {
-  let g = `<svg class="drn ${cls}" viewBox="0 0 64 64" aria-hidden="true"><g class="dr">`;
+  let g = `<svg class="drn ${cls}" viewBox="0 0 64 64" aria-hidden="true">`
+    + '<circle class="dust d0" cx="32" cy="32" r="12" opacity="0"/><circle class="dust d1" cx="32" cy="32" r="12" opacity="0"/><g class="dr">';
   g += P('M14 14 L50 50 M50 14 L14 50', 1.4, FG, 0.5, 'frame', 'butt');
   for (const [name, cx, cy, dir] of MOTORS) {
     const sx = cx < 32 ? 1 : -1, sy = cy < 32 ? 1 : -1;
@@ -24,6 +25,7 @@ export function droneSVG(cls = '') {
       const x0 = cx - sx * o, y0 = cy - sy * o, L = 4.6;
       br += P(`M${x0} ${y0 + sy * L} L${x0} ${y0} L${x0 + sx * L} ${y0}`, 1.4, FG, op, `br br${k}`);
     });
+    g += `<circle class="disc" cx="${cx}" cy="${cy}" r="6.6" opacity="0"/>`;
     g += `<g class="arm ${name}" style="--sx:${-sx};--sy:${-sy}"><g class="mot" style="transform-origin:${cx}px ${cy}px;--dir:${dir}">`
       + P(`M${cx - R} ${cy} L${cx + R} ${cy} M${cx} ${cy - R} L${cx} ${cy + R}`, 1.7, FG, 1, 'prop', 'round')
       + `<circle cx="${cx}" cy="${cy}" r="1.3" style="fill:${FG}"/></g><g class="brs">${br}</g></g>`;
