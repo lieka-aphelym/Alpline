@@ -4,7 +4,7 @@ Double-click Alpline.bat (or the desktop shortcut it can create), or start the i
 starts the local server in the chosen mode, opens Alpline windows (or your browser), and stops the server when you
 close it. It also tells you whether your locations are ready to use offline at the field.
 
-Packaged app: the same file is Alpline.exe; `Alpline.exe --window <url>` opens one Alpline window (fpv3d.appwin).
+Packaged app: the same file is Alpline.exe. Alpline windows are Edge (or Chrome) in app mode (fpv3d.paths.window_cmd).
 """
 from __future__ import annotations
 
@@ -221,8 +221,8 @@ class Launcher:
         sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
         self.where_btn = self.button(bar, self.where_text(), self.toggle_open_in, small=True)
         self.where_btn.pack(side="right", padx=(0, 6))
-        Tip(self.where_btn, "Where the 3D viewer and the locations map open: in Alpline windows (no browser bar) "
-                            "or in your web browser.")
+        Tip(self.where_btn, "Where the 3D viewer and the locations map open: in Alpline windows (Edge in app mode: "
+                            "no address bar or tabs, own taskbar icon) or in your normal web browser.")
         Tip(sc, "Add an 'Alpline' shortcut to your desktop.")
         dk = self.button(bar, "[disk]", self.disk_dialog, small=True); dk.pack(side="right", padx=(0, 6))
         Tip(dk, "How much space Alpline uses, and clean-up (deleted locations, unused map tiles).")
@@ -357,24 +357,17 @@ class Launcher:
 
     # ------------------------------------------------------------ Alpline windows (or the browser)
     def window_ok(self) -> bool:
-        """pywebview available (always in the packaged app; in the .venv when installed)."""
+        """Edge or Chrome is there to open Alpline windows (app mode)."""
         if self._win_ok is None:
-            if paths.FROZEN:
-                self._win_ok = True
-            else:
-                try:
-                    self._win_ok = subprocess.run([python_exe(), "-c", "import webview"], capture_output=True, timeout=20,
-                                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).returncode == 0
-                except Exception:
-                    self._win_ok = False
+            self._win_ok = paths.app_browser() is not None
         return self._win_ok
 
     def open_url(self, url):
-        if self.cfg.get("open_in", "window") == "window" and self.window_ok():
+        cmd = paths.window_cmd(url) if self.cfg.get("open_in", "window") == "window" else None
+        if cmd:
             try:
                 self.windows = [w for w in self.windows if w.poll() is None]
-                w = subprocess.Popen(paths.window_cmd(url), cwd=str(APP),
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                w = subprocess.Popen(cmd, cwd=str(ROOT))
                 self.windows.append(w)
                 self.say("opening an Alpline window…")
                 self.root.after(5000, lambda: self.window_check(w, url))
@@ -385,28 +378,26 @@ class Launcher:
         self.say("opened in your browser · keep this window open")
 
     def window_check(self, w, url):
-        """A window that stopped within 5 s did not open: say so, and show the page in the browser instead
-        (exit code 1 = the window already did that itself, after writing the reason to logs/window.log)."""
+        """Edge hands a second window to the one already open and stops at once (code 0): fine. Any other early
+        stop means the window did not open: show the page in the browser instead and say so."""
         code = w.poll()
-        if code not in (None, 0):
+        if code is None or code == 0:
+            self.say("opened in an Alpline window · keep this window open")
+        else:
             try:
                 with open(ROOT / "logs" / "window.log", "a", encoding="utf-8") as f:
-                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + f"window process ended with code {code} ({code & 0xFFFFFFFF:#x})\n")
+                    f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + f"window ({paths.app_browser()}) ended with code {code}\n")
             except OSError:
                 pass
-        if code is None:
-            self.say("opened in an Alpline window · keep this window open")
-        elif code != 0:
-            if code != 1:
-                webbrowser.open(url)
-            self.say("the Alpline window did not start (reason in logs/window.log): opened in the browser")
+            webbrowser.open(url)
+            self.say("the Alpline window did not open (see logs/window.log): opened in the browser")
 
     def toggle_open_in(self):
         self.cfg["open_in"] = "browser" if self.cfg.get("open_in", "window") == "window" else "window"
         self.save()
         self.where_btn.configure(text=self.where_text())
         if self.cfg["open_in"] == "window" and not self.window_ok():
-            self.say("Alpline windows need pywebview: pip install -r requirements.txt (in the .venv), meanwhile the browser")
+            self.say("Alpline windows need Microsoft Edge or Google Chrome: meanwhile the browser")
 
     def where_text(self):
         return "[open in: window]" if self.cfg.get("open_in", "window") == "window" else "[open in: browser]"
@@ -1165,9 +1156,6 @@ def first_start_folder(root) -> bool:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 2 and sys.argv[1] == "--window":      # Alpline.exe --window <url>: one Alpline window
-        from fpv3d.appwin import main as window_main
-        sys.exit(window_main(sys.argv[2:]))
     sharp_on_windows()
     root = tk.Tk()
     if not paths.data_chosen():

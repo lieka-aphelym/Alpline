@@ -77,13 +77,15 @@ Existing location files keep their own values in both modes; edit them to change
 
 ## Alpline as an app
 
-**Windows app.** The viewer and the locations map open in **Alpline windows** (no browser bar, own taskbar entry) when
-*pywebview* is installed: it comes with `pip install -r requirements.txt` and uses the Edge WebView2 engine built into
-Windows 10 / 11. *[open in: window / browser]* in the launcher's status bar switches between the two. Your settings in
-the pages (theme, warnings, antenna edits) live in `cache/webview/`, so they are separate from the browser's.
+**Windows app.** The viewer and the locations map open in **Alpline windows**: Microsoft Edge (or Chrome) in app
+mode, so no address bar or tabs and their own taskbar icon. Edge comes with Windows 10 / 11, nothing to install.
+*[open in: window / browser]* in the launcher's status bar switches between that and your normal browser; the windows
+close with the launcher. They use their own profile (`cache/appwindow/`), so the pages' settings (theme, warnings,
+antenna edits) are separate from your browser's. If a window can't open, the page opens in the browser and
+`logs/window.log` says why.
 
 To make an installable program: double-click **`build_app.bat`** (a few minutes). It makes `dist\Alpline\Alpline.exe`
-(Python and all libraries inside, about 200–300 MB) and, if [Inno Setup 6](https://jrsoftware.org/isinfo.php) is
+(Python and all libraries inside, about 200 MB) and, if [Inno Setup 6](https://jrsoftware.org/isinfo.php) is
 installed, the installer `dist\AlplineSetup.exe` (installs for your user only, Start menu + desktop icon, uninstall in
 Windows settings). The first start asks where your files go: *Documents\Alpline*, or pick this project folder to keep
 your locations, flights and downloaded maps. Inside: `Alpline.exe` (launcher and windows) and `alpline-cli.exe` (the

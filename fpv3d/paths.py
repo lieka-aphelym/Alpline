@@ -74,8 +74,37 @@ def cli_cmd(unbuffered: bool = False) -> list:
     return [_venv("python"), *(["-u"] if unbuffered else []), "-m", "fpv3d"]
 
 
-def window_cmd(url: str) -> list:
-    """Command that opens an Alpline window (pywebview) on `url`."""
-    if FROZEN:
-        return [str(EXE_DIR / ("Alpline.exe" if os.name == "nt" else "Alpline")), "--window", url]
-    return [_venv("pythonw") if os.name == "nt" else _venv("python"), "-m", "fpv3d.appwin", url]
+def app_browser() -> str | None:
+    """Edge (or Chrome / Chromium) to open Alpline windows in app mode: a window with no address bar or tabs, its
+    own taskbar icon (Alpline's app icon). Edge comes with Windows 10 / 11. ALPLINE_APP_BROWSER overrides."""
+    import shutil
+    if os.environ.get("ALPLINE_APP_BROWSER"):
+        return os.environ["ALPLINE_APP_BROWSER"]
+    if os.name == "nt":
+        roots = [os.environ.get(k) for k in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
+        for rel in (r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe"):
+            for r in roots:
+                if r and (Path(r) / rel).exists():
+                    return str(Path(r) / rel)
+        return None
+    if sys.platform == "darwin":
+        for p in ("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"):
+            if Path(p).exists():
+                return p
+        return None
+    for n in ("microsoft-edge", "google-chrome", "chromium", "chromium-browser"):
+        if shutil.which(n):
+            return shutil.which(n)
+    return None
+
+
+def window_cmd(url: str) -> list | None:
+    """Command that opens an Alpline window on `url`: Edge / Chrome in app mode with Alpline's own profile
+    (DATA/cache/appwindow: the pages' settings stay there, apart from your normal browser). None = no such browser."""
+    exe = app_browser()
+    if not exe:
+        return None
+    prof = DATA / "cache" / "appwindow"
+    return [exe, f"--app={url}", f"--user-data-dir={prof}", "--no-first-run", "--no-default-browser-check",
+            "--hide-crash-restore-bubble", "--disable-session-crashed-bubble", "--window-size=1440,900"]
