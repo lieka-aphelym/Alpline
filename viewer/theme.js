@@ -16,6 +16,13 @@
   var phone = matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900;
   window.ALPLINE = { mode: mode, lite: mode === 'lite', phone: phone, light: mode === 'lite' || phone };
   root.dataset.mode = mode; if (phone) root.dataset.phone = '1';
+  // installed app (phone / desktop): the service worker keeps the app's own files so it opens instantly and says when
+  // the computer can't be reached. Only on secure pages (https, or this computer), as browsers require.
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('/viewer/sw.js', { scope: '/viewer/' }).catch(function () {}); });
+  }
+  window.ALPLINE.app = matchMedia('(display-mode: standalone)').matches || /[?&]app=1/.test(location.search);
+  if (window.ALPLINE.app) root.dataset.app = '1';
   // the logo is busy (steady spin, branches pulse) while something loads or builds: alpBusy(true) ... alpBusy(false)
   var busyN = 0;
   window.alpBusy = function (on) { busyN = Math.max(0, busyN + (on ? 1 : -1)); root.classList.toggle('alp-busy', busyN > 0); };

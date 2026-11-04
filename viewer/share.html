@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07090c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="brand/icon-192.png">
 <title>Alpline · open on your phone</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="theme.css">
@@ -38,7 +41,7 @@
     <li>Scan the code with the phone's camera (or type the address in Chrome and the <b>PIN</b> when asked). The PIN is remembered on the phone.</li>
     <li id="caStep"><b>Once per phone, for the secure (https) page</b>: on the phone open <span class="url" style="font-size:14px" id="caUrl"></span> to download <i>alpline-ca.crt</i>, then Android <i>Settings → Security → More security settings → Encryption &amp; credentials → Install a certificate → CA certificate</i> and pick it. Until then Chrome shows "Your connection is not private": it still works through <i>Advanced → Proceed</i>, but keeping the screen on and the radio over USB need the certificate.</li>
     <li>The first time, Windows may ask whether Python may use the network: allow it. If the phone can't connect, the launcher's phone check fixes the Windows firewall; McAfee or a VPN may need an exception too.</li>
-    <li>On the phone, Chrome menu → <b>Add to Home screen</b> gives it an icon.</li>
+    <li><b>Install the app</b>: on the phone, Chrome menu → <b>Install app</b> (or <i>Add to Home screen</i>). Alpline then opens full screen from its own icon, without the browser bar. A real app install needs the secure page (step 3); without it you get a plain shortcut. The computer still runs Alpline: the app connects to it.</li>
   </ol>
   <p class="muted small">The phone can look, fly the simulator, follow live telemetry and build locations. Deleting and renaming only work on this computer. The radio stays plugged into the computer for live flights. The certificate is made by this PC for this PC only.</p>
 </main>

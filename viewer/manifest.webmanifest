@@ -1,0 +1,21 @@
+{
+  "name": "Alpline",
+  "short_name": "Alpline",
+  "description": "FPV signal and line-of-sight planner for Switzerland",
+  "id": "/viewer/",
+  "start_url": "/viewer/?app=1",
+  "scope": "/viewer/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#07090c",
+  "theme_color": "#07090c",
+  "icons": [
+    { "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "brand/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Locations map", "url": "/viewer/map.html?app=1", "icons": [{ "src": "brand/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

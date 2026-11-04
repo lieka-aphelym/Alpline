@@ -168,7 +168,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
     class Handler(http.server.SimpleHTTPRequestHandler):
         extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
                           ".js": "text/javascript", ".json": "application/json",
-                          ".f32": "application/octet-stream"}
+                          ".f32": "application/octet-stream", ".webmanifest": "application/manifest+json"}
 
         def __init__(self, *a, **kw):
             super().__init__(*a, directory=str(ROOT), **kw)
@@ -218,7 +218,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
         def _gate(self, u) -> bool:
             """Other devices (the phone) need the PIN shown in the launcher, once: it comes in the QR link as ?k=,
             or typed on the page below, and is then kept in a cookie for a year. True = request answered here."""
-            if self._local() or u.path in ("/api/ca.crt", "/favicon.ico") or u.path.startswith("/viewer/brand/"):
+            if self._local() or u.path in ("/api/ca.crt", "/favicon.ico", "/viewer/manifest.webmanifest") or u.path.startswith("/viewer/brand/"):
                 return False
             pin = SHARE["pin"]
             cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)

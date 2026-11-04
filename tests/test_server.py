@@ -50,7 +50,8 @@ def jreq(method, path, body=None):
 
 # ------------------------------------------------------------ pages and API
 def test_pages_load():
-    for p in ("/viewer/", "/viewer/map.html", "/viewer/share.html", "/viewer/test/index.html", "/viewer/env.js", "/viewer/app.js"):
+    for p in ("/viewer/", "/viewer/map.html", "/viewer/share.html", "/viewer/test/index.html", "/viewer/env.js", "/viewer/app.js",
+              "/viewer/sw.js", "/viewer/offline.html", "/viewer/manifest.webmanifest"):
         st, body, h = req("GET", p)
         assert st == 200, (p, st)
         if p.endswith(".js"):
@@ -104,6 +105,7 @@ def test_pin_for_other_devices():
         assert st == 302 and "alp_pin=123456" in h.get("set-cookie", "") and h["location"] == "/viewer/?scene=x"
         assert get("/viewer/", {"Cookie": "alp_pin=123456"})[0] == 200
         assert get("/api/ca.crt")[0] in (200, 404)                           # the CA is public (404 = no https set up)
+        assert get("/viewer/manifest.webmanifest")[0] == 200                # the app manifest too (Chrome fetches it without cookies)
         c = http.client.HTTPConnection(ip, port, timeout=5)                  # deleting / renaming: only on the computer
         c.request("POST", "/api/delete", body=b'{"name":"x"}', headers={"Cookie": "alp_pin=123456", "Content-Type": "application/json"})
         assert c.getresponse().status == 403
