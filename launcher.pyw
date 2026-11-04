@@ -373,14 +373,27 @@ class Launcher:
         if self.cfg.get("open_in", "window") == "window" and self.window_ok():
             try:
                 self.windows = [w for w in self.windows if w.poll() is None]
-                self.windows.append(subprocess.Popen(paths.window_cmd(url), cwd=str(APP),
-                                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)))
-                self.say("opened in an Alpline window · keep this window open")
+                w = subprocess.Popen(paths.window_cmd(url), cwd=str(APP),
+                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                self.windows.append(w)
+                self.say("opening an Alpline window…")
+                self.root.after(5000, lambda: self.window_check(w, url))
                 return
             except OSError:
                 pass
         webbrowser.open(url)
         self.say("opened in your browser · keep this window open")
+
+    def window_check(self, w, url):
+        """A window that stopped within 5 s did not open: say so, and show the page in the browser instead
+        (exit code 1 = the window already did that itself, after writing the reason to logs/window.log)."""
+        code = w.poll()
+        if code is None:
+            self.say("opened in an Alpline window · keep this window open")
+        elif code != 0:
+            if code != 1:
+                webbrowser.open(url)
+            self.say("the Alpline window did not start (reason in logs/window.log): opened in the browser")
 
     def toggle_open_in(self):
         self.cfg["open_in"] = "browser" if self.cfg.get("open_in", "window") == "window" else "window"

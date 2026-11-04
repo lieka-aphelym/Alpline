@@ -9,6 +9,8 @@ profile. Links to other sites (map.geo.admin.ch, ...) open in the normal browser
 from __future__ import annotations
 
 import sys
+import time
+import traceback
 import webbrowser
 
 from .paths import APP, DATA
@@ -22,14 +24,37 @@ def available() -> bool:
         return False
 
 
+def _log(msg: str) -> None:
+    try:
+        (DATA / "logs").mkdir(parents=True, exist_ok=True)
+        with open(DATA / "logs" / "window.log", "a", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg.rstrip() + "\n")
+    except OSError:
+        pass
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     url = argv[0] if argv else "http://127.0.0.1:8000/viewer/"
+    # the packaged Alpline.exe has no console: anything printed would crash it, so it goes to logs/window.log
+    if sys.stdout is None or sys.stderr is None:
+        try:
+            (DATA / "logs").mkdir(parents=True, exist_ok=True)
+            out = open(DATA / "logs" / "window.log", "a", encoding="utf-8", buffering=1)
+            sys.stdout = sys.stdout or out
+            sys.stderr = sys.stderr or out
+        except OSError:
+            pass
     try:
-        import webview
-    except Exception:                                   # pywebview missing: the browser does the job
+        return _run(url)
+    except BaseException:                               # never fail silently: log it, and show the page anyway
+        _log(f"Alpline window failed for {url}:\n{traceback.format_exc()}")
         webbrowser.open(url)
-        return 0
+        return 1
+
+
+def _run(url: str) -> int:
+    import webview
     if sys.platform == "win32":                         # own taskbar entry and icon, not Python's
         try:
             import ctypes
@@ -44,10 +69,9 @@ def main(argv=None) -> int:
     store = DATA / "cache" / "webview"
     store.mkdir(parents=True, exist_ok=True)
     icon = APP / "viewer" / "brand" / "icon-256.png"
-    try:
-        webview.start(private_mode=False, storage_path=str(store), icon=str(icon) if icon.exists() else None)
-    except Exception:                                   # no WebView2 / GUI backend: fall back to the browser
-        webbrowser.open(url)
+    gui = "edgechromium" if sys.platform == "win32" else None     # the Edge engine; an error rather than an old fallback
+    _log(f"open {url} (pywebview {getattr(webview, '__version__', '?')}, gui {gui or 'auto'})")
+    webview.start(gui=gui, private_mode=False, storage_path=str(store), icon=str(icon) if icon.exists() else None)
     return 0
 
 
