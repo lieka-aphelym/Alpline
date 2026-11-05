@@ -196,7 +196,7 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 #panel h1 svg.logo { width: 22px; height: 22px; flex: none; }
 
 /* ---------------------------------------------------------------- logo animation
-   The arrow is a signal: three waves, thinner and fainter further out. Spin-up once when a page opens (the propeller
+   The arrow is a signal: three even waves on a stem. Spin-up once when a page opens (the propeller
    spools up, the stem comes in and each wave travels out to its place: one signal sent). While something loads or
    builds (html.alp-busy, set by alpBusy() in theme.js; always on the loading screen): steady spin and the waves
    light up inner to outer, again and again (transmitting). */
@@ -210,7 +210,7 @@ svg.logo.lg-intro .lg-w0 { animation: lg-send .55s .5s cubic-bezier(.22, 1, .36,
 svg.logo.lg-intro .lg-w1 { animation: lg-send .7s .7s cubic-bezier(.22, 1, .36, 1) both; }
 svg.logo.lg-intro .lg-w2 { animation: lg-send .85s .9s cubic-bezier(.22, 1, .36, 1) both; }
 @keyframes lg-spin { to { transform: rotate(360deg); } }
-@keyframes lg-tx { 0%, 100% { opacity: var(--o, 1); } 20% { opacity: 1; filter: brightness(1.35); } 45% { opacity: var(--o, 1); } }
+@keyframes lg-tx { 0%, 45%, 100% { opacity: 1; filter: none; } 8% { opacity: .3; } 22% { opacity: 1; filter: brightness(1.4); } }
 html.alp-busy svg.logo:not(.lg-intro) .lg-sw, #loading svg.logo:not(.lg-intro) .lg-sw { animation: lg-spin 1.4s linear infinite; }
 html.alp-busy svg.logo:not(.lg-intro) .lg-w0, #loading svg.logo:not(.lg-intro) .lg-w0 { animation: lg-tx 1.4s 0s infinite; }
 html.alp-busy svg.logo:not(.lg-intro) .lg-w1, #loading svg.logo:not(.lg-intro) .lg-w1 { animation: lg-tx 1.4s .2s infinite; }
