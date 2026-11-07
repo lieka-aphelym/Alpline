@@ -816,6 +816,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
                 ok = False
             self.online = ok
             self.root.after(0, lambda: self.net_pill.set("online" if ok else "offline", "#3ddc84" if ok else "#ff9f43"))
+            if ok and "map" in self.map.src:          # new locations: their detail tiles, quietly
+                self.root.after(3000, self.map.prefetch)
         threading.Thread(target=net, daemon=True).start()
 
     def select(self, name):
@@ -1520,19 +1522,18 @@ class Card:
 
 
 # ---------------------------------------------------------------- Switzerland map
-# swisstopo grey map, relief shading and FOCA drone restrictions (the same sources as the locations map page),
-# downloaded once at zoom 9, cropped to Switzerland and kept in cache/launcher/ so the map also shows offline.
-# Shown dark: the grey map is inverted and shaded by the relief, the zones become red outlines with a light hatch.
+# swisstopo's grey map with relief shading, dimmed outside Switzerland, and the FOCA drone zones as red outlines (styled
+# tiles: fpv3d/launcher_tiles.py). An overview of Switzerland and its neighbours at zoom 9 shows at once; sharper tiles
+# (down to zoom 13: towns, roads, rivers) load while you zoom in and stay in cache/launcher/ for offline use, as do the
+# tiles around your locations ([update map] fetches them).
 
 MAP_DIR = ROOT / "cache" / "launcher"
-BBOX = (5.85, 45.75, 10.6, 47.9)                    # lon/lat west, south, east, north
-ZM = 9                                               # zoom of the stored map (about 1730 x 1140 px)
-TILE_URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
-LAYERS = (("base", "ch.swisstopo.pixelkarte-grau", "jpeg"),
-          ("relief", "ch.swisstopo.swissalti3d-reliefschattierung", "png"),
-          ("zones", "ch.bazl.einschraenkungen-drohnen", "png"))
+WIDE = (4.6, 45.2, 11.9, 48.6)                      # overview area: Switzerland + neighbours (lon/lat W, S, E, N)
+CH_BOX = (5.85, 45.75, 10.6, 47.9)                  # Switzerland ([CH] button)
+ZM = 9                                               # zoom of the overview = the map's own pixel unit
+ZMAX = 13
 MAP_BG = "#0c1016"
-MPP = 156543.03 / 2 ** ZM                            # metres per stored-map pixel at the equator
+MPP = 156543.03 / 2 ** ZM                            # metres per map pixel at the equator
 
 
 def merc(lon, lat, z=ZM):
@@ -1542,19 +1543,6 @@ def merc(lon, lat, z=ZM):
     la = math.radians(lat)
     y = (1 - math.log(math.tan(la) + 1 / math.cos(la)) / math.pi) / 2 * n
     return x, y
-
-
-def dark_map(base, relief=None):
-    """The grey swisstopo map turned dark (inverted, blue-grey), shaded by the relief when there is one."""
-    from PIL import Image, ImageChops
-    g = base.convert("L")
-    inv = g.point(lambda v: 14 + (255 - v) * 0.42)              # paper -> dark, lines and names -> light
-    if relief is not None:
-        r = relief.convert("L").resize(g.size)
-        shade = r.point(lambda v: int(min(255, 70 + v * 0.95)))  # lit slopes brighter, shadows darker
-        inv = ImageChops.multiply(inv.point(lambda v: min(255, v * 1.9)), shade)
-    rgb = Image.merge("RGB", (inv.point(lambda v: v * 0.90), inv.point(lambda v: v * 0.96), inv.point(lambda v: min(255, v * 1.10 + 4))))
-    return rgb
 
 
 def soft_edges(img, width=110):
@@ -1569,21 +1557,6 @@ def soft_edges(img, width=110):
     return Image.composite(img, Image.new("RGB", (w, h), MAP_BG), mask)
 
 
-def zone_overlay(zones):
-    """Drone zones as red outlines with a light diagonal hatch (RGBA), from the FOCA layer's coloured areas."""
-    from PIL import Image, ImageChops, ImageDraw, ImageFilter
-    a = zones.getchannel("A").point(lambda v: 255 if v > 40 else 0)
-    edge = ImageChops.subtract(a, a.filter(ImageFilter.MinFilter(3)))
-    hatch = Image.new("L", a.size, 0)
-    d = ImageDraw.Draw(hatch)
-    for k in range(-a.size[1], a.size[0], 9):
-        d.line([(k, a.size[1]), (k + a.size[1], 0)], fill=60, width=1)
-    alpha = ImageChops.lighter(ImageChops.multiply(hatch, a), edge.point(lambda v: 200 if v else 0))
-    out = Image.new("RGBA", a.size, (255, 90, 90, 0))
-    out.putalpha(alpha)
-    return out
-
-
 class SwissMap:
     """The map page. The map fills it and can be zoomed (wheel, + / −) and moved (drag); it opens framed on your
     locations. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered group
@@ -1593,8 +1566,14 @@ class SwissMap:
 
     def __init__(self, app: "Launcher", parent):
         self.app = app
-        x0, y0 = merc(BBOX[0], BBOX[3]); x1, y1 = merc(BBOX[2], BBOX[1])
+        x0, y0 = merc(WIDE[0], WIDE[3]); x1, y1 = merc(WIDE[2], WIDE[1])
         self.org, self.span = (x0, y0), (x1 - x0, y1 - y0)
+        self.tiles = None                            # fpv3d.launcher_tiles.Tiles (needs Pillow)
+        self.tcache = {}                             # (z, x, y) -> (RGB, zones) in memory, newest last
+        self.wanted, self.pending, self.failed = set(), set(), {}
+        self.pool = None
+        self._tiles_job = None
+        self.prefetching = False
         self.cx, self.cy, self.s = self.span[0] / 2, self.span[1] / 2, 0.5     # view: centre (stored px) + zoom
         self.fitted = False
         self.cv = tk.Canvas(parent, bg=MAP_BG, highlightthickness=0, cursor="fleur")
@@ -1677,7 +1656,7 @@ class SwissMap:
         self.cv.bind("<Motion>", self.on_hover)
         self.cv.bind("<Leave>", lambda e: self.info.set(self.hint))
         self.load_sources()
-        if not (MAP_DIR / "ch_base.png").exists() or not (MAP_DIR / "ch_zones_raw.png").exists():
+        if "map" not in self.src:
             self.download()
 
     # ---------------------------------------------------------- list panel
@@ -1763,12 +1742,18 @@ class SwissMap:
             else:
                 self.cy = c
 
+    def ch_box(self):
+        x0, y0 = self.mpx(CH_BOX[3], CH_BOX[0]); x1, y1 = self.mpx(CH_BOX[1], CH_BOX[2])
+        return x0, y0, x1, y1
+
     def min_s(self):
+        """Zoomed out: Switzerland with a margin of its neighbours."""
         W, H = self.size()
-        return min((W - S(32)) / self.span[0], (H - S(32)) / self.span[1])
+        x0, y0, x1, y1 = self.ch_box()
+        return min((W - S(32)) / (x1 - x0), (H - S(32)) / (y1 - y0)) / 1.25
 
     def max_s(self):
-        return max(1.6, self.min_s() * 5)
+        return 2 ** (ZMAX - ZM) * 1.3                # a little past the sharpest tiles
 
     def free_area(self):
         """The part of the page the floating panels leave free (to frame locations in)."""
@@ -1790,13 +1775,15 @@ class SwissMap:
             return self.fit_switzerland(draw)
         xs, ys = [p[0] for p in pts], [p[1] for p in pts]
         pad = 60                                     # stored px around them (about 15 km)
-        self.fit_box(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad, max_zoom=self.min_s() * 3)
+        self.fit_box(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad, max_zoom=self.min_s() * 4)
         if draw:
             self.draw()
 
     def fit_switzerland(self, draw=True):
-        self.s = self.min_s()
-        self.cx, self.cy = self.span[0] / 2, self.span[1] / 2
+        x0, y0, x1, y1 = self.ch_box()
+        W, H = self.size()
+        self.s = min((W - S(32)) / (x1 - x0), (H - S(32)) / (y1 - y0))
+        self.cx, self.cy = (x0 + x1) / 2, (y0 + y1) / 2
         if draw:
             self.draw()
 
@@ -1931,48 +1918,48 @@ class SwissMap:
             self.selected = None
 
     def map_age(self):
-        p = MAP_DIR / "ch_base.png"
+        p = MAP_DIR / "overview.png"
         return f"map from {time.strftime('%d %b %Y', time.localtime(p.stat().st_mtime))}" if p.exists() else "no map yet"
 
     def load_sources(self):
-        """Compose the dark map and the zone outlines from the stored downloads (once, full size)."""
-        self.src.clear(); self.photo = None
+        """The overview (styled, faded at its edges) + half-size copies for zoomed-out views."""
+        self.src.clear(); self.photo = None; self.tcache.clear()
         try:
             from PIL import Image
+            from fpv3d.launcher_tiles import Tiles
+            self.tiles = Tiles(MAP_DIR)
         except ImportError:
             self.hint = "the map needs the Pillow library"
             return
         try:
-            base = MAP_DIR / "ch_base.png"
-            if not base.exists():
-                old = sorted(MAP_DIR.glob("ch_base_*.png"), key=lambda f: f.stat().st_size)   # older launchers
-                base = old[-1] if old else None
-            if base:
-                with Image.open(base) as b:
-                    b = b.convert("RGB")
-                    if b.size != (round(self.span[0]), round(self.span[1])):
-                        b = b.resize((round(self.span[0]), round(self.span[1])), Image.LANCZOS)
-                    rel = MAP_DIR / "ch_relief.png"
-                    relief = Image.open(rel) if rel.exists() else None
-                    self.src["map"] = dark_map(b, relief)
-            if "map" in self.src:
-                full = soft_edges(self.src.pop("map"))
-                self.src["map"] = full
-                zr = MAP_DIR / "ch_zones_raw.png"
-                if zr.exists():
-                    with Image.open(zr) as z:
-                        ov = zone_overlay(z.convert("RGBA").resize(full.size))
-                    zm = full.copy(); zm.paste(ov, (0, 0), ov)
-                    self.src["map_z"] = zm
-                for k in list(self.src):              # half size: used when zoomed out (4x fewer pixels to scale)
-                    self.src[k + "_half"] = self.src[k].resize((full.size[0] // 2, full.size[1] // 2), Image.LANCZOS)
-        except Exception as ex:                     # a damaged file: download again with [update map]
+            p, pz = MAP_DIR / "overview.png", MAP_DIR / "overview_zones.png"
+            if not p.exists():
+                return
+            with Image.open(p) as im:
+                full = im.convert("RGB")
+            if full.size != (round(self.span[0]), round(self.span[1])):
+                full = full.resize((round(self.span[0]), round(self.span[1])), Image.LANCZOS)
+            self.src["map"] = soft_edges(full)
+            if pz.exists():
+                with Image.open(pz) as z:
+                    ov = z.convert("RGBA").resize(full.size)
+                zm = full.copy(); zm.paste(ov, (0, 0), ov)
+                self.src["map_z"] = soft_edges(zm)
+            for k in list(self.src):                  # half size: used when zoomed out (4x fewer pixels to scale)
+                self.src[k + "_half"] = self.src[k].resize((full.size[0] // 2, full.size[1] // 2), Image.LANCZOS)
+        except Exception as ex:                       # a damaged file: download again with [update map]
             self.hint = f"map file not readable ({ex.__class__.__name__}): [update map]"
 
+    def detail_zoom(self):
+        """Tile zoom for the current view (ZM = only the overview)."""
+        return max(ZM, min(ZMAX, math.ceil(ZM + math.log2(max(self.s, 1e-6)) - 0.35)))
+
     def view_image(self, W, H, fast):
-        """The visible part of the map at the window's size, as one image (zones already drawn in)."""
+        """The visible part of the map at the window's size, as one image: the overview, with sharper tiles on top
+        when zoomed in (those not loaded yet are fetched in the background; the overview shows meanwhile)."""
         from PIL import Image, ImageTk
-        key = "map_z" if self.zones.get() and "map_z" in self.src else "map"
+        zones = self.zones.get()
+        key = "map_z" if zones and "map_z" in self.src else "map"
         k = 1.0
         if self.s <= 0.55 and key + "_half" in self.src:          # zoomed out: the half-size copy is enough
             key, k = key + "_half", 0.5
@@ -1988,11 +1975,85 @@ class SwissMap:
             dx, dy = round((box[0] - x0) * s), round((box[1] - y0) * s)
             dw, dh = max(1, round((box[2] - box[0]) * s)), max(1, round((box[3] - box[1]) * s))
             out.paste(im.crop(box).resize((dw, dh), Image.BILINEAR if fast else Image.LANCZOS), (dx, dy))
+        z = self.detail_zoom()
+        self.wanted = set()
+        if z > ZM and self.tiles:
+            f = 2 ** (z - ZM)                         # tile pixels per map pixel
+            gx = lambda X: W / 2 + (X / f - self.org[0] - self.cx) * self.s       # global px at z -> screen
+            gy = lambda Y: H / 2 + (Y / f - self.org[1] - self.cy) * self.s
+            tx0 = int(((self.cx - W / 2 / self.s) + self.org[0]) * f // 256)
+            ty0 = int(((self.cy - H / 2 / self.s) + self.org[1]) * f // 256)
+            tx1 = int(((self.cx + W / 2 / self.s) + self.org[0]) * f // 256)
+            ty1 = int(((self.cy + H / 2 / self.s) + self.org[1]) * f // 256)
+            ctr = ((tx0 + tx1) / 2, (ty0 + ty1) / 2)
+            for tx, ty in sorted(((x, y) for x in range(tx0, tx1 + 1) for y in range(ty0, ty1 + 1)),
+                                 key=lambda t: (t[0] - ctr[0]) ** 2 + (t[1] - ctr[1]) ** 2):    # centre first
+                t = self.tile(z, tx, ty, load=not fast)
+                if t is None:
+                    continue
+                L, T = round(gx(tx * 256)), round(gy(ty * 256))
+                R, B = round(gx(tx * 256 + 256)), round(gy(ty * 256 + 256))
+                if R - L < 2 or B - T < 2:
+                    continue
+                flt = Image.BILINEAR if fast or abs((R - L) - 256) > 64 else Image.LANCZOS
+                out.paste(t[0].resize((R - L, B - T), flt), (L, T))
+                if zones and t[1] is not None:
+                    zt = t[1].resize((R - L, B - T), Image.BILINEAR)
+                    out.paste(zt, (L, T), zt)
         return ImageTk.PhotoImage(out)
 
+    def tile(self, z, x, y, load=True):
+        """A styled tile from memory, else from disk (load=True), else asked for in the background (None)."""
+        key = (z, x, y)
+        t = self.tcache.pop(key, None)
+        if t is None and load:
+            t = self.tiles.load(z, x, y)
+        if t is not None:
+            self.tcache[key] = t                      # newest last
+            while len(self.tcache) > 220:
+                self.tcache.pop(next(iter(self.tcache)))
+            return t
+        self.wanted.add(key)
+        if key not in self.pending and time.monotonic() > self.failed.get(key, 0) and \
+                time.monotonic() > self.failed.get("net", 0):
+            self.pending.add(key)
+            if self.pool is None:
+                from concurrent.futures import ThreadPoolExecutor
+                self.pool = ThreadPoolExecutor(6)
+            self.pool.submit(self._fetch_tile, key)
+        return None
+
+    def _fetch_tile(self, key):
+        """Worker thread: download one tile unless the view has moved on."""
+        try:
+            if key not in self.wanted:
+                return
+            t = self.tiles.get(*key)
+            self.app.root.after(0, lambda: self._tile_arrived(key, t))
+        except Exception:
+            now = time.monotonic()
+            self.failed[key] = now + 60
+            self.failed["net"] = now + 20             # offline: stop asking for a while
+        finally:
+            self.pending.discard(key)
+
+    def _tile_arrived(self, key, t):
+        self.tcache[key] = t
+        if key in self.wanted and not self._tiles_job and not self.drag:
+            self._tiles_job = self.app.root.after(200, self._tiles_draw)
+
+    def _tiles_draw(self):
+        self._tiles_job = None
+        self.draw()
+
     def download(self, force=False):
+        """[update map]: the overview again (latest zones), then the detail around your locations for offline use."""
         if self.downloading:                        # [update map] pressed again while it runs
             return
+        if not self.tiles:
+            self.load_sources()
+            if not self.tiles:
+                return
         self.downloading = True
         logo = getattr(self.app, "logo", None)
         if logo:
@@ -2010,40 +2071,19 @@ class SwissMap:
             self.info.set(msg or self.hint)
             if msg:
                 self.app.say(msg, "bad")
+            else:
+                self.prefetch()
 
         def work():
             try:
-                from PIL import Image
-                import io
-                x0, y0 = self.org
-                x1, y1 = x0 + self.span[0], y0 + self.span[1]
-                tx0, ty0, tx1, ty1 = int(x0 // 256), int(y0 // 256), int(x1 // 256), int(y1 // 256)
-                got = {}
-                for key, layer, ext in LAYERS:
-                    mosaic = Image.new("RGBA", ((tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256), (0, 0, 0, 0))
-                    n = 0
-                    for tx in range(tx0, tx1 + 1):
-                        for ty in range(ty0, ty1 + 1):
-                            url = TILE_URL.format(layer=layer, z=ZM, x=tx, y=ty, ext=ext)
-                            req = urllib.request.Request(url, headers={"User-Agent": "alpline-launcher"})
-                            try:
-                                data = urllib.request.urlopen(req, timeout=10).read()
-                            except urllib.error.HTTPError:
-                                continue            # no tile there (outside the data)
-                            mosaic.paste(Image.open(io.BytesIO(data)).convert("RGBA"), ((tx - tx0) * 256, (ty - ty0) * 256))
-                            n += 1
-                    if n:
-                        got[key] = mosaic.crop((round(x0 - tx0 * 256), round(y0 - ty0 * 256),
-                                                round(x1 - tx0 * 256), round(y1 - ty0 * 256)))
-                if "base" not in got:
-                    raise RuntimeError("no map tiles")
+                if force:
+                    self.tiles.clear()
+                rgb, zo, _ = self.tiles.overview(progress=lambda n, t: self.app.root.after(
+                    0, lambda: self.info.set(f"downloading the map… {n}/{t}")))
                 MAP_DIR.mkdir(parents=True, exist_ok=True)
-                got["base"].convert("RGB").save(MAP_DIR / "ch_base.png")
-                if "relief" in got:                  # optional: the map is still fine without it
-                    got["relief"].convert("L").save(MAP_DIR / "ch_relief.png")
-                if "zones" in got:
-                    got["zones"].save(MAP_DIR / "ch_zones_raw.png")
-                for old in MAP_DIR.glob("ch_*_[0-9]*.png"):          # older launchers' small maps
+                rgb.save(MAP_DIR / "overview.png")
+                zo.save(MAP_DIR / "overview_zones.png")
+                for old in MAP_DIR.glob("ch_*.png"):  # older launchers' single-picture maps
                     try:
                         old.unlink()
                     except OSError:
@@ -2052,6 +2092,28 @@ class SwissMap:
             except Exception as ex:
                 msg = f"map not downloaded ({ex.__class__.__name__}): needs internet once"
                 self.app.root.after(0, lambda: done(msg))
+        threading.Thread(target=work, daemon=True).start()
+
+    def prefetch(self):
+        """Background: the detailed tiles ~10 km around each location, so the map is sharp there offline too."""
+        if self.prefetching or not self.tiles or not self.locs:
+            return
+        self.prefetching = True
+        pts = [tuple(l["center"]) for l in self.locs]
+
+        def work():
+            def prog(n, t):
+                if n % 10 == 0 or n == t:
+                    self.app.root.after(0, lambda: self.info.set(f"detail around your locations… {n}/{t}"))
+            try:
+                _, failed = self.tiles.prefetch(pts, progress=prog)
+            except Exception:
+                failed = 1
+            def fin():
+                self.prefetching = False
+                self.info.set(self.hint if not failed else f"{self.hint} · {failed} detail tiles missing (offline?)")
+                self.draw()
+            self.app.root.after(0, fin)
         threading.Thread(target=work, daemon=True).start()
 
     # ---------------------------------------------------------- drawing
@@ -2095,7 +2157,7 @@ class SwissMap:
                 it["p"] = (sum(q[1][0] for q in it["m"]) / n, sum(q[1][1] for q in it["m"]) / n)
             else:
                 items.append(dict(m=[(l, p)], p=p))
-        names = self.s >= self.min_s() * 1.8         # zoomed in: names next to the dots
+        names = self.s >= self.min_s() * 2.2         # zoomed in: names next to the dots
         labels = [(i["p"][0] - S(15), i["p"][1] - S(15), i["p"][0] + S(15), i["p"][1] + S(15))
                   for i in items if len(i["m"]) > 1]  # numbers never cover a group badge
 

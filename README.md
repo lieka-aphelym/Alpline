@@ -35,15 +35,19 @@ the left and a header that stays the same on every page:
 
 - **Header:** *online / offline*, the server (*server full :8000*, or *off*), *[stop]*, *[3d viewer]* (opens the
   selected location) and *[locations map]*. Opening something starts the local server; closing the window stops it.
-- **map:** a dark map of Switzerland with relief shading and the FOCA drone zones as red outlines (tick box to hide
-  them). Drag to move, mouse wheel or *+ / −* to zoom, *fit* frames all your locations (it opens that way), *CH* shows
-  the whole country. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered
+- **map:** a dark map of Switzerland and its neighbours (swisstopo's grey map), with relief shading inside Switzerland,
+  everything outside the border dimmed, and the FOCA drone zones as red outlines (tick box to hide them). Drag to
+  move, mouse wheel or *+ / −* to zoom, *fit* frames all your locations (it opens that way), *CH* shows the whole
+  country. Zooming in loads sharper map tiles, down to towns, roads and rivers (about 13 m per pixel); the overview
+  shows while they load. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered
   group (click it to zoom in). Names appear next to the dots once you zoom in. Click = select, double-click = open;
   a click on an empty spot, *×* on the callout or **Esc** selects nothing (the plain map).
   The selected location's details sit in a callout next to its dot (size, terrain, build date, flights, *[open in 3d]*
   or *[build on the map]*, *[fly]*), with its real area drawn dashed. The **locations list** floats top left (filter
-  box, real / sim logs, *[–]* folds it); the map's date and *[update map]* are bottom left. The map, relief and zones
-  are downloaded once into `cache/launcher/` so they show offline.
+  box, real / sim logs, *[–]* folds it); the map's date and *[update map]* are bottom left. Everything you have seen is
+  kept in `cache/launcher/` and shows offline; *[update map]* downloads the map again (latest zones) and the detailed
+  tiles about 10 km around each location, so the map is sharp at the field without internet (new locations get theirs
+  automatically when online).
 - **drone:** finds a Betaflight drone and the radio on USB by itself (a dot on the rail icon). *[download blackbox]*
   copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
   selected location on the fly tab.

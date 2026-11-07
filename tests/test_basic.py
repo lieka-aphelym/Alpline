@@ -139,6 +139,25 @@ def test_blackbox_read():
     assert _alt_scale({}, [12150]) == 0.1 and _alt_scale({}, [1215]) == 1.0
 
 
+def test_launcher_tile_style():
+    """Launcher map tiles: dark, dimmed outside Switzerland, zones become an outline + hatch; tile keys around a point."""
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        print("  (Pillow not installed: skipped)")
+        return
+    from fpv3d.launcher_tiles import Tiles, style
+    base = Image.new("RGBA", (256, 256), (240, 240, 240, 255))
+    mask = Image.new("RGBA", (256, 256), (0, 0, 0, 0)); ImageDraw.Draw(mask).rectangle((0, 0, 127, 255), fill=(255, 0, 0, 255))
+    zones = Image.new("RGBA", (256, 256), (0, 0, 0, 0)); ImageDraw.Draw(zones).ellipse((60, 60, 200, 200), fill=(230, 80, 80, 150))
+    rgb, zo = style(base, None, mask, zones)
+    assert rgb.size == (256, 256) and max(rgb.getpixel((20, 128))) < 80              # paper turned dark
+    assert sum(rgb.getpixel((20, 128))) > sum(rgb.getpixel((236, 128)))             # outside Switzerland dimmer
+    assert zo.getpixel((60, 130))[3] > 150 and zo.getpixel((5, 5))[3] == 0           # outline at the zone's edge only
+    keys = Tiles(Path("/nonexistent")).around([(46.55, 7.02)], km=10)
+    assert {k[0] for k in keys} == {10, 11, 12, 13} and 20 < len(keys) < 200, len(keys)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
