@@ -767,7 +767,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
     def select(self, name):
         """one location chosen (map click or table row): ring on the map, row in the table, details card"""
         self.map.selected = name
-        self.map.draw(save=False)
+        self.map.show_selected()
+        self.map.draw()
         self.map.table.select(name)
         self.map.card.show(self.map.current())
         self.show_devices()
@@ -1413,10 +1414,10 @@ class Table:
 
 
 class Card:
-    """Details of the selected location: three lines of fixed height and the open button."""
+    """Details of the selected location (a callout next to its dot): three lines of fixed height and the buttons."""
     def __init__(self, app, parent):
         self.app = app
-        self.frame = tk.Frame(parent, bg=RULE, padx=1, pady=1)
+        self.frame = tk.Frame(parent, bg=ACC, padx=1, pady=1)
         inner = tk.Frame(self.frame, bg=BG, padx=S(12), pady=S(10)); inner.pack(fill="both")
         self.title = FitLabel(inner, font=("Consolas", 10, "bold"), fg=FG, bg=BG); self.title.pack(fill="x")
         self.info = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.info.pack(fill="x", pady=(S(3), 0))
@@ -1453,13 +1454,19 @@ class Card:
 
 
 # ---------------------------------------------------------------- Switzerland map
-# swisstopo grey map + FOCA drone restrictions (the same tiles as the locations map page), downloaded once at zoom 9,
-# cropped to Switzerland and kept in cache/launcher/ so the map also shows offline. Scaled to the window's size.
+# swisstopo grey map, relief shading and FOCA drone restrictions (the same sources as the locations map page),
+# downloaded once at zoom 9, cropped to Switzerland and kept in cache/launcher/ so the map also shows offline.
+# Shown dark: the grey map is inverted and shaded by the relief, the zones become red outlines with a light hatch.
 
 MAP_DIR = ROOT / "cache" / "launcher"
 BBOX = (5.85, 45.75, 10.6, 47.9)                    # lon/lat west, south, east, north
-ZM = 9                                               # zoom of the stored map (about 1730 px wide)
+ZM = 9                                               # zoom of the stored map (about 1730 x 1140 px)
 TILE_URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
+LAYERS = (("base", "ch.swisstopo.pixelkarte-grau", "jpeg"),
+          ("relief", "ch.swisstopo.swissalti3d-reliefschattierung", "png"),
+          ("zones", "ch.bazl.einschraenkungen-drohnen", "png"))
+MAP_BG = "#0c1016"
+MPP = 156543.03 / 2 ** ZM                            # metres per stored-map pixel at the equator
 
 
 def merc(lon, lat, z=ZM):
@@ -1471,20 +1478,56 @@ def merc(lon, lat, z=ZM):
     return x, y
 
 
+def dark_map(base, relief=None):
+    """The grey swisstopo map turned dark (inverted, blue-grey), shaded by the relief when there is one."""
+    from PIL import Image, ImageChops
+    g = base.convert("L")
+    inv = g.point(lambda v: 14 + (255 - v) * 0.42)              # paper -> dark, lines and names -> light
+    if relief is not None:
+        r = relief.convert("L").resize(g.size)
+        shade = r.point(lambda v: int(min(255, 70 + v * 0.95)))  # lit slopes brighter, shadows darker
+        inv = ImageChops.multiply(inv.point(lambda v: min(255, v * 1.9)), shade)
+    rgb = Image.merge("RGB", (inv.point(lambda v: v * 0.90), inv.point(lambda v: v * 0.96), inv.point(lambda v: min(255, v * 1.10 + 4))))
+    return rgb
+
+
+def zone_overlay(zones):
+    """Drone zones as red outlines with a light diagonal hatch (RGBA), from the FOCA layer's coloured areas."""
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter
+    a = zones.getchannel("A").point(lambda v: 255 if v > 40 else 0)
+    edge = ImageChops.subtract(a, a.filter(ImageFilter.MinFilter(3)))
+    hatch = Image.new("L", a.size, 0)
+    d = ImageDraw.Draw(hatch)
+    for k in range(-a.size[1], a.size[0], 9):
+        d.line([(k, a.size[1]), (k + a.size[1], 0)], fill=60, width=1)
+    alpha = ImageChops.lighter(ImageChops.multiply(hatch, a), edge.point(lambda v: 200 if v else 0))
+    out = Image.new("RGBA", a.size, (255, 90, 90, 0))
+    out.putalpha(alpha)
+    return out
+
+
 class SwissMap:
-    """The map page: the map fills it; the locations list (top left), the selected location (bottom right) and the
-    map options (bottom left) float over it at fixed sizes, so a resize only rescales the map."""
+    """The map page. The map fills it and can be zoomed (wheel, + / −) and moved (drag); it opens framed on your
+    locations. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered group
+    (click: zoom in). Names show once zoomed in. The selected location gets a callout next to its dot. The list
+    (top left), the zoom buttons (top right) and the map options (bottom left) float over the map at fixed sizes."""
+    GROUP_PX = 22                                    # dots closer than this merge into a group
+
     def __init__(self, app: "Launcher", parent):
         self.app = app
         x0, y0 = merc(BBOX[0], BBOX[3]); x1, y1 = merc(BBOX[2], BBOX[1])
         self.org, self.span = (x0, y0), (x1 - x0, y1 - y0)
-        self.s, self.ox, self.oy = 1.0, 0.0, 0.0
-        self.cv = tk.Canvas(parent, bg=BG2, highlightthickness=0)
+        self.cx, self.cy, self.s = self.span[0] / 2, self.span[1] / 2, 0.5     # view: centre (stored px) + zoom
+        self.fitted = False
+        self.cv = tk.Canvas(parent, bg=MAP_BG, highlightthickness=0, cursor="fleur")
         self.cv.pack(fill="both", expand=True)
-        self.src, self.imgs, self.photo = {}, {}, None
+        self.src = {}                                # composed full-size images: dark map, zone overlay
+        self.photo = None
         self.locs = []
+        self.hits = []
         self.selected = app.cfg.get("selected")
-        self.downloading, self.spin, self.spin_i, self._spin_job, self._resize_job = False, None, 0, None, None
+        self.downloading, self.spin, self.spin_i, self._spin_job, self._resize_job, self._sharp_job = False, None, 0, None, None, None
+        self.drag = None
         self.label_font = tkfont.Font(family="Consolas", size=9, weight="bold")
 
         # ---- locations list (top left)
@@ -1495,7 +1538,7 @@ class SwissMap:
         self.list_title.pack(side="left")
         self.fold_btn = app.button(hdr, "[–]", lambda: self.list_open(not self.open_), small=True)
         self.fold_btn.pack(side="right")
-        Tip(self.fold_btn, "Fold the list to see the whole map.")
+        Tip(self.fold_btn, "Fold the list to see more of the map.")
         self.list_body = tk.Frame(li, bg=BG)
         self.list_body.pack(fill="both", expand=True)
         self.filter = tk.Entry(self.list_body, font=("Consolas", 10), fg=FG, bg=BG2, insertbackground=FG, bd=0, relief="flat",
@@ -1514,28 +1557,48 @@ class SwissMap:
         self.list_foot.pack(fill="x", pady=(S(6), 0))
         self.open_ = True
 
-        # ---- selected location (bottom right)
+        # ---- selected location: a callout next to its dot
         self.card = Card(app, self.cv)
+
+        # ---- zoom buttons (top right)
+        self.zbox = tk.Frame(self.cv, bg=RULE, padx=1, pady=1)
+        for text, cmd, tip in (("+", lambda: self.zoom(1.4), "Zoom in (mouse wheel)"),
+                               ("−", lambda: self.zoom(1 / 1.4), "Zoom out"),
+                               ("fit", self.fit_locations, "Show all your locations"),
+                               ("CH", self.fit_switzerland, "Show all of Switzerland")):
+            b = tk.Button(self.zbox, text=text, command=cmd, font=("Consolas", 10 if len(text) == 1 else 8, "bold"), width=3,
+                          relief="flat", bd=0, cursor="hand2", bg=BG, fg=FG, activebackground=BG3, activeforeground=FG, pady=S(3))
+            b.pack(fill="x", pady=(0, 1))
+            Tip(b, tip)
 
         # ---- map options (bottom left)
         self.bar = tk.Frame(self.cv, bg=RULE, padx=1, pady=1)
         bi = tk.Frame(self.bar, bg=BG, padx=S(8), pady=S(4)); bi.pack(fill="both")
         self.zones = tk.BooleanVar(value=app.cfg.get("map_zones", True))
-        cb = tk.Checkbutton(bi, text="drone zones", variable=self.zones, command=self.draw, font=SANS, fg=FG, bg=BG,
-                            selectcolor=BG2, activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0)
+        cb = tk.Checkbutton(bi, text="drone zones", variable=self.zones, command=lambda: self.draw(save=True), font=SANS,
+                            fg=FG, bg=BG, selectcolor=BG2, activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0)
         cb.pack(side="left")
         Tip(cb, "Official drone restrictions from FOCA (map.geo.admin.ch). An overview only: check the locations map "
                 "for the details before flying.")
         up = app.button(bi, "[update map]", lambda: self.download(force=True), small=True)
         up.pack(side="left", padx=(S(8), 0))
-        Tip(up, "Download the map and the latest drone zones again (needs internet; kept for offline use).")
+        Tip(up, "Download the map, the relief and the latest drone zones again (needs internet; kept for offline use).")
         self.info = FitLabel(bi, font=("Consolas", 9), fg=FG2, bg=BG)
         self.info.pack(side="left", fill="x", expand=True, padx=(S(10), 0))
         self.hint = ""
 
+        # ---- mouse: drag = move, wheel = zoom, click = select, double-click = open (or zoom in on empty map)
         self.cv.bind("<Configure>", lambda e: self.schedule_layout())
+        self.cv.bind("<ButtonPress-1>", self.on_press)
+        self.cv.bind("<B1-Motion>", self.on_drag)
+        self.cv.bind("<ButtonRelease-1>", self.on_release)
+        self.cv.bind("<Double-Button-1>", self.on_double)
+        self.cv.bind("<MouseWheel>", lambda e: self.zoom(1.25 if e.delta > 0 else 0.8, e.x, e.y))
+        self.cv.bind("<Button-4>", lambda e: self.zoom(1.25, e.x, e.y))          # Linux wheel
+        self.cv.bind("<Button-5>", lambda e: self.zoom(0.8, e.x, e.y))
+        self.cv.bind("<Motion>", self.on_hover)
         self.load_sources()
-        if not self.src:
+        if not (MAP_DIR / "ch_base.png").exists() or not (MAP_DIR / "ch_zones_raw.png").exists():
             self.download()
 
     # ---------------------------------------------------------- list panel
@@ -1572,11 +1635,14 @@ class SwissMap:
             self.app.open_location(next((l for l in self.locs if l["name"] == (self.selected if self.selected in rows else rows[0])), None))
         return "break"
 
-    # ---------------------------------------------------------- layout
+    # ---------------------------------------------------------- layout + view
     def schedule_layout(self):
         if self._resize_job:
             self.app.root.after_cancel(self._resize_job)
         self._resize_job = self.app.root.after(60, self.layout)
+
+    def size(self):
+        return max(50, self.cv.winfo_width()), max(50, self.cv.winfo_height())
 
     def layout(self):
         self._resize_job = None
@@ -1584,34 +1650,175 @@ class SwissMap:
         if W < 50 or H < 50:
             return
         m = S(12)
-        self.bar.place(x=m, y=H - m, anchor="sw", width=min(S(470), W - S(370)))
-        self.card.frame.place(x=W - m, y=H - m, anchor="se", width=S(360))
+        self.bar.place(x=m, y=H - m, anchor="sw", width=min(S(470), W - S(120)))
+        self.zbox.place(x=W - m, y=m, anchor="ne")
         self.app.root.update_idletasks()
         bar_h = self.bar.winfo_reqheight()
-        # the list: as tall as fits above the map options, in whole rows
-        rowh = S(21)
+        rowh = S(21)                                 # the list: as tall as fits above the map options, in whole rows
         fixed = self.listp.winfo_reqheight() - (int(self.table.tv.cget("height")) * rowh if self.open_ else 0)
         avail = H - 3 * m - bar_h - fixed - S(24)
-        rows = max(4, min(16, avail // rowh, len(self.table.rows()) + 1))     # no big empty box for a few locations
+        rows = max(4, min(16, avail // rowh, len(self.table.rows()) + 1))
         if self.open_ and int(self.table.tv.cget("height")) != rows:
             self.table.tv.configure(height=rows)
         self.listp.place(x=m, y=m, anchor="nw", width=S(330))
         self.app.root.update_idletasks()
         self.table.fill()                           # names cut to the final column width
-        # the map: as large as the page allows, centred
-        pad = S(16)
-        self.s = min((W - 2 * pad) / self.span[0], (H - 2 * pad) / self.span[1])
-        self.ox = (W - self.span[0] * self.s) / 2
-        self.oy = (H - self.span[1] * self.s) / 2
-        self.photo = None
-        self.draw(save=False)
+        if not self.fitted and W > S(600) and H > S(400):         # first real size: frame the locations
+            self.fitted = True
+            self.fit_locations(draw=False)
+        self.s = max(self.min_s(), self.s)
+        self.draw()
+
+    def clamp(self, W, H):
+        """Keep the map on screen: at most a panel's width of empty space beside it (or centred when it is smaller)."""
+        for axis, size, room in ((0, W, S(360)), (1, H, S(110))):
+            span, half = self.span[axis], size / 2 / self.s
+            c = self.cx if axis == 0 else self.cy
+            if span * self.s + 2 * room <= size:
+                c = span / 2
+            else:
+                lo, hi = half - room / self.s, span - half + room / self.s
+                c = min(max(c, lo), hi)
+            if axis == 0:
+                self.cx = c
+            else:
+                self.cy = c
+
+    def min_s(self):
+        W, H = self.size()
+        return min((W - S(32)) / self.span[0], (H - S(32)) / self.span[1])
+
+    def max_s(self):
+        return max(1.6, self.min_s() * 5)
+
+    def free_area(self):
+        """The part of the page the floating panels leave free (to frame locations in)."""
+        W, H = self.size()
+        left = S(12) + S(330) + S(20) if self.open_ else S(30)
+        return left, S(30), W - S(70), H - S(70)
+
+    def fit_box(self, x0, y0, x1, y1, max_zoom=None):
+        fx0, fy0, fx1, fy1 = self.free_area()
+        W, H = self.size()
+        s = min((fx1 - fx0) / max(1e-6, x1 - x0), (fy1 - fy0) / max(1e-6, y1 - y0))
+        self.s = max(self.min_s(), min(max_zoom or self.max_s(), s))
+        self.cx = (x0 + x1) / 2 - ((fx0 + fx1) / 2 - W / 2) / self.s
+        self.cy = (y0 + y1) / 2 - ((fy0 + fy1) / 2 - H / 2) / self.s
+
+    def fit_locations(self, draw=True):
+        pts = [self.mpx(*l["center"]) for l in self.locs]
+        if not pts:
+            return self.fit_switzerland(draw)
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        pad = 60                                     # stored px around them (about 15 km)
+        self.fit_box(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad, max_zoom=self.min_s() * 3)
+        if draw:
+            self.draw()
+
+    def fit_switzerland(self, draw=True):
+        self.s = self.min_s()
+        self.cx, self.cy = self.span[0] / 2, self.span[1] / 2
+        if draw:
+            self.draw()
+
+    def zoom(self, f, x=None, y=None):
+        W, H = self.size()
+        x = W / 2 if x is None else x
+        y = H / 2 if y is None else y
+        wx, wy = self.cx + (x - W / 2) / self.s, self.cy + (y - H / 2) / self.s
+        self.s = max(self.min_s(), min(self.max_s(), self.s * f))
+        self.cx, self.cy = wx - (x - W / 2) / self.s, wy - (y - H / 2) / self.s
+        self.draw(fast=True)
+
+    def mpx(self, lat, lon):
+        """stored-map pixel of a point"""
+        x, y = merc(lon, lat)
+        return x - self.org[0], y - self.org[1]
 
     def px(self, lat, lon):
-        x, y = merc(lon, lat)
-        return self.ox + (x - self.org[0]) * self.s, self.oy + (y - self.org[1]) * self.s
+        """screen pixel of a point"""
+        W, H = self.size()
+        x, y = self.mpx(lat, lon)
+        return W / 2 + (x - self.cx) * self.s, H / 2 + (y - self.cy) * self.s
 
     def current(self):
         return next((l for l in self.locs if l["name"] == self.selected), None)
+
+    def show_selected(self):
+        """Bring the selected location into view (picked in the list while off screen)."""
+        l = self.current()
+        if not l:
+            return
+        x, y = self.px(*l["center"])
+        fx0, fy0, fx1, fy1 = self.free_area()
+        if not (fx0 < x < fx1 - S(260) and fy0 < y < fy1):
+            W, H = self.size()
+            mx, my = self.mpx(*l["center"])
+            self.cx = mx - ((fx0 + fx1 - S(260)) / 2 - W / 2) / self.s
+            self.cy = my - ((fy0 + fy1) / 2 - H / 2) / self.s
+
+    # ---------------------------------------------------------- mouse
+    def hit(self, x, y):
+        return next((h for h in self.hits if math.hypot(h["x"] - x, h["y"] - y) <= h["r"]), None)
+
+    def on_press(self, e):
+        self.drag = dict(x=e.x, y=e.y, cx=self.cx, cy=self.cy, moved=False)
+
+    def on_drag(self, e):
+        d = self.drag
+        if not d:
+            return
+        if abs(e.x - d["x"]) + abs(e.y - d["y"]) > 3:
+            d["moved"] = True
+        if d["moved"]:
+            self.cx = d["cx"] - (e.x - d["x"]) / self.s
+            self.cy = d["cy"] - (e.y - d["y"]) / self.s
+            if not getattr(self, "_drag_job", None):  # at most one redraw per frame while dragging
+                self._drag_job = self.app.root.after(16, self._drag_draw)
+
+    def _drag_draw(self):
+        self._drag_job = None
+        self.draw(fast=True)
+
+    def on_release(self, e):
+        d, self.drag = self.drag, None
+        if d and d["moved"]:
+            return
+        h = self.hit(e.x, e.y)
+        if not h:
+            return
+        if h.get("group"):                          # a group: zoom in until its locations separate
+            pts = [self.mpx(*l["center"]) for l in h["group"]]
+            xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+            pad = 8
+            self.fit_box(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
+            if self.selected not in [l["name"] for l in h["group"]]:
+                self.selected = h["group"][0]["name"]
+                self.app.select(self.selected)
+            else:
+                self.draw()
+        else:
+            self.app.select(h["loc"]["name"])
+
+    def on_double(self, e):
+        h = self.hit(e.x, e.y)
+        if h and h.get("loc"):
+            self.app.open_location(h["loc"])
+        elif not h:
+            self.zoom(1.6, e.x, e.y)
+
+    def on_hover(self, e):
+        h = self.hit(e.x, e.y)
+        if h and h.get("loc"):
+            l = h["loc"]
+            self.cv.configure(cursor="hand2")
+            self.info.set(f"{split_name(l['name'])[0]} {l.get('title') or l['name']}" + ("" if l.get("built") else " (not built)"))
+        elif h:
+            self.cv.configure(cursor="hand2")
+            self.info.set(f"{len(h['group'])} locations: click to zoom in")
+        else:
+            self.cv.configure(cursor="fleur")
+            self.info.set(self.hint)
 
     # ---------------------------------------------------------- data
     def load_locations(self):
@@ -1635,31 +1842,55 @@ class SwissMap:
         return f"map from {time.strftime('%d %b %Y', time.localtime(p.stat().st_mtime))}" if p.exists() else "no map yet"
 
     def load_sources(self):
-        """The stored map images (full size). Older launchers stored a small one: used until the new one is there."""
-        self.src.clear(); self.imgs.clear(); self.photo = None
-        for key in ("base", "zones"):
-            p = MAP_DIR / f"ch_{key}.png"
-            if not p.exists():
-                old = sorted(MAP_DIR.glob(f"ch_{key}_*.png"), key=lambda f: f.stat().st_size)
-                p = old[-1] if old else None
-            if p:
-                self.src[key] = p
+        """Compose the dark map and the zone outlines from the stored downloads (once, full size)."""
+        self.src.clear(); self.photo = None
+        try:
+            from PIL import Image
+        except ImportError:
+            self.hint = "the map needs the Pillow library"
+            return
+        try:
+            base = MAP_DIR / "ch_base.png"
+            if not base.exists():
+                old = sorted(MAP_DIR.glob("ch_base_*.png"), key=lambda f: f.stat().st_size)   # older launchers
+                base = old[-1] if old else None
+            if base:
+                with Image.open(base) as b:
+                    b = b.convert("RGB")
+                    if b.size != (round(self.span[0]), round(self.span[1])):
+                        b = b.resize((round(self.span[0]), round(self.span[1])), Image.LANCZOS)
+                    rel = MAP_DIR / "ch_relief.png"
+                    relief = Image.open(rel) if rel.exists() else None
+                    self.src["map"] = dark_map(b, relief)
+            zr = MAP_DIR / "ch_zones_raw.png"
+            if zr.exists():
+                with Image.open(zr) as z:
+                    self.src["zones"] = zone_overlay(z.convert("RGBA").resize((round(self.span[0]), round(self.span[1]))))
+        except Exception as ex:                     # a damaged file: download again with [update map]
+            self.hint = f"map file not readable ({ex.__class__.__name__}): [update map]"
 
-    def image(self, key, w, h):
-        """The map image at w x h px (PIL resamples it sharply; without PIL the stored size is used)."""
-        k = (key, w, h)
-        if k not in self.imgs:
-            self.imgs = {kk: v for kk, v in self.imgs.items() if kk[1:] == (w, h)}     # keep only this size
-            try:
-                from PIL import Image, ImageTk
-                with Image.open(self.src[key]) as im:
-                    self.imgs[k] = ImageTk.PhotoImage(im.convert("RGB").resize((w, h), Image.LANCZOS))
-            except Exception:
-                try:
-                    self.imgs[k] = tk.PhotoImage(file=str(self.src[key]))
-                except tk.TclError:
-                    return None
-        return self.imgs[k]
+    def view_image(self, W, H, fast):
+        """The visible part of the map at the window's size, as one image."""
+        from PIL import Image, ImageTk
+        x0, y0 = self.cx - W / 2 / self.s, self.cy - H / 2 / self.s
+        x1, y1 = x0 + W / self.s, y0 + H / self.s
+        out = Image.new("RGB", (W, H), MAP_BG)
+        layers = [self.src["map"]] + ([self.src["zones"]] if self.zones.get() and "zones" in self.src else [])
+        ix0, iy0 = max(0, x0), max(0, y0)
+        ix1, iy1 = min(self.span[0], x1), min(self.span[1], y1)
+        if ix1 - ix0 < 1 or iy1 - iy0 < 1:
+            return ImageTk.PhotoImage(out)
+        dx, dy = round((ix0 - x0) * self.s), round((iy0 - y0) * self.s)
+        dw, dh = max(1, round((ix1 - ix0) * self.s)), max(1, round((iy1 - iy0) * self.s))
+        box = (int(ix0), int(iy0), math.ceil(ix1), math.ceil(iy1))
+        flt = Image.BILINEAR if fast else Image.LANCZOS
+        for i, im in enumerate(layers):
+            part = im.crop(box).resize((dw, dh), flt)
+            if i == 0:
+                out.paste(part, (dx, dy))
+            else:
+                out.paste(part, (dx, dy), part)
+        return ImageTk.PhotoImage(out)
 
     def download(self, force=False):
         if self.downloading:                        # [update map] pressed again while it runs
@@ -1668,7 +1899,7 @@ class SwissMap:
         logo = getattr(self.app, "logo", None)
         if logo:
             logo.busy(True)
-        self.draw(save=False)                       # the old map stays under the loading box
+        self.draw()                                 # the old map stays under the loading box
 
         def done(msg=None):
             self.downloading = False
@@ -1689,10 +1920,10 @@ class SwissMap:
                 x0, y0 = self.org
                 x1, y1 = x0 + self.span[0], y0 + self.span[1]
                 tx0, ty0, tx1, ty1 = int(x0 // 256), int(y0 // 256), int(x1 // 256), int(y1 // 256)
-                out = {}
-                for key, layer, ext in (("base", "ch.swisstopo.pixelkarte-grau", "jpeg"),
-                                        ("zones", "ch.bazl.einschraenkungen-drohnen", "png")):
+                got = {}
+                for key, layer, ext in LAYERS:
                     mosaic = Image.new("RGBA", ((tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256), (0, 0, 0, 0))
+                    n = 0
                     for tx in range(tx0, tx1 + 1):
                         for ty in range(ty0, ty1 + 1):
                             url = TILE_URL.format(layer=layer, z=ZM, x=tx, y=ty, ext=ext)
@@ -1702,12 +1933,23 @@ class SwissMap:
                             except urllib.error.HTTPError:
                                 continue            # no tile there (outside the data)
                             mosaic.paste(Image.open(io.BytesIO(data)).convert("RGBA"), ((tx - tx0) * 256, (ty - ty0) * 256))
-                    out[key] = mosaic.crop((round(x0 - tx0 * 256), round(y0 - ty0 * 256),
-                                            round(x1 - tx0 * 256), round(y1 - ty0 * 256)))
-                base = out["base"].convert("RGB").convert("RGBA")
+                            n += 1
+                    if n:
+                        got[key] = mosaic.crop((round(x0 - tx0 * 256), round(y0 - ty0 * 256),
+                                                round(x1 - tx0 * 256), round(y1 - ty0 * 256)))
+                if "base" not in got:
+                    raise RuntimeError("no map tiles")
                 MAP_DIR.mkdir(parents=True, exist_ok=True)
-                base.convert("RGB").save(MAP_DIR / "ch_base.png")
-                Image.alpha_composite(base, out["zones"]).convert("RGB").save(MAP_DIR / "ch_zones.png")
+                got["base"].convert("RGB").save(MAP_DIR / "ch_base.png")
+                if "relief" in got:                  # optional: the map is still fine without it
+                    got["relief"].convert("L").save(MAP_DIR / "ch_relief.png")
+                if "zones" in got:
+                    got["zones"].save(MAP_DIR / "ch_zones_raw.png")
+                for old in MAP_DIR.glob("ch_*_[0-9]*.png"):          # older launchers' small maps
+                    try:
+                        old.unlink()
+                    except OSError:
+                        pass
                 self.app.root.after(0, done)
             except Exception as ex:
                 msg = f"map not downloaded ({ex.__class__.__name__}): needs internet once"
@@ -1715,64 +1957,128 @@ class SwissMap:
         threading.Thread(target=work, daemon=True).start()
 
     # ---------------------------------------------------------- drawing
-    def draw(self, save=True):
+    def draw(self, save=False, fast=False):
+        """Redraw the map. fast=True while dragging / zooming: quicker resampling, then a sharp redraw when it stops."""
         if save:
             self.app.cfg["map_zones"] = self.zones.get(); self.app.save()
         self.app.cfg["selected"] = self.selected
         cv = self.cv
-        cv.delete("all")
         W, H = cv.winfo_width(), cv.winfo_height()
-        key = "zones" if self.zones.get() else "base"
-        w, h = round(self.span[0] * self.s), round(self.span[1] * self.s)
-        if key in self.src and w > 10:
-            img = self.image(key, w, h)
-            if img:
-                cv.create_image(self.ox, self.oy, image=img, anchor="nw")
+        if W < 50 or H < 50:
+            return
+        self.clamp(W, H)
+        cv.delete("all")
+        if "map" in self.src:
+            try:
+                self.photo = self.view_image(W, H, fast)
+                cv.create_image(0, 0, image=self.photo, anchor="nw")
+            except Exception:
+                self.photo = None
         elif not self.downloading:
             cv.create_text(W / 2, H / 2, text="no map yet: [update map] when online", fill=FG2, font=MONO)
-        mpp = 156543.03 / 2 ** ZM                    # metres per stored-map pixel at the equator
-        order = sorted(self.locs, key=lambda l: (l["name"] != self.selected, not l.get("built")))
-        anchors = {}
-        for l in reversed(order):                   # shapes first (selected and built ones on top) ...
-            col = ACC if l.get("built") else "#8a93a0"
-            tag = f"loc_{l['name']}"
-            if l.get("corridor"):
-                pts = [c for la, lo in l["corridor"]["points"] for c in self.px(la, lo)]
-                wd = max(3, 2 * l["corridor"]["width_m"] / mpp * self.s)
-                cv.create_line(*pts, fill="#000", width=wd + 2, tags=tag)
-                cv.create_line(*pts, fill=col, width=wd, tags=tag)
-                anchors[l["name"]] = (pts[-2], pts[-1], pts[0], pts[1])
-            else:
-                cx, cy = self.px(*l["center"])
-                r = max(4, l["half_size_m"] / (mpp * math.cos(math.radians(l["center"][0]))) * self.s)
-                cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline="#000", width=3, tags=tag)
-                cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline=col, width=2,
-                                    fill=col if l.get("built") else "", stipple="gray50" if l.get("built") else "", tags=tag)
-                anchors[l["name"]] = (cx + r, cy - r, cx, cy)
-            if l["name"] == self.selected:                          # selected: a ring around it
-                rx, ry = anchors[l["name"]][2:]
-                rr = S(14)
-                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline="#000", width=S(4), tags=tag)
-                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline=ACC, width=S(2), tags=tag)
-        labels = []
-        for l in order:                             # ... then the numbers, selected and built ones first
-            col = ACC if l.get("built") else "#8a93a0"
-            tag = f"loc_{l['name']}"
-            lx, ly = anchors[l["name"]][:2]
-            label = split_name(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
-            tw = self.label_font.measure(label)
-            box = (lx + 2, ly - S(14), lx + 6 + tw, ly + 1)
-            if not any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3] for o in labels):
-                labels.append(box)                  # numbers that would overlap another one are left out (hover shows them)
-                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):    # dark halo so the number reads on any background
-                    cv.create_text(lx + 4 + dx, ly + dy, text=label, anchor="sw", fill="#000", font=self.label_font, tags=tag)
-                cv.create_text(lx + 4, ly, text=label, anchor="sw", fill=col, font=self.label_font, tags=tag)
-            cv.tag_bind(tag, "<Enter>", lambda e, l=l: (self.cv.configure(cursor="hand2"), self.info.set(
-                f"{split_name(l['name'])[0]} {l.get('title') or l['name']}" + ("" if l.get("built") else " (not built)"))))
-            cv.tag_bind(tag, "<Leave>", lambda e: (self.cv.configure(cursor=""), self.info.set(self.hint)))
-            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.app.select(l["name"]))   # click: select (list + card)
-            cv.tag_bind(tag, "<Double-Button-1>", lambda e, l=l: self.app.open_location(l))
+        if fast:
+            if self._sharp_job:
+                self.app.root.after_cancel(self._sharp_job)
+            self._sharp_job = self.app.root.after(180, self.draw)
+        self.draw_locations(W, H)
+        self.place_callout(W, H)
         self.busy_box()
+
+    def draw_locations(self, W, H):
+        cv = self.cv
+        self.hits = []
+        pts = [(l, self.px(*l["center"])) for l in self.locs]
+        items = []                                   # merge dots closer than GROUP_PX into groups
+        for l, p in pts:
+            it = next((i for i in items if math.hypot(i["p"][0] - p[0], i["p"][1] - p[1]) < S(self.GROUP_PX)), None)
+            if it:
+                it["m"].append((l, p))
+                n = len(it["m"])
+                it["p"] = (sum(q[1][0] for q in it["m"]) / n, sum(q[1][1] for q in it["m"]) / n)
+            else:
+                items.append(dict(m=[(l, p)], p=p))
+        names = self.s >= self.min_s() * 1.8         # zoomed in: names next to the dots
+        labels = []
+
+        def label(text, x, y, col, force=False):
+            tw = self.label_font.measure(text)
+            box = (x, y - S(13), x + tw + S(4), y + S(2))
+            if not force and any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3] for o in labels):
+                return
+            labels.append(box)
+            for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)):   # dark halo: reads on any background
+                cv.create_text(x + S(2) + dx, y + dy, text=text, anchor="sw", fill="#000", font=self.label_font)
+            cv.create_text(x + S(2), y, text=text, anchor="sw", fill=col, font=self.label_font)
+
+        r_dot, r_ring = S(5.5), S(11)
+        # selected location's real area first (under everything)
+        cur = self.current()
+        if cur:
+            x, y = self.px(*cur["center"])
+            if cur.get("corridor"):
+                cpts = [c for la, lo in cur["corridor"]["points"] for c in self.px(la, lo)]
+                wd = 2 * cur["corridor"]["width_m"] / MPP * self.s
+                if wd > 4:
+                    cv.create_line(*cpts, fill="#5c4f10", width=wd, capstyle="round", joinstyle="round")
+                cv.create_line(*cpts, fill=ACC, width=S(1.5), dash=(4, 3))
+            else:
+                r = cur["half_size_m"] / (MPP * math.cos(math.radians(cur["center"][0]))) * self.s
+                if r > S(7):
+                    cv.create_rectangle(x - r, y - r, x + r, y + r, outline=ACC, width=S(1.2), dash=(4, 3))
+        for it in sorted(items, key=lambda i: any(q[0]["name"] == self.selected for q in i["m"])):   # selected on top
+            x, y = it["p"]
+            if len(it["m"]) > 1:
+                group = [q[0] for q in it["m"]]
+                built = any(l.get("built") for l in group)
+                has_sel = any(l["name"] == self.selected for l in group)
+                cv.create_oval(x - S(14), y - S(14), x + S(14), y + S(14), outline=ACC if has_sel else "#7a6a1e", width=S(2 if has_sel else 1))
+                cv.create_oval(x - S(11), y - S(11), x + S(11), y + S(11), fill=ACC if built else "#2a313c", outline="#000", width=S(2))
+                cv.create_text(x, y, text=str(len(group)), fill="#000" if built else FG, font=self.label_font)
+                self.hits.append(dict(x=x, y=y, r=S(15), group=group))
+                continue
+            l = it["m"][0][0]
+            col = ACC if l.get("built") else "#8a93a0"
+            if l.get("built"):
+                cv.create_oval(x - r_dot, y - r_dot, x + r_dot, y + r_dot, fill=col, outline="#000", width=S(1.5))
+            else:
+                cv.create_oval(x - r_dot, y - r_dot, x + r_dot, y + r_dot, outline="#000", width=S(3.5))
+                cv.create_oval(x - r_dot, y - r_dot, x + r_dot, y + r_dot, outline=col, width=S(2))
+            sel = l["name"] == self.selected
+            if sel:
+                cv.create_oval(x - r_ring, y - r_ring, x + r_ring, y + r_ring, outline="#000", width=S(4))
+                cv.create_oval(x - r_ring, y - r_ring, x + r_ring, y + r_ring, outline=ACC, width=S(2))
+            num, rest = split_name(l["name"])
+            text = f"{num} {l.get('title') or rest}".strip() if names else (num or l["name"])
+            if not sel:                              # the selected one's name is in its callout
+                label(text, x + S(8), y - S(3), col)
+            self.hits.append(dict(x=x, y=y, r=S(10), loc=l))
+
+    def place_callout(self, W, H):
+        """The selected location's details next to its dot, on the side with room; hidden when it is off screen."""
+        f = self.card.frame
+        cur = self.current()
+        if not cur:
+            f.place(x=W - S(12), y=H - S(12), anchor="se", width=S(340))       # "no location" note in the corner
+            return
+        it = next((h for h in self.hits if h.get("loc", {}).get("name") == cur["name"]
+                   or cur["name"] in [g["name"] for g in h.get("group", [])]), None)
+        if not it:
+            f.place_forget()
+            return
+        x, y = it["x"], it["y"]
+        if x < -S(10) or x > W + S(10) or y < -S(10) or y > H + S(10):
+            f.place_forget()
+            return
+        cw, ch = S(340), f.winfo_reqheight() or S(110)
+        gap = S(22)
+        right = x + gap + cw <= W - S(56)           # room on the right (the zoom buttons sit there)
+        fx = x + gap if right else x - gap - cw
+        fy = max(S(8), min(H - ch - S(8), y - S(22)))
+        f.place(x=fx, y=fy, anchor="nw", width=cw)
+        f.lift()
+        ex = fx if right else fx + cw               # a short leader line from the ring to the callout
+        self.cv.create_line(x + (S(11) if right else -S(11)), y, ex, min(max(y, fy + S(10)), fy + ch - S(10)),
+                            fill=ACC, width=S(1.5))
 
     def busy_box(self):
         """While the map updates: a box in the middle with the transmitting logo and 'updating the map…'."""
@@ -1795,7 +2101,6 @@ class SwissMap:
         self.spin_i += 1
         self.cv.itemconfigure("busyimg", image=self.spin[self.spin_i % len(self.spin)])
         self._spin_job = self.app.root.after(LogoAnim.MS["busy"], self._spin_tick)
-
 
 
 def sharp_on_windows():
