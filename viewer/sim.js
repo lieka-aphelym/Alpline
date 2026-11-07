@@ -42,6 +42,9 @@ const DEFAULTS = {
   topSpeed: 150,                     // km/h, level flight at full throttle (sets the drag)
   response: 25,                      // ms, how fast the quad follows the sticks (motors + PID)
   wind: { speed: 0, dir: 270, gust: 30 },   // km/h, direction it comes FROM (deg, 0 = north), gust %
+  physics: { battery: true, packMin: 6, sag: 0.35, propwash: 0.5, thrMid: 0.5, thrExpo: 0 },   // see simphysics.js
+  sound: { on: true, volume: 0.5 },
+  autoRes: true,                     // lower / raise the drawing resolution to keep the frame rate smooth
   map: {                             // gamepad axis mapping (EdgeTX default: AETR on axes 0..3)
     roll: { axis: 0, inv: false }, pitch: { axis: 1, inv: false },
     throttle: { axis: 2, inv: false }, yaw: { axis: 3, inv: false },
@@ -51,14 +54,17 @@ const DEFAULTS = {
 
 // quad presets (rough, typical values)
 export const PRESETS = {
-  freestyle5: { label: '5" freestyle', twr: 7, topSpeed: 150, response: 25, uptilt: 30, rates: { center: 200, max: 670, expo: 0.5 } },
-  racer5: { label: '5" racer', twr: 10, topSpeed: 180, response: 15, uptilt: 40, rates: { center: 250, max: 800, expo: 0.4 } },
-  longrange7: { label: '7" long range', twr: 4, topSpeed: 130, response: 45, uptilt: 20, rates: { center: 150, max: 500, expo: 0.4 } },
-  cinewhoop35: { label: '3.5" cinewhoop', twr: 4, topSpeed: 80, response: 40, uptilt: 10, rates: { center: 120, max: 400, expo: 0.3 } },
-  tinywhoop: { label: 'Tiny whoop', twr: 3, topSpeed: 45, response: 35, uptilt: 15, rates: { center: 150, max: 600, expo: 0.3 } },
+  // packMin: minutes a full pack lasts hovering (a mixed flight is about 60-70 % of that)
+  freestyle5: { label: '5" freestyle', twr: 7, topSpeed: 150, response: 25, uptilt: 30, packMin: 6, rates: { center: 200, max: 670, expo: 0.5 } },
+  racer5: { label: '5" racer', twr: 10, topSpeed: 180, response: 15, uptilt: 40, packMin: 4, rates: { center: 250, max: 800, expo: 0.4 } },
+  longrange7: { label: '7" long range', twr: 4, topSpeed: 130, response: 45, uptilt: 20, packMin: 16, rates: { center: 150, max: 500, expo: 0.4 } },
+  cinewhoop35: { label: '3.5" cinewhoop', twr: 4, topSpeed: 80, response: 40, uptilt: 10, packMin: 7, rates: { center: 120, max: 400, expo: 0.3 } },
+  tinywhoop: { label: 'Tiny whoop', twr: 3, topSpeed: 45, response: 35, uptilt: 15, packMin: 4, rates: { center: 150, max: 600, expo: 0.3 } },
 };
 
 import { mountDrone } from './drone.js';
+import { createFlightModel, collide } from './simphysics.js';
+import { createMotorSound } from './simsound.js';
 
 export function initSim(app) {
   // app: { THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration, onSaved(file), panelEl }
@@ -69,7 +75,11 @@ export function initSim(app) {
     pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), w: new THREE.Vector3(),
     throttleKb: 0, t: 0, rec: [], recT: 0, sigT: 0, sig: null, ctrlBadFor: 0, videoBad: false,
     view: 'fpv', saved: null, gamepad: null, keys: new Set(), trail: null, trailPts: [],
+    charge: 1, volts: 4.2, load: 0, power: 1, pw: { x: 0, z: 0 }, propwash: 0,
+    scale: 1, frameMs: 16.7, resT: 0,       // adaptive drawing resolution
   };
+  const FM = createFlightModel(THREE);
+  const SOUND = createMotorSound();
 
   // ---------------------------------------------------------------- settings
   function loadSettings() {
@@ -127,66 +137,19 @@ export function initSim(app) {
     };
   }
 
-  // ---------------------------------------------------------------- physics
-  const rate = (x) => {                    // Betaflight "actual rates", deg/s
-    const { center, max, expo } = cfg.rates, a = Math.abs(x);
-    const e = a * (x ** 4 * expo + (1 - expo));
-    return Math.sign(x) * (a * center + Math.max(0, max - center) * e);
-  };
-  const _f = new THREE.Vector3(), _u = new THREE.Vector3(), _dq = new THREE.Quaternion(), _ax = new THREE.Vector3();
-  const _e = new THREE.Euler();
-
-  // Body frame (three.js convention): forward = -Z, up = +Y, right = +X.
-  // World frame used for physics: three.js axes in real metres (X east, Y up, Z south).
+  // ---------------------------------------------------------------- physics (viewer/simphysics.js)
+  const _prev = new THREE.Vector3();
   function step(inp, dt) {
-    const mode = inp.mode || cfg.mode;
-    // --- desired body rates (rad/s): x = pitch (nose up +), y = yaw (left +), z = roll (left +)
-    let wx, wy, wz;
-    wy = -rate(inp.yaw) * Math.PI / 180;
-    if (mode === 'acro') {
-      wx = -rate(inp.pitch) * Math.PI / 180;
-      wz = -rate(inp.roll) * Math.PI / 180;
-    } else {
-      // angle mode: P-controller on the tilt angles
-      _e.setFromQuaternion(st.q, 'YXZ');
-      const maxA = cfg.maxAngle * Math.PI / 180;
-      const tgtPitch = -inp.pitch * maxA, tgtRoll = -inp.roll * maxA;
-      wx = clamp((tgtPitch - _e.x) * 8, -8, 8);
-      wz = clamp((tgtRoll - _e.z) * 8, -8, 8);
-    }
-    if (st.failsafe > 0) { wx = wy = wz = 0; }
-    // first-order response of the quad to the setpoint (props + PID ~ 30 ms)
-    const k = 1 - Math.exp(-dt / Math.max(0.005, cfg.response / 1000));
-    st.w.x += (wx - st.w.x) * k; st.w.y += (wy - st.w.y) * k; st.w.z += (wz - st.w.z) * k;
-    const ang = st.w.length() * dt;
-    if (ang > 0) { _dq.setFromAxisAngle(_ax.copy(st.w).normalize(), ang); st.q.multiply(_dq).normalize(); }
-
-    // --- forces
-    const thr = st.armed && st.failsafe < 2 ? inp.throttle : 0;
-    const thrust = cfg.twr * G * Math.pow(thr, 1.6);
-    _u.set(0, 1, 0).applyQuaternion(st.q);                         // body up in world
-    const acc = _u.multiplyScalar(thrust);
-    acc.y -= G;
-    // drag on the velocity relative to the air (wind + gusts); quadratic term sized so that
-    // level flight at full throttle tops out at cfg.topSpeed
-    const c1 = 0.15, vmax = Math.max(cfg.topSpeed, 10) / 3.6;
-    const c2 = Math.max(0.002, (Math.sqrt(Math.max(cfg.twr ** 2 - 1, 0.1)) * G - c1 * vmax) / (vmax * vmax));
     windStep(dt);
-    const rel = _rel.copy(st.vel).sub(st.windV);
-    acc.addScaledVector(rel, -(c1 + c2 * rel.length()));
-    st.vel.addScaledVector(acc, dt);
-    st.pos.addScaledVector(st.vel, dt);
-
-    // --- ground
     const lx = st.pos.x + S.W / 2, ly = -st.pos.z + S.H / 2;
-    if (lx < 0 || ly < 0 || lx > S.W || ly > S.H) { st.crashed = 'left the map'; setArmed(false); return; }
-    const gz = app.demHeight(lx, ly) - S.hBase;
-    if (st.pos.y < gz + 0.12) {
-      if (st.vel.length() > 4) { st.crashed = `crashed at ${(st.vel.length() * 3.6).toFixed(0)} km/h`; setArmed(false); }
-      st.pos.y = gz + 0.12;
-      st.vel.multiplyScalar(0.2); if (st.vel.y < 0) st.vel.y = 0;
-      st.w.multiplyScalar(0.5);
-    }
+    const here = app.simGround ? app.simGround(st.pos.x, st.pos.z, st.pos.y, st.pos.y) : { h: app.demHeight(lx, ly) - S.hBase };
+    _prev.copy(st.pos);
+    FM.step(st, cfg, inp, dt, { wind: st.windV, agl: st.pos.y - here.h });
+    const nx = st.pos.x + S.W / 2, ny = -st.pos.z + S.H / 2;
+    if (nx < 0 || ny < 0 || nx > S.W || ny > S.H) { st.crashed = 'left the map'; setArmed(false); return; }
+    const ground = app.simGround || ((x, z) => ({ h: app.demHeight(x + S.W / 2, -z + S.H / 2) - S.hBase, wall: false }));
+    const hit = collide(st, _prev, ground);
+    if (hit && hit !== 'bump') { st.crashed = hit; setArmed(false); }
   }
 
   // wind: steady part from the settings + Ornstein-Uhlenbeck gusts
@@ -201,7 +164,7 @@ export function initSim(app) {
     st.gust.y += -st.gust.y * dt / 1 + 0.3 * sigma * Math.sqrt(dt) * rnd();
     st.windV.set(Math.sin(to) * sp, 0, -Math.cos(to) * sp).add(st.gust);
   }
-  const hoverThrottle = () => Math.pow(1 / cfg.twr, 1 / 1.6);
+  const hoverThrottle = () => FM.hoverThrottle(cfg);
 
   // ---------------------------------------------------------------- live link evaluation
   const _links = () => (S.meta.links || []).map((l) => ({
@@ -264,6 +227,7 @@ export function initSim(app) {
   function reset() {
     if (st.crashed) { D?.off(false); D?.loop('hover'); droneTxt('waiting: arm to take off'); }
     st.crashed = false; st.failsafe = 0; st.ctrlBadFor = 0; setFrozen(false); setArmed(false); startPose();
+    st.charge = 1; st.volts = 4.2; st.pw.x = st.pw.z = 0;     // fresh pack
   }
 
   function start() {
@@ -283,6 +247,7 @@ export function initSim(app) {
   function stop() {
     if (!st.active) return;
     st.active = false; setFrozen(false); st.armed = false;
+    S.simFocus = null; SOUND.stop();
     app.onSimStop?.();
     camera.fov = st.saved.fov; camera.near = st.saved.near; camera.updateProjectionMatrix();
     camera.position.copy(st.saved.pos); camera.quaternion.copy(st.saved.quat);
@@ -294,7 +259,26 @@ export function initSim(app) {
     app.onStop?.();
     status();
   }
-  function setFrozen(on) { st.frozen = on; renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); }
+  function setFrozen(on) { st.frozen = on; applyRes(1); }
+  // drawing resolution = the adaptive scale (keeps the frame rate) x the link effect (blocky video when weak)
+  const maxRatio = () => Math.min(devicePixelRatio, 2);
+  let linkFactor = 1;
+  function applyRes(f) {
+    linkFactor = f;
+    const r = Math.max(0.2, maxRatio() * (cfg.autoRes ? st.scale : 1) * f);
+    if (Math.abs(renderer.getPixelRatio() - r) > 0.01) renderer.setPixelRatio(r);
+  }
+  /** every frame: average frame time; every 0.7 s step the resolution down (slow frames) or back up (room left) */
+  function adaptRes(dt) {
+    if (!cfg.autoRes || dt <= 0 || dt > 0.25) return;
+    st.frameMs += (dt * 1000 - st.frameMs) * 0.1;
+    st.resT += dt;
+    if (st.resT < 0.7) return;
+    st.resT = 0;
+    if (st.frameMs > 21 && st.scale > 0.5) st.scale = Math.max(0.5, st.scale * 0.85);          // under ~48 fps
+    else if (st.frameMs < 17.8 && st.scale < 1) st.scale = Math.min(1, st.scale * 1.08);      // ~56+ fps: sharper again
+    applyRes(linkFactor);
+  }
 
   // ---------------------------------------------------------------- trail (live track)
   function buildTrail() {
@@ -315,6 +299,7 @@ export function initSim(app) {
 
   // ---------------------------------------------------------------- per frame
   const _cq = new THREE.Quaternion(), _tilt = new THREE.Quaternion(), _back = new THREE.Vector3();
+  const _u = new THREE.Vector3(), _ax = new THREE.Vector3();
   function update(dt) {
     if (!st.active) return false;
     const inp = readInput(dt);
@@ -331,6 +316,14 @@ export function initSim(app) {
       for (let i = 0; i < sub; i++) step(inp, dt / sub);
     }
     if (st.armed) st.t += dt;
+    // the sharp terrain follows the drone, a little ahead in the direction of flight
+    {
+      const ahead = Math.min(2, (app.detailSize?.() || 600) / 4 / Math.max(st.vel.length(), 1));
+      S.simFocus = { x: st.pos.x + st.vel.x * ahead + S.W / 2, y: -(st.pos.z + st.vel.z * ahead) + S.H / 2 };
+    }
+    SOUND.set(cfg.sound);
+    SOUND.update(st.armed && !st.crashed, st.load * st.power, st.vel.length(), st.propwash);
+    adaptRes(dt);
 
     // link model at 10 Hz
     st.sigT += dt;
@@ -359,12 +352,12 @@ export function initSim(app) {
 
   function applyLinkEffects(dt) {
     const fx = $('simVideoFx');
-    if (!cfg.linkFx || !st.sig) { fx.style.opacity = 0; setFrozen(false); return; }
+    if (!cfg.linkFx || !st.sig) { fx.style.opacity = 0; if (st.frozen || linkFactor !== 1) setFrozen(false); return; }
     const L = st.sig.links, vid = L[0], ctl = L[1] || L[0];
     // video (link 0): digital-style degradation -> blocky -> frozen + "no signal"
     if (vid.margin < 0) { if (!st.frozen) setFrozen(true); st.frozen = true; }
     else if (vid.margin > 1.5) { if (st.frozen) setFrozen(false); }
-    if (!st.frozen) renderer.setPixelRatio(vid.margin < 4 ? clamp(0.2 + vid.margin / 5, 0.2, 1) : Math.min(devicePixelRatio, 2));
+    if (!st.frozen) applyRes(vid.margin < 4 ? clamp(0.2 + vid.margin / 5, 0.2, 1) / maxRatio() : 1);
     fx.style.opacity = st.frozen ? 1 : vid.margin < 4 ? clamp((4 - vid.margin) / 8, 0, 0.5) : 0;
     fx.classList.toggle('lost', st.frozen);
     // control link (link 1): lost for > 0.5 s -> failsafe stage 1 (level, hold 1 s) -> stage 2 (drop)
@@ -384,12 +377,13 @@ export function initSim(app) {
     const zoneWarn = zh.length ? `<div class="ozone" style="color:${zh[0].zone.info.color}">ZONE: ${zh[0].zone.info.label.toUpperCase()} ZONE · ${zh[0].zone.name}</div>` : '';
     const warn = st.armBlocked ? 'THROTTLE UP — lower it to arm' : st.crashed ? `${st.crashed.toUpperCase()} — press R` :
       st.failsafe === 2 ? 'FAILSAFE — CONTROL LINK LOST' : st.failsafe === 1 ? 'FAILSAFE (stage 1)' :
-        st.frozen ? 'VIDEO SIGNAL LOST' : s.clearance < 0 ? 'NO LINE OF SIGHT' : '';
+        st.frozen ? 'VIDEO SIGNAL LOST' : cfg.physics.battery && st.armed && st.charge < 0.12 ? 'BATTERY LOW — LAND' :
+          s.clearance < 0 ? 'NO LINE OF SIGHT' : '';
     $('simOsd').innerHTML = `
       <div class="otl">${st.armed ? '<b class="arm">ARMED</b>' : 'DISARMED'} · ${(inp.mode || cfg.mode).toUpperCase()} · ${fmtT(st.t)}${st.armed ? ' · <span class="rec">● REC</span>' : ''}</div>
       <div class="otr">HOME ${s.dist.toFixed(0)} m<br>AGL ${s.agl.toFixed(0)} m<br>${spd.toFixed(0)} km/h${cfg.wind.speed > 0 ? `<br>wind ${(st.windV.length() * 3.6).toFixed(0)} km/h ${compass(cfg.wind.dir)}` : ''}</div>
       <div class="obl">${links}</div>
-      <div class="obr">THR ${(inp.throttle * 100).toFixed(0)}%<br>${s.clearance < 0 ? `LOS blocked ${(-s.clearance).toFixed(0)} m` : `LOS clear +${Math.min(s.clearance, 999).toFixed(0)} m`}</div>
+      <div class="obr">${cfg.physics.battery ? `<span style="color:${st.volts < 3.4 ? '#ff4d4d' : st.volts < 3.6 ? '#ffb000' : 'inherit'}">BAT ${st.volts.toFixed(2)} V · ${Math.round(st.charge * 100)}%</span><br>` : ''}THR ${(inp.throttle * 100).toFixed(0)}%<br>${s.clearance < 0 ? `LOS blocked ${(-s.clearance).toFixed(0)} m` : `LOS clear +${Math.min(s.clearance, 999).toFixed(0)} m`}</div>
       <div class="owarn">${warn}</div>
       ${zoneWarn}
       <div class="ocross">${st.view === 'fpv' && !st.frozen ? '+' : ''}</div>`;
@@ -474,13 +468,21 @@ export function initSim(app) {
     set('simTwr', 'twr'); set('simUptilt', 'uptilt'); set('simFov', 'fov'); set('simAngle', 'maxAngle'); set('simFx', 'linkFx');
     set('simTop', 'topSpeed'); set('simResp', 'response');
     set('simWind', 'wind.speed'); set('simWindDir', 'wind.dir'); set('simGust', 'wind.gust');
+    set('simBat', 'physics.battery'); set('simPack', 'physics.packMin'); set('simWash', 'physics.propwash');
+    set('simThrMid', 'physics.thrMid'); set('simThrExpo', 'physics.thrExpo');
+    set('simSound', 'sound.on'); set('simVol', 'sound.volume'); set('simAutoRes', 'autoRes');
+    ['simThrMid', 'simThrExpo', 'simBat'].forEach((id) => $(id).addEventListener('input', hoverInfo));
+    $('simAutoRes').addEventListener('input', () => { if (!cfg.autoRes) st.scale = 1; applyRes(linkFactor); });
     const sel = $('simPreset');
     sel.innerHTML = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('') + '<option value="custom">Custom</option>';
     sel.value = PRESETS[cfg.preset] ? cfg.preset : 'custom';
     sel.onchange = () => {
       cfg.preset = sel.value;
       const pr = PRESETS[sel.value];
-      if (pr) { Object.assign(cfg, { twr: pr.twr, topSpeed: pr.topSpeed, response: pr.response, uptilt: pr.uptilt }); cfg.rates = { ...pr.rates }; }
+      if (pr) {
+        Object.assign(cfg, { twr: pr.twr, topSpeed: pr.topSpeed, response: pr.response, uptilt: pr.uptilt }); cfg.rates = { ...pr.rates };
+        if (pr.packMin) cfg.physics.packMin = pr.packMin;
+      }
       saveSettings(); syncUi();
     };
     // any manual change of a flight-model slider turns the preset into "Custom"
@@ -503,7 +505,7 @@ export function initSim(app) {
   function hoverInfo() { $('simHover').textContent = `hover ≈ ${(hoverThrottle() * 100).toFixed(0)} % throttle`; }
   function syncUi() {    // push cfg values back into the inputs (after a preset change)
     const map = { simTwr: cfg.twr, simTop: cfg.topSpeed, simResp: cfg.response, simUptilt: cfg.uptilt,
-      simCenter: cfg.rates.center, simMax: cfg.rates.max, simExpo: cfg.rates.expo };
+      simCenter: cfg.rates.center, simMax: cfg.rates.max, simExpo: cfg.rates.expo, simPack: cfg.physics.packMin };
     for (const [id, v] of Object.entries(map)) { $(id).value = v; const o = $(id + 'Out'); if (o) o.textContent = v; }
     hoverInfo();
   }

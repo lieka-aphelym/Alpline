@@ -1216,6 +1216,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
                     ("journeys", "Journeys", "build, add a log, rename, delete, restore, blackbox, cache clean-up"),
                     ("snapshots", "Signal model", "line of sight and range give the same results as before"),
                     ("performance", "Speed-ups", "compact terrain and compression give the same data"),
+                    ("sim", "Training flight", "flight model: hover, battery, top speed, propwash, walls"),
                     ("launcher", "Launcher", "USB detection, map groups and zoom"))
 
     def build_checks_page(self, parent):

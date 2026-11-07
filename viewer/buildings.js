@@ -42,8 +42,9 @@ export async function loadBuildings({ S, scene3 }) {
   group.add(sun);
   scene3.add(group);
   const own = Int32Array.from(owner);
+  const roofAt = buildingIndex(items);
   return {
-    group, items, count: items.length,
+    group, items, count: items.length, roofAt,
     set({ visible, exag }) { if (visible != null) group.visible = visible; if (exag != null) group.scale.y = exag; },
     /** building under a ray, or null */
     pick(ray) {
@@ -52,5 +53,35 @@ export async function loadBuildings({ S, scene3 }) {
       if (!hit) return null;
       return { item: items[own[hit.face.a]], point: hit.point };
     },
+  };
+}
+
+/** Fast "which roof is here": (x, y) local metres -> roof height (m above sea level) of the building there, or null.
+ *  Footprints are sorted into 32 m cells once, then a point-in-polygon test on the few in that cell. */
+export function buildingIndex(items, cell = 32) {
+  const cells = new Map();
+  items.forEach((b, i) => {
+    if (!b.p || b.p.length < 3) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of b.p) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    for (let cx = Math.floor(x0 / cell); cx <= Math.floor(x1 / cell); cx++) for (let cy = Math.floor(y0 / cell); cy <= Math.floor(y1 / cell); cy++) {
+      const k = cx * 100003 + cy;
+      if (!cells.has(k)) cells.set(k, []);
+      cells.get(k).push(i);
+    }
+  });
+  const inside = (p, x, y) => {
+    let c = false;
+    for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+      const [xi, yi] = p[i], [xj, yj] = p[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+    }
+    return c;
+  };
+  return (x, y) => {
+    const list = cells.get(Math.floor(x / cell) * 100003 + Math.floor(y / cell));
+    if (!list) return null;
+    for (const i of list) if (inside(items[i].p, x, y)) return items[i].t;
+    return null;
   };
 }

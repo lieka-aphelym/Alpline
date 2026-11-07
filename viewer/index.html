@@ -197,6 +197,17 @@
       <label class="row">Field of view <output id="simFovOut"></output>°</label><input type="range" id="simFov" min="60" max="130" step="5">
       <label class="row"><input type="checkbox" id="simFx"> Simulate link loss (video breakup, failsafe)</label>
     </details>
+    <details class="simset"><summary class="small">Battery, throttle and feel</summary>
+      <label class="row"><input type="checkbox" id="simBat"> Battery: voltage drops as the pack empties and sags on punches</label>
+      <label class="row">Pack lasts <output id="simPackOut"></output> min hovering</label><input type="range" id="simPack" min="2" max="30" step="1">
+      <label class="row">Throttle mid <output id="simThrMidOut"></output></label><input type="range" id="simThrMid" min="0.2" max="0.8" step="0.05">
+      <label class="row">Throttle expo <output id="simThrExpoOut"></output></label><input type="range" id="simThrExpo" min="0" max="1" step="0.05">
+      <p class="muted small">Like thr_mid / thr_expo in Betaflight: copy yours so the throttle feels the same.</p>
+      <label class="row">Propwash <output id="simWashOut"></output></label><input type="range" id="simWash" min="0" max="1" step="0.1">
+      <label class="row"><input type="checkbox" id="simSound"> Motor sound</label>
+      <label class="row">Volume <output id="simVolOut"></output></label><input type="range" id="simVol" min="0" max="1" step="0.05">
+      <label class="row"><input type="checkbox" id="simAutoRes"> Keep it smooth: lower the resolution a little when frames get slow</label>
+    </details>
   </section>
 
   <section data-tab="flights">

@@ -873,8 +873,22 @@ const CAM = initCameraModes({
   },
 });
 
+// what the training flight collides with: the terrain you see (sharp patch where it is loaded, else the overview;
+// with trees when the map shows the surface model) and the 3D buildings (roofs; walls when flown into from the side)
+function simGround(wx, wz, wy, prevY) {
+  const lx = wx + S.W / 2, ly = -wz + S.H / 2;
+  const h = (S.detail?.heightAt?.(lx, ly) ?? demHeight(lx, ly)) - S.hBase;
+  const roof = S.bld?.group.visible ? S.bld.roofAt?.(lx, ly) : null;
+  if (roof == null) return { h, wall: false };
+  const top = roof - S.hBase;
+  if (top <= h) return { h, wall: false };
+  if (wy < top && prevY < top - 0.05) return { h, wall: true };     // came in from the side
+  return { h: top, wall: false };                                   // on (or landing on) the roof
+}
+
 const SIM = initSim({
-  THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration,
+  THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration, simGround,
+  detailSize: () => S.detail?.sizeM,
   ensureDrone: () => { if (!S.drone) buildDrone(); },
   zonesAt: (x, y, z) => (S.zones ? S.zones.zonesAt(x, y, z) : []),
   setClutterVisible: (on) => {   // markers that only get in the way of an FPV view

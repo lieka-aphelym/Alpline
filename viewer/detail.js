@@ -12,7 +12,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
   const g = S.view.grid;                      // full-resolution grid of the displayed ground
   const baseRes = S.view.res;                 // overview cell size (m)
   const st = { mesh: null, rect: null, busy: false, wanted: null, enabled: true, center: null, tex: null };
-  if (!api || baseRes <= g.res * 1.01) return { enabled: false, update() {}, rebuild() {}, set() {}, info: 'full resolution everywhere' };
+  if (!api || baseRes <= g.res * 1.01) return { enabled: false, update() {}, rebuild() {}, set() {}, heightAt: () => null, sizeM: 0, info: 'full resolution everywhere' };
 
   const mat = new THREE.ShaderMaterial({
     vertexShader: terrainVS, fragmentShader: terrainFS,
@@ -66,6 +66,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
   }
 
   function build(h, nc, nr, c0, r0) {
+    st.patch = { h, nc, nr, c0, r0 };
     const skirt = 2 * (nc + nr);
     const nv = nc * nr + skirt;
     const pos = new Float32Array(nv * 3), uv = new Float32Array(nv * 2), aH = new Float32Array(nv);
@@ -130,9 +131,11 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
     update(now) {
       if (!st.enabled || st.busy || now - lastCheck < 250 || (st.failed || 0) > 3) return;
       lastCheck = now;
-      const f = localFocus();
-      const dist = camera.position.distanceTo(controls.target);
-      if (dist > sizeM * 4) { hide(); return; }               // too far away to see the difference
+      const f = S.simFocus || localFocus();                   // training flight: around (and ahead of) the drone
+      if (!S.simFocus) {
+        const dist = camera.position.distanceTo(controls.target);
+        if (dist > sizeM * 4) { hide(); return; }             // too far away to see the difference
+      }
       if (!st.center || Math.hypot(f.x - st.center.x, f.y - st.center.y) > sizeM / 4) load(f.x, f.y);
       else show();
     },
@@ -144,5 +147,16 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
       pos.needsUpdate = true; st.mesh.geometry.computeVertexNormals();
     },
     set(on) { st.enabled = on; if (!on) hide(); else { st.center = null; } },
+    /** height (m above sea level) of the sharp patch at local (x, y), or null outside it / when it isn't shown */
+    heightAt(x, y) {
+      const p = st.patch;
+      if (!p || !st.mesh?.visible) return null;
+      const c = x / g.res - 0.5 - p.c0, r = (S.H - y) / g.res - 0.5 - p.r0;
+      if (c < 0 || r < 0 || c > p.nc - 1 || r > p.nr - 1) return null;
+      const c0 = Math.min(c | 0, p.nc - 2), r0 = Math.min(r | 0, p.nr - 2), fc = c - c0, fr = r - r0, i = r0 * p.nc + c0;
+      const top = p.h[i] + (p.h[i + 1] - p.h[i]) * fc, bot = p.h[i + p.nc] + (p.h[i + p.nc + 1] - p.h[i + p.nc]) * fc;
+      return top + (bot - top) * fr;
+    },
+    get sizeM() { return sizeM; },
   };
 }

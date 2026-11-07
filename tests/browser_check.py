@@ -74,6 +74,17 @@ def main():
                             errors.append("viewer: " + pg.inner_text("#loading"))
                     elif ready:
                         pg.wait_for_selector(ready, state="attached", timeout=90000)
+                    if name == "viewer" and ready == "LOADED" and not pg.evaluate("!!document.getElementById('loading')"):
+                        # a short training flight: start, arm, climb, fly forward, and the flight model / OSD run
+                        pg.click('button[data-tab="fly"]'); pg.click("#simStart"); pg.wait_for_timeout(300)
+                        pg.keyboard.press("Enter"); pg.keyboard.down("KeyW"); pg.wait_for_timeout(2500); pg.keyboard.up("KeyW")
+                        pg.keyboard.down("ArrowUp"); pg.wait_for_timeout(800); pg.keyboard.up("ArrowUp")
+                        sim = pg.evaluate("() => { const st = window.fpv3d.SIM._state; return { armed: st.armed, v: st.vel.length(), "
+                                          "osd: document.getElementById('simOsd').innerText } }")
+                        if not sim["armed"] or "BAT" not in sim["osd"]:
+                            errors.append(f"training flight did not run: {sim}")
+                        pg.screenshot(path=str(out / "training_flight.png"))
+                        pg.keyboard.press("Escape")
                     if name == "checks":
                         pg.wait_for_function("document.title.includes('passed') || document.title.includes('FAILED')", timeout=30000)
                         if "FAILED" in pg.title():
