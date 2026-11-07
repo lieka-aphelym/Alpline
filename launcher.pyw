@@ -312,6 +312,8 @@ class Launcher:
         try:                                       # window / taskbar icon
             self.icon = tk.PhotoImage(file=str(APP / "viewer" / "brand" / "icon-64.png"))
             root.iconphoto(True, self.icon)
+            if os.name == "nt":                    # the .ico has every size Windows wants (taskbar, Alt+Tab)
+                root.iconbitmap(default=str(APP / "viewer" / "brand" / "icon.ico"))
         except tk.TclError:
             pass
         self.style()
@@ -2264,12 +2266,21 @@ class SwissMap:
         self._spin_job = self.app.root.after(LogoAnim.MS["busy"], self._spin_tick)
 
 
+APP_ID = "lieka.Alpline.Launcher"
+
+
 def sharp_on_windows():
     """Tell Windows this window draws itself at the real screen resolution. Without it, on a display scaled to
-    125 % / 150 %, Windows stretches a 100 % picture of the window: that is the blurry, 'hazy' look."""
+    125 % / 150 %, Windows stretches a 100 % picture of the window: that is the blurry, 'hazy' look.
+    Also give the launcher its own app id: started from the source folder the program is pythonw.exe, and Windows
+    would otherwise show (and group under) Python's icon in the taskbar instead of the window's Alpline icon."""
     if os.name != "nt":
         return
     import ctypes
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except Exception:
+        pass
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)       # per-monitor (Windows 8.1+)
     except Exception:
