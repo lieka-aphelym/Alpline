@@ -828,6 +828,7 @@ function initUI() {
   $('scrub').oninput = () => { if (!S.track) return; S.time = ($('scrub').value / 1000) * S.track.t[S.track.n - 1]; updateDrone(); V.seekToLog(S.time); };
   $('speed').onchange = () => V.setRate(+$('speed').value);
   S.tabs = initTabs($('panel'), { storageKey: 'fpv3d:tab4', fallback: 'map' });
+  if (params.get('tab')) S.tabs.show(params.get('tab'), { keepOpen: true });   // e.g. ?tab=fly from the launcher
   $('panel').querySelector('h1').onclick = () => S.tabs.toggle();
   // keys 1..6 jump to a panel tab
   addEventListener('keydown', (e) => {

@@ -1,4 +1,5 @@
-"""Alpline (by lieka) launcher: pick Full or Lite mode, see your locations on a map of Switzerland, open the 3D viewer.
+"""Alpline (by lieka) launcher: your locations on a map of Switzerland, the drone and radio on USB, phone sharing,
+settings. Opens the 3D viewer and the map page.
 
 Double-click Alpline.bat (or the desktop shortcut it can create), or start the installed Alpline app. The window
 starts the local server in the chosen mode, opens Alpline windows (or your browser), and stops the server when you
@@ -88,8 +89,10 @@ def load_settings() -> dict:
 import math
 import re
 from tkinter import ttk
+import tkinter.font as tkfont
 
 GREY = "#7d8796"
+RULE2 = "#4a5462"                                     # control borders
 
 
 class Tip:
@@ -143,8 +146,98 @@ def fmt_dur(s: float) -> str:
     return f"{s // 3600} h {s % 3600 // 60:02d}" if s >= 3600 else f"{s // 60} min" if s >= 60 else f"{s} s"
 
 
-def fmt_day(ts) -> str:
-    return time.strftime("%d %b %Y", time.localtime(ts)) if ts else "–"
+def short_day(ts) -> str:
+    """'07 Nov' this year, 'Nov 2025' before"""
+    t = time.localtime(ts)
+    return time.strftime("%d %b" if t.tm_year == time.localtime().tm_year else "%b %Y", t)
+
+
+
+class FitLabel(tk.Label):
+    """A label that never makes the window grow: it takes the width the layout gives it and cuts its text with '…'
+    (the whole text is in the tooltip)."""
+    def __init__(self, parent, text="", **kw):
+        kw.setdefault("anchor", "w")
+        super().__init__(parent, width=1, **kw)
+        self.full = ""
+        self._font = tkfont.Font(font=self.cget("font"))
+        Tip(self, lambda: self.full if self.cget("text") != self.full else "")
+        self.bind("<Configure>", lambda e: self._fit())
+        self.set(text)
+
+    def set(self, text, **kw):
+        self.full = text
+        if kw:
+            self.configure(**kw)
+            if "font" in kw:
+                self._font = tkfont.Font(font=self.cget("font"))
+        self._fit()
+
+    def _fit(self):
+        w = self.winfo_width() - 2 * int(self.cget("padx") or 0) - 4
+        t = self.full
+        if w > 8 and self._font.measure(t) > w:
+            while t and self._font.measure(t + "…") > w:
+                t = t[:-1]
+            t = t.rstrip() + "…"
+        if self.cget("text") != t:
+            super().configure(text=t)
+
+
+class Pill(tk.Frame):
+    """Status pill: coloured dot + short text, fixed width (the header never moves)."""
+    def __init__(self, parent, chars, tip=None):
+        super().__init__(parent, bg=BG, highlightthickness=1, highlightbackground=RULE2)
+        self.dot = tk.Canvas(self, width=S(10), height=S(10), bg=BG, highlightthickness=0)
+        self.dot.pack(side="left", padx=(S(7), S(4)))
+        self.lab = tk.Label(self, font=("Consolas", 9), fg=FG2, bg=BG, width=chars, anchor="w")
+        self.lab.pack(side="left", padx=(0, S(6)), pady=S(2))
+        if tip:
+            Tip(self, tip)
+
+    def set(self, text, color=None):
+        n = int(self.lab.cget("width"))
+        self.lab.configure(text=text if len(text) <= n else text[:n - 1] + "…")
+        self.dot.delete("all")
+        r = S(4)
+        c = S(5)
+        if color:
+            self.dot.create_oval(c - r, c - r, c + r, c + r, fill=color, outline="")
+        else:
+            self.dot.create_oval(c - r, c - r, c + r, c + r, outline=FG2)
+
+
+# rail pages: key, label, tooltip
+PAGES = (("map", "map", "Your locations on the map of Switzerland"),
+         ("drone", "drone", "Drone and radio on USB: download the blackbox, start a live flight"),
+         ("phone", "phone", "Open Alpline on your phone (same Wi-Fi or the phone's hotspot)"),
+         ("disk", "disk", "Disk space and clean-up"),
+         ("settings", "settings", "Full / Lite, where pages open, desktop shortcut, your files"))
+
+
+def rail_icon(cv, key, col):
+    """Small line icons for the rail (drawn, so they stay sharp at any screen scaling)."""
+    cv.delete("all")
+    w = lambda *a: [S(v) for v in a]
+    lw = max(1, S(1.6))
+    if key == "map":
+        cv.create_line(*w(3, 5, 9, 3, 15, 5, 21, 3, 21, 15, 15, 17, 9, 15, 3, 17, 3, 5), fill=col, width=lw)
+        cv.create_line(*w(9, 3, 9, 15), fill=col, width=lw); cv.create_line(*w(15, 5, 15, 17), fill=col, width=lw)
+    elif key == "drone":
+        cv.create_line(*w(6, 4, 18, 16), fill=col, width=lw); cv.create_line(*w(18, 4, 6, 16), fill=col, width=lw)
+        for x, y in ((5, 3), (19, 3), (5, 17), (19, 17)):
+            cv.create_oval(*w(x - 3, y - 2, x + 3, y + 2), outline=col, width=lw)
+        cv.create_rectangle(*w(10, 8, 14, 12), outline=col, width=lw)
+    elif key == "phone":
+        cv.create_rectangle(*w(7, 1, 17, 19), outline=col, width=lw); cv.create_line(*w(10, 16, 14, 16), fill=col, width=lw)
+    elif key == "disk":
+        for y in (3, 8, 13):
+            cv.create_rectangle(*w(4, y, 20, y + 4), outline=col, width=lw)
+        cv.create_line(*w(16, 5, 17, 5), fill=col, width=lw)
+    elif key == "settings":
+        for y, x in ((4, 15), (10, 8), (16, 13)):
+            cv.create_line(*w(3, y, 21, y), fill=col, width=lw)
+            cv.create_rectangle(*w(x - 2, y - 2, x + 2, y + 2), fill=BG, outline=col, width=lw)
 
 
 class Launcher:
@@ -158,80 +251,118 @@ class Launcher:
         self.running_share = False
         self.port = None
         self.online = None
+        self.devices: dict = {}                             # serial port -> what is plugged in there (drone / radio / busy)
+        self.bb_proc = None                                 # blackbox download running
+        self._last_refresh = time.monotonic()
         root.title("Alpline by lieka")
         root.configure(bg=BG)
-        root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.quit)
-        try:                                       # window / taskbar icon: the red Alpline square
+        try:                                       # window / taskbar icon
             self.icon = tk.PhotoImage(file=str(APP / "viewer" / "brand" / "icon-64.png"))
             root.iconphoto(True, self.icon)
         except tk.TclError:
             pass
         self.style()
-
-        # ---- top bar: title, mode, open buttons
-        top = tk.Frame(root, bg=BG); top.pack(fill="x", padx=14, pady=(10, 8))
-        self.logo = LogoAnim(root, top, S(30))           # spins up once now, spins while the launcher works
-        tk.Label(top, text="ALPLINE", font=("Consolas", 16, "bold"), fg=FG, bg=BG).pack(side="left")
-        tk.Label(top, text="by lieka", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(6, 0), pady=(6, 0))
         self.mode = tk.StringVar(value=self.cfg.get("mode", "full"))
-        seg = tk.Frame(top, bg=RULE, padx=1, pady=1); seg.pack(side="left", padx=(16, 8))
-        self.mode_btns = {}
-        for m in ("full", "lite"):
-            b = tk.Button(seg, text=m, font=("Consolas", 10, "bold"), width=6, relief="flat", bd=0, cursor="hand2",
-                          command=lambda m=m: self.set_mode(m))
-            b.pack(side="left")
-            self.mode_btns[m] = b
-        Tip(self.mode_btns["full"], "Full: the whole 3D at full quality, redrawn continuously. New locations: 2 m terrain, "
-                                    "2 m photo, 10 m signal grid, 3D buildings.")
-        Tip(self.mode_btns["lite"], "Lite: for slower computers. 3D redrawn only when something changes, lighter mesh. "
-                                    "New locations: 5 m terrain, lighter photo, 20 m signal grid, no 3D buildings.")
-        self.mode_info = tk.Label(top, font=SANS, fg=FG2, bg=BG); self.mode_info.pack(side="left")
-        self.stop_btn = self.button(top, "[stop]", self.stop); self.stop_btn.pack(side="right")
-        self.share_btn = self.button(top, "[phone]", self.toggle_share); self.share_btn.pack(side="right", padx=(0, 14))
-        Tip(self.share_btn, "Share on your network: open Alpline on your phone (same Wi-Fi, or the phone's hotspot). "
-                            "The phone can look, fly and build; deleting and renaming stay on this computer.")
+
+        # the window: rail | (header / page). Everything sits in fixed slots; only the page area grows.
+        root.columnconfigure(1, weight=1)
+        root.rowconfigure(0, weight=1)
+        self.rail = tk.Frame(root, bg=BG, width=S(68))
+        self.rail.grid(row=0, column=0, sticky="ns"); self.rail.grid_propagate(False)
+        tk.Frame(root, bg=RULE, width=1).grid(row=0, column=0, sticky="nse")
+        body = tk.Frame(root, bg=BG)
+        body.grid(row=0, column=1, sticky="nsew")
+        body.columnconfigure(0, weight=1); body.rowconfigure(2, weight=1)
+
+        # ---- header
+        top = tk.Frame(body, bg=BG, height=S(52))
+        top.grid(row=0, column=0, sticky="ew"); top.pack_propagate(False)
+        tk.Frame(body, bg=RULE, height=1).grid(row=1, column=0, sticky="ew")
+        self.logo = LogoAnim(root, top, S(28))
+        if self.logo.label:
+            self.logo.label.pack_configure(padx=(S(14), S(8)))
+        tk.Label(top, text="ALPLINE", font=("Consolas", 15, "bold"), fg=FG, bg=BG).pack(side="left",
+                 padx=(0 if self.logo.label else S(14), 0))
+        tk.Label(top, text="by lieka", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(S(6), 0), pady=(S(5), 0))
+        b = self.button(top, "[locations map]", lambda: self.open("/viewer/map.html"))
+        b.pack(side="right", padx=(S(6), S(14)))
+        Tip(b, "The map page in Alpline: search places, create and build locations, drone zones.")
+        b = self.button(top, "[3d viewer]", lambda: self.open_location(self.map.current()) if self.map.current()
+                        and self.map.current().get("built") else self.open("/viewer/"), primary=True)
+        b.pack(side="right")
+        Tip(b, "Open the selected location in 3D (Enter or double-click does the same).")
+        self.stop_btn = self.button(top, "[stop]", self.stop, small=True)
+        self.stop_btn.pack(side="right", padx=(S(4), S(14)))
         Tip(self.stop_btn, "Stop the local server (closing this window does it too).")
-        self.button(top, "[locations map]", lambda: self.open("/viewer/map.html")).pack(side="right", padx=(0, 6))
-        self.button(top, "[3d viewer]", lambda: self.open("/viewer/"), primary=True).pack(side="right", padx=(0, 6))
-        tk.Frame(root, bg=RULE, height=1).pack(fill="x")
+        self.server_pill = Pill(top, 22, lambda: "The local server shows the 3D viewer and the map pages. It starts when "
+                                                 "you open one and stops with this window.")
+        self.server_pill.pack(side="right")
+        self.net_pill = Pill(top, 7, lambda: "Internet is used for the map background, new downloads and place search. "
+                                             "Built locations open in 3D without it.")
+        self.net_pill.pack(side="right", padx=(0, S(8)))
+        self.net_pill.set("…", None)
 
-        # ---- middle: map | locations table + details card
-        mid = tk.Frame(root, bg=BG); mid.pack(fill="both", padx=14, pady=10)
-        self.map = SwissMap(self, mid)
-        right = tk.Frame(mid, bg=BG, width=S(390), height=self.map.h + S(36))   # fixed size: the window never jumps
-        right.pack(side="left", fill="y", padx=(12, 0)); right.pack_propagate(False)
-        self.loc_title = self.section("LOCATIONS", right)
-        self.table = Table(self, right, height=max(6, (self.map.h - S(205)) // S(21)))
-        self.card = Card(self, right)
+        # ---- pages (stacked in one cell, raised one at a time)
+        stage = tk.Frame(body, bg=BG)
+        stage.grid(row=2, column=0, sticky="nsew")
+        stage.rowconfigure(0, weight=1); stage.columnconfigure(0, weight=1)
+        self.pages = {}
+        for key, *_ in PAGES:
+            f = tk.Frame(stage, bg=BG)
+            f.grid(row=0, column=0, sticky="nsew")
+            self.pages[key] = f
+        self.map = SwissMap(self, self.pages["map"])
+        self.build_drone_page(self.pages["drone"])
+        self.build_phone_page(self.pages["phone"])
+        self.build_disk_page(self.pages["disk"])
+        self.build_settings_page(self.pages["settings"])
 
-        # ---- status bar
-        tk.Frame(root, bg=RULE, height=1).pack(fill="x")
-        bar = tk.Frame(root, bg=BG); bar.pack(fill="x", padx=14, pady=5)
-        self.status = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.status.pack(side="left")
-        self.offline = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.offline.pack(side="left", padx=(18, 0))
-        Tip(self.offline, self.offline_tip)
-        self.net = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.net.pack(side="left", padx=(18, 0))
-        Tip(self.net, lambda: "Internet is used for the map background, new downloads and place search. Without it the "
-                              "3D viewer still works for built locations." if self.online is not None else "")
-        self.flights = tk.Label(bar, font=("Consolas", 9), fg=FG2, bg=BG); self.flights.pack(side="left", padx=(18, 0))
-        self.phone = tk.Label(bar, font=("Consolas", 9, "bold"), fg=ACC, bg=BG); self.phone.pack(side="left", padx=(18, 0))
-        self.qr_btn = self.button(bar, "[qr]", self.show_qr, small=True)
-        Tip(self.qr_btn, "Show a QR code to scan with the phone's camera.")
-        sc = self.button(bar, "[shortcut]", self.make_shortcut, small=True); sc.pack(side="right")
-        self.where_btn = self.button(bar, self.where_text(), self.toggle_open_in, small=True)
-        self.where_btn.pack(side="right", padx=(0, 6))
-        Tip(self.where_btn, "Where the 3D viewer and the locations map open: in Alpline windows (Edge in app mode: "
-                            "no address bar or tabs, own taskbar icon) or in your normal web browser.")
-        Tip(sc, "Add an 'Alpline' shortcut to your desktop.")
-        dk = self.button(bar, "[disk]", self.disk_dialog, small=True); dk.pack(side="right", padx=(0, 6))
-        Tip(dk, "How much space Alpline uses, and clean-up (deleted locations, unused map tiles).")
-        ck = self.button(bar, "[check]", self.check_offline, small=True); ck.pack(side="right", padx=(0, 6))
-        Tip(ck, "Reload the locations and check the internet again.")
-        self.msg = tk.Label(bar, font=SANS, fg=ACC, bg=BG); self.msg.pack(side="right", padx=(0, 12))
+        # ---- rail
+        self.rail_items = {}
+        tk.Frame(self.rail, bg=BG, height=S(8)).pack()
+        for key, label, tip in PAGES:
+            if key == "disk":
+                tk.Frame(self.rail, bg=BG).pack(fill="y", expand=True)       # disk + settings at the bottom
+            it = tk.Frame(self.rail, bg=BG, cursor="hand2")
+            it.pack(fill="x", pady=S(2))
+            bar = tk.Frame(it, bg=BG, width=S(3)); bar.pack(side="left", fill="y")
+            inner = tk.Frame(it, bg=BG); inner.pack(side="left", fill="x", expand=True, pady=S(6))
+            cv = tk.Canvas(inner, width=S(24), height=S(20), bg=BG, highlightthickness=0); cv.pack()
+            lab = tk.Label(inner, text=label, font=("Consolas", 8), fg=FG2, bg=BG); lab.pack()
+            for w in (it, inner, cv, lab):
+                w.bind("<Button-1>", lambda e, k=key: self.show_page(k))
+            Tip(it, tip)
+            self.rail_items[key] = dict(frame=it, bar=bar, inner=inner, cv=cv, lab=lab, badge=None)
+        tk.Frame(self.rail, bg=BG, height=S(8)).pack()
 
+        # ---- toast: messages float over the bottom right corner, nothing else moves
+        self.toast = tk.Label(root, font=SANS, fg=ACC, bg=BG, padx=S(10), pady=S(6), highlightthickness=1,
+                              highlightbackground=ACC, justify="left", wraplength=S(420), cursor="hand2")
+        self.toast.bind("<Button-1>", lambda e: self.toast.place_forget())
+        self._toast_job = None
+
+        # ---- size: resizable, remembered, never smaller than the layout needs
+        root.minsize(S(980), S(600))
+        g = self.cfg.get("geometry")
+        if g and re.match(r"^\d+x\d+[+-]-?\d+[+-]-?\d+$", g):
+            w, h = map(int, g.split("+")[0].split("x"))
+            root.geometry(g if w <= root.winfo_screenwidth() and h <= root.winfo_screenheight() else f"{S(1120)}x{S(700)}")
+        else:
+            root.geometry(f"{S(1120)}x{S(700)}")
+
+        # ---- keys + refresh when the window comes back to the front (replaces [check])
+        root.bind("<Control-f>", lambda e: self.focus_filter())
+        root.bind("<Control-F>", lambda e: self.focus_filter())
+        root.bind("<FocusIn>", self.on_focus)
+        root.bind("<Up>", lambda e: self.move_selection(-1, e))
+        root.bind("<Down>", lambda e: self.move_selection(1, e))
+        root.bind("<Return>", lambda e: self.on_return(e))
+
+        self.show_page(self.cfg.get("page", "map") if self.cfg.get("page") in self.pages else "map")
         self.set_mode(self.mode.get(), save=False)
         self.check_offline()
+        self.start_device_watch()
         if self.cfg.get("share") and os.name == "nt":         # sharing was left on: check the phone can get in
             root.after(1200, lambda: self.check_phone_access(ask=True))
 
@@ -278,17 +409,19 @@ class Launcher:
                          bg=ACC if primary else BG2, fg="#000" if primary else FG,
                          activebackground=ACC if primary else BG3, activeforeground="#000" if primary else FG)
 
-    def say(self, text):
-        self.msg.configure(text=text)
-        self.root.after(8000, lambda: self.msg.cget("text") == text and self.msg.configure(text=""))
 
     # ------------------------------------------------------------ mode
+    MODE_TEXT = {"full": "Full: the whole 3D at full quality, redrawn continuously. New locations: 2 m terrain, 2 m photo, "
+                         "10 m signal grid, 3D buildings.",
+                 "lite": "Lite: for slower computers. 3D redrawn only when something changes, lighter mesh. New locations: "
+                         "5 m terrain, lighter photo, 20 m signal grid, no 3D buildings."}
+
     def set_mode(self, m, save=True):
         self.mode.set(m)
         for k, b in self.mode_btns.items():
             on = k == m
             b.configure(bg=ACC if on else BG2, fg="#000" if on else FG2, activebackground=ACC if on else BG3)
-        self.mode_info.configure(text="full quality" if m == "full" else "lighter, for slower computers")
+        self.mode_info.configure(text=self.MODE_TEXT[m])
         if save:
             self.cfg["mode"] = m
             self.save()
@@ -350,7 +483,7 @@ class Launcher:
 
     def open(self, path):
         if not self.server_alive() or self.running_mode != self.mode.get() or self.running_share != bool(self.cfg.get("share")):
-            self.status.configure(text="○ starting…", fg=FG2); self.root.update()
+            self.busy_status("starting…")
             if not self.start():
                 return
         self.open_url(f"http://127.0.0.1:{self.port}{path}")
@@ -392,16 +525,6 @@ class Launcher:
             webbrowser.open(url)
             self.say("the Alpline window did not open (see logs/window.log): opened in the browser")
 
-    def toggle_open_in(self):
-        self.cfg["open_in"] = "browser" if self.cfg.get("open_in", "window") == "window" else "window"
-        self.save()
-        self.where_btn.configure(text=self.where_text())
-        if self.cfg["open_in"] == "window" and not self.window_ok():
-            self.say("Alpline windows need Microsoft Edge or Google Chrome: meanwhile the browser")
-
-    def where_text(self):
-        return "[open in: window]" if self.cfg.get("open_in", "window") == "window" else "[open in: browser]"
-
     def stop(self):
         if self.server_alive():
             self.proc.terminate()
@@ -434,7 +557,7 @@ class Launcher:
                                    "Install it now? (needs internet)", parent=self.root):
             self.cfg["no_https"] = True; self.save()
             return False
-        self.status.configure(text="○ installing cryptography…", fg=FG2); self.root.update()
+        self.busy_status("installing cryptography…")
         r = subprocess.run([python_exe(), "-m", "pip", "install", "cryptography==50.0.2"], capture_output=True, text=True,
                            creationflags=flags)
         if r.returncode != 0:
@@ -448,7 +571,7 @@ class Launcher:
         if self.cfg["share"]:
             self.https_ready()
             if not self.server_alive() or self.running_share != True:
-                self.status.configure(text="○ starting…", fg=FG2); self.root.update()
+                self.busy_status("starting…")
                 if not self.start():
                     return
             if os.name == "nt":
@@ -570,51 +693,64 @@ $r | ConvertTo-Json -Depth 4 -Compress
         if self.server_alive():
             self.open_url(f"http://127.0.0.1:{self.port}/viewer/share.html")
 
+
     def refresh_status(self):
-        if not hasattr(self, "status"):
+        if not hasattr(self, "server_pill"):
             return
         on = bool(self.cfg.get("share"))
         self.share_btn.configure(bg=ACC if on else BG2, fg="#000" if on else FG, activebackground=ACC if on else BG3,
-                                 text="[phone: on]" if on else "[phone]")
-        if self.server_alive() and self.running_share:
+                                 text="[share on my network: on]" if on else "[share on my network: off]")
+        sharing = self.server_alive() and self.running_share
+        if sharing:
             ip = (lan_addresses() or ["?"])[0]
             https = self.share_info().get("https")
-            self.phone.configure(text=f"phone: {'https' if https else 'http'}://{ip}:{self.port + (443 if https else 0)} · PIN {self.pin()}", fg=ACC)
-            self.qr_btn.pack(side="left", padx=(6, 0))
+            self.set_entry("addr", f"{'https' if https else 'http'}://{ip}:{self.port + (443 if https else 0)}")
+            self.set_entry("pin", self.pin())
+            self.set_entry("state", "shared · the phone can connect")
         else:
-            self.phone.configure(text="")
-            self.qr_btn.pack_forget()
+            self.set_entry("addr", "–")
+            self.set_entry("pin", self.pin() if on else "–")
+            self.set_entry("state", "starts sharing when the server starts" if on else "this computer only")
+        self.qr_btn.configure(state="normal" if sharing else "disabled")
+        self.draw_badge("phone")
         if self.server_alive():
-            note = "" if self.running_mode == self.mode.get() else f" (→ {self.mode.get()} on next open)"
-            self.status.configure(text=f"● running · {self.running_mode} · :{self.port}{note}", fg="#3ddc84")
+            note = "" if self.running_mode == self.mode.get() else f" →{self.mode.get()}"
+            self.server_pill.set(f"server {self.running_mode} :{self.port}{note}", "#3ddc84")
             self.stop_btn.configure(state="normal")
         else:
-            self.status.configure(text="○ server off · starts when you open", fg=FG2)
+            self.server_pill.set(f"server off · {self.mode.get()}", None)
             self.stop_btn.configure(state="disabled")
 
     def quit(self):
         for w in self.windows:                              # the windows show nothing without the server
             if w.poll() is None:
                 w.terminate()
+        if self.bb_proc is not None and self.bb_proc.poll() is None:
+            self.bb_proc.terminate()
+        try:
+            if self.root.state() == "normal":
+                self.cfg["geometry"] = self.root.geometry()
+        except tk.TclError:
+            pass
+        self.save()
         self.stop()
         self.root.destroy()
 
-    # ------------------------------------------------------------ locations, offline check
-    def check_offline(self):
+    # ------------------------------------------------------------ locations, internet
+    def check_offline(self, quiet=False):
         self.map.load_locations()
         locs = self.map.locs
         for l in locs:
             l["stats"] = flight_stats(l["name"])
-        self.loc_title.configure(text=f"LOCATIONS · {len(locs)}")
-        self.table.fill(locs)
+        self.map.table.fill(locs)
         self.map.draw()
-        self.card.show(self.map.current())
+        self.map.card.show(self.map.current())
         built = [l for l in locs if l.get("built")]
-        self.offline.configure(text=f"{len(built)}/{len(locs)} built" + (" · offline ok" if built else ""),
-                               fg=FG2 if len(built) == len(locs) else FG)
-        real = sum(l["stats"]["real"] for l in locs); sim = sum(l["stats"]["sim"] for l in locs)
-        self.flights.configure(text=f"logs: {real} real · {sim} sim")
-        self.net.configure(text="internet …", fg=FG2)
+        self.map.list_foot.set(f"{len(built)}/{len(locs)} built" + (" · ready offline" if built and len(built) == len(locs)
+                                                                    else " · built ones work offline" if built else ""))
+        self.show_devices()
+        if quiet and self.online is not None:
+            return
 
         def net():
             try:
@@ -625,27 +761,464 @@ $r | ConvertTo-Json -Depth 4 -Compress
             except Exception:
                 ok = False
             self.online = ok
-            self.root.after(0, lambda: self.net.configure(text="internet yes" if ok else "internet no",
-                                                          fg="#3ddc84" if ok else "#ff9f43"))
+            self.root.after(0, lambda: self.net_pill.set("online" if ok else "offline", "#3ddc84" if ok else "#ff9f43"))
         threading.Thread(target=net, daemon=True).start()
-
-    def offline_tip(self):
-        missing = [l["name"] for l in self.map.locs if not l.get("built")]
-        return ("Built locations open in the 3D viewer without internet." +
-                (f"\nNot built yet: {', '.join(missing)}" if missing else ""))
 
     def select(self, name):
         """one location chosen (map click or table row): ring on the map, row in the table, details card"""
         self.map.selected = name
         self.map.draw(save=False)
-        self.table.select(name)
-        self.card.show(self.map.current())
+        self.map.table.select(name)
+        self.map.card.show(self.map.current())
+        self.show_devices()
 
     def open_location(self, l):
         if l:
             self.open(f"/viewer/?scene={l['name']}" if l.get("built") else "/viewer/map.html")
 
-    # ------------------------------------------------------------ disk space + clean-up
+    # ------------------------------------------------------------ pages
+    def show_page(self, key):
+        self.pages[key].tkraise()
+        for k, it in self.rail_items.items():
+            on = k == key
+            bg = BG3 if on else BG
+            for w in (it["frame"], it["inner"], it["cv"], it["lab"]):
+                w.configure(bg=bg)
+            it["bar"].configure(bg=ACC if on else bg)
+            it["lab"].configure(fg=ACC if on else FG2)
+            rail_icon(it["cv"], k, ACC if on else FG2)
+            self.draw_badge(k)
+        self.cfg["page"] = key
+        if key == "disk":
+            self.measure_disk()
+        if key == "phone":
+            self.refresh_status()
+
+    def draw_badge(self, key):
+        """A dot on a rail icon: drone / radio plugged in, phone sharing on."""
+        it = self.rail_items.get(key)
+        if not it:
+            return
+        it["cv"].delete("badge")
+        col = None
+        if key == "drone":
+            kinds = {d.get("kind") for d in self.devices.values()}
+            col = "#3ddc84" if "drone" in kinds else (ACC if "radio" in kinds else None)
+        elif key == "phone" and self.cfg.get("share"):
+            col = ACC
+        if col:
+            r = S(3.5)
+            x, y = S(21), S(3.5)
+            it["cv"].create_oval(x - r, y - r, x + r, y + r, fill=col, outline=BG, width=S(1.5), tags="badge")
+
+    def page_frame(self, parent, title, intro=None):
+        """Common page layout: a column of fixed width on the left, with a title and an optional intro."""
+        outer = tk.Frame(parent, bg=BG)
+        outer.pack(fill="both", expand=True, padx=S(24), pady=S(18))
+        col = tk.Frame(outer, bg=BG, width=S(660))
+        col.pack(side="left", fill="y"); col.pack_propagate(False)
+        self.section(title, col)
+        if intro:
+            tk.Label(col, text=intro, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(640)).pack(fill="x", pady=(0, S(12)))
+        return col
+
+    def say(self, text, kind="info"):
+        """A message for a few seconds over the bottom right corner (errors stay longer; click to close)."""
+        col = {"info": ACC, "ok": "#3ddc84", "bad": "#ff6b6b"}.get(kind, ACC)
+        self.toast.configure(text=text, fg=col, highlightbackground=col)
+        self.toast.place(relx=1, rely=0, x=-S(16), y=S(66), anchor="ne")      # top right of the page: free on every page
+        self.toast.lift()
+        if self._toast_job:
+            self.root.after_cancel(self._toast_job)
+        self._toast_job = self.root.after(15000 if kind == "bad" else 6000, self.toast.place_forget)
+
+    def busy_status(self, text):
+        self.server_pill.set(text, ACC)
+        self.root.update()
+
+    # ------------------------------------------------------------ keys
+    def focus_filter(self):
+        self.show_page("map")
+        self.map.list_open(True)
+        self.map.filter.focus_set()
+        self.map.filter.select_range(0, "end")
+        return "break"
+
+    def on_focus(self, e):
+        if e.widget is not self.root or time.monotonic() - self._last_refresh < 8:
+            return
+        self._last_refresh = time.monotonic()
+        self.check_offline(quiet=True)
+
+    def move_selection(self, step, e):
+        if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text)) or self.cfg.get("page") != "map":
+            return
+        self.map.table.step(step)
+
+    def on_return(self, e):
+        if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text, tk.Button)) or self.cfg.get("page") != "map":
+            return
+        self.open_location(self.map.current())
+
+    # ------------------------------------------------------------ drone page (USB)
+    def build_drone_page(self, parent):
+        col = self.page_frame(parent, "DRONE ON USB",
+                              "Plug the drone in with its USB cable (no battery needed). Alpline finds a Betaflight flight "
+                              "controller by itself and can copy its blackbox: every flight with GPS is added to the location "
+                              "where it took off. Close Betaflight Configurator first (it holds the port).")
+        self.drone_lab = FitLabel(col, font=("Consolas", 10, "bold"), fg=FG2, bg=BG)
+        self.drone_lab.pack(fill="x")
+        self.drone_info = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.drone_info.pack(fill="x", pady=(S(2), S(8)))
+        row = tk.Frame(col, bg=BG); row.pack(fill="x")
+        self.bb_btn = self.button(row, "[download blackbox]", self.download_blackbox, primary=True)
+        self.bb_btn.pack(side="left")
+        self.bb_here = tk.BooleanVar(value=False)
+        self.bb_here_cb = tk.Checkbutton(row, variable=self.bb_here, font=SANS, fg=FG, bg=BG, selectcolor=BG2,
+                                         activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0)
+        self.bb_here_cb.pack(side="left", padx=(S(12), 0))
+        Tip(self.bb_here_cb, "Off: each flight goes to the location whose map contains its take-off point.")
+        box = tk.Frame(col, bg=RULE, padx=1, pady=1); box.pack(fill="x", pady=(S(10), 0))
+        self.bb_log = tk.Text(box, height=9, font=("Consolas", 9), fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
+                              padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
+        self.bb_log.pack(fill="x")
+        self.bb_log.tag_configure("ok", foreground="#3ddc84")
+        self.bb_log.tag_configure("bad", foreground="#ff6b6b")
+        self.bb_log.insert("end", "The download's progress shows here.")
+        self.bb_log.configure(state="disabled")
+
+        tk.Frame(col, bg=BG, height=S(18)).pack()
+        self.section("RADIO ON USB", col)
+        self.radio_lab = FitLabel(col, font=("Consolas", 10, "bold"), fg=FG2, bg=BG)
+        self.radio_lab.pack(fill="x")
+        self.radio_info = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.radio_info.pack(fill="x", pady=(S(2), S(8)))
+        row = tk.Frame(col, bg=BG); row.pack(fill="x")
+        self.live_btn = self.button(row, "[live flight in 3d]", self.open_live)
+        self.live_btn.pack(side="left")
+        Tip(self.live_btn, "Opens the selected location on the fly tab: pick the radio's port there and connect.")
+        self.show_devices()
+
+    def start_device_watch(self):
+        try:
+            from serial.tools import list_ports  # noqa: F401
+        except Exception:
+            self.drone_lab.set("USB detection needs the pyserial library (pip install pyserial)")
+            self.bb_btn.configure(state="disabled"); self.live_btn.configure(state="disabled")
+            return
+        threading.Thread(target=self._watch_devices, daemon=True).start()
+
+    def _watch_devices(self):
+        """Every few seconds: which USB serial devices are plugged in. A new one is asked once whether it is a
+        Betaflight flight controller (MSP); anything else is taken as the radio. A port another program holds
+        (a live flight, Betaflight Configurator) shows as busy and is asked again later."""
+        import serial
+        from serial.tools import list_ports
+        try:
+            from fpv3d.blackbox import probe
+        except Exception:
+            probe = lambda dev: None
+        known = {}
+        while True:
+            changed = False
+            try:
+                ports = {p.device: p for p in list_ports.comports()}
+            except Exception:
+                ports = {}
+            for dev in list(known):
+                if dev not in ports:
+                    known.pop(dev); changed = True
+            for dev, p in ports.items():
+                if "VID:PID" not in (p.hwid or "").upper():
+                    continue                         # built-in / Bluetooth ports
+                if dev in known and known[dev]["kind"] != "busy":
+                    continue
+                if self.bb_proc is not None:
+                    continue                         # the download is using the drone
+                try:
+                    serial.Serial(dev, 115200, timeout=0.05).close()
+                except Exception:
+                    new = dict(kind="busy", port=dev, name=p.description or dev)
+                else:
+                    info = probe(dev)
+                    new = dict(kind="drone", **info) if info else dict(kind="radio", port=dev, name=p.description or dev)
+                if known.get(dev) != new:
+                    old = known.get(dev, {}).get("kind")
+                    known[dev] = new; changed = True
+                    if new["kind"] == "drone" and old != "drone":
+                        self.root.after(0, lambda d=new: self.say(f"drone plugged in: {d['board']} · {d['firmware']} · "
+                                                                  "see the drone page to download its blackbox", "ok"))
+            if changed:
+                snap = {k: dict(v) for k, v in known.items()}
+                self.root.after(0, lambda s=snap: self._devices_changed(s))
+            time.sleep(2.5)
+
+    def _devices_changed(self, devs):
+        self.devices = devs
+        self.show_devices()
+        self.draw_badge("drone")
+
+    def show_devices(self):
+        drones = [d for d in self.devices.values() if d["kind"] == "drone"]
+        radios = [d for d in self.devices.values() if d["kind"] == "radio"]
+        busy = [d for d in self.devices.values() if d["kind"] == "busy"]
+        if drones:
+            d = drones[0]
+            self.drone_lab.set(f"● {d['board']} · {d['firmware']} · {d['port']}", fg="#3ddc84")
+            used, tot = d.get("flash_used"), d.get("flash_total")
+            self.drone_info.set(f"blackbox: {used / 2 ** 20:.1f} of {tot / 2 ** 20:.0f} MB used" + (" (empty)" if not used else "")
+                                if used is not None else "blackbox on an SD card")
+        else:
+            self.drone_lab.set("○ no drone on USB", fg=FG2)
+            self.drone_info.set(f"{', '.join(b['port'] for b in busy)} in use by another program (Betaflight Configurator?)"
+                                if busy else "plug it in: it shows here within a few seconds")
+        running = self.bb_proc is not None
+        self.bb_btn.configure(state="normal" if drones and not running else "disabled",
+                              text="[downloading…]" if running else "[download blackbox]")
+        cur = self.map.current() if hasattr(self, "map") else None
+        self.bb_here_cb.configure(text=f"add every flight to {cur.get('title') or cur['name']}" if cur else "add every flight to the selected location",
+                                  state="normal" if cur else "disabled")
+        if radios:
+            r = radios[0]
+            self.radio_lab.set(f"● radio · {r['port']}", fg=ACC)
+            self.radio_info.set(f"{r['name']}" + (f" (+{len(radios) - 1} more USB serial)" if len(radios) > 1 else ""))
+        else:
+            self.radio_lab.set("○ no radio on USB", fg=FG2)
+            self.radio_info.set("connect the radio by USB and choose USB Serial (VCP) on it, for live flight")
+        self.live_btn.configure(state="normal" if cur and cur.get("built") else "disabled")
+
+    def bb_write(self, line, tag=None):
+        self.bb_log.configure(state="normal")
+        self.bb_log.insert("end", line + "\n", tag or ())
+        self.bb_log.see("end")
+        self.bb_log.configure(state="disabled")
+
+    def download_blackbox(self):
+        drones = [d for d in self.devices.values() if d["kind"] == "drone"]
+        if not drones or self.bb_proc is not None:
+            return
+        args = paths.cli_cmd(unbuffered=True) + ["--scenes", str(ROOT / "scenes"), "--cache", str(ROOT / "cache"),
+                                                  "blackbox", "--port", drones[0]["port"]]
+        cur = self.map.current()
+        if self.bb_here.get() and cur:
+            args += ["--location", cur["name"]]
+        self.bb_log.configure(state="normal"); self.bb_log.delete("1.0", "end"); self.bb_log.configure(state="disabled")
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8",
+               "PYTHONPATH": os.pathsep.join(filter(None, [str(APP), os.environ.get("PYTHONPATH")]))}
+        try:
+            self.bb_proc = subprocess.Popen(args, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                            encoding="utf-8", errors="replace", env=env,
+                                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except OSError as ex:
+            self.bb_write(f"could not start: {ex}", "bad")
+            return
+        self.logo.busy(True)
+        self.show_devices()
+
+        def read():
+            added = 0
+            for line in self.bb_proc.stdout:
+                line = line.rstrip()
+                if not line:
+                    continue
+                if line.startswith("ADDED "):
+                    added += 1
+                    continue
+                tag = "ok" if "→ added" in line or line.startswith("done:") else \
+                      "bad" if re.search(r"^(No |The |error|Traceback)|could not", line) else None
+                self.root.after(0, lambda l=line, t=tag: self.bb_write(l, t))
+            code = self.bb_proc.wait()
+            self.root.after(0, lambda: self._bb_done(code, added))
+        threading.Thread(target=read, daemon=True).start()
+
+    def _bb_done(self, code, added):
+        self.bb_proc = None
+        self.logo.busy(False)
+        self.show_devices()
+        self.check_offline(quiet=True)
+        if code == 0:
+            self.say(f"{added} flight(s) added · unplug the drone" if added else "no new flights · unplug the drone",
+                     "ok" if added else "info")
+        else:
+            self.say("blackbox download stopped: see the drone page", "bad")
+
+    def open_live(self):
+        cur = self.map.current()
+        if cur and cur.get("built"):
+            self.open(f"/viewer/?scene={cur['name']}&tab=fly")
+
+    # ------------------------------------------------------------ phone page
+    def build_phone_page(self, parent):
+        col = self.page_frame(parent, "PHONE",
+                              "Open Alpline on your phone: same Wi-Fi as this computer, or connect the computer to the "
+                              "phone's hotspot. The phone can look, fly and build; deleting and renaming stay on this computer.")
+        row = tk.Frame(col, bg=BG); row.pack(fill="x")
+        self.share_btn = self.button(row, "[share on my network: off]", self.toggle_share)
+        self.share_btn.pack(side="left")
+        self.qr_btn = self.button(row, "[qr code]", self.show_qr)
+        self.qr_btn.pack(side="left", padx=(S(6), 0))
+        Tip(self.qr_btn, "Show a QR code to scan with the phone's camera.")
+        ck = self.button(row, "[check access]", lambda: self.check_phone_access(ask=True) if os.name == "nt"
+                         else self.say("the access check is for Windows"))
+        ck.pack(side="left", padx=(S(6), 0))
+        Tip(ck, "Check that Windows lets the phone in (firewall, Private network) and offer to fix it.")
+        grid = tk.Frame(col, bg=BG); grid.pack(fill="x", pady=(S(14), 0))
+        grid.columnconfigure(1, weight=1)
+        self.phone_vals = {}
+        for i, (k, label) in enumerate((("addr", "address"), ("pin", "PIN"), ("state", "state"))):
+            tk.Label(grid, text=label, font=("Consolas", 9), fg=FG2, bg=BG, width=10, anchor="w").grid(row=i, column=0, sticky="w", pady=S(2))
+            e = tk.Entry(grid, font=("Consolas", 11, "bold"), fg=FG, bg=BG, bd=0, relief="flat", readonlybackground=BG,
+                         highlightthickness=0, insertbackground=FG)
+            e.grid(row=i, column=1, sticky="ew", pady=S(2))
+            self.phone_vals[k] = e
+        tk.Label(col, text="Type the address in the phone's browser, then the PIN once. Add it to the home screen for an "
+                           "app icon.", font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(640)).pack(fill="x", pady=(S(12), 0))
+
+    def set_entry(self, key, text):
+        e = self.phone_vals[key]
+        e.configure(state="normal"); e.delete(0, "end"); e.insert(0, text); e.configure(state="readonly")
+
+    # ------------------------------------------------------------ settings page
+    def build_settings_page(self, parent):
+        col = self.page_frame(parent, "SETTINGS")
+        def row(label):
+            r = tk.Frame(col, bg=BG); r.pack(fill="x", pady=S(6))
+            tk.Label(r, text=label, font=("Consolas", 9, "bold"), fg=FG, bg=BG, width=16, anchor="nw").pack(side="left", anchor="n")
+            inner = tk.Frame(r, bg=BG); inner.pack(side="left", fill="x", expand=True)
+            return inner
+        r = row("QUALITY")
+        seg = tk.Frame(r, bg=RULE, padx=1, pady=1); seg.pack(anchor="w")
+        self.mode_btns = {}
+        for m in ("full", "lite"):
+            b = tk.Button(seg, text=m, font=("Consolas", 10, "bold"), width=6, relief="flat", bd=0, cursor="hand2",
+                          command=lambda m=m: self.set_mode(m))
+            b.pack(side="left")
+            self.mode_btns[m] = b
+        self.mode_info = tk.Label(r, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(500), height=2)
+        self.mode_info.pack(fill="x", pady=(S(4), 0))
+        r = row("OPEN PAGES IN")
+        seg = tk.Frame(r, bg=RULE, padx=1, pady=1); seg.pack(anchor="w")
+        self.where_btns = {}
+        for k, label in (("window", "Alpline window"), ("browser", "my browser")):
+            b = tk.Button(seg, text=label, font=("Consolas", 10, "bold"), relief="flat", bd=0, cursor="hand2", padx=S(10),
+                          command=lambda k=k: self.set_open_in(k))
+            b.pack(side="left")
+            self.where_btns[k] = b
+        tk.Label(r, text="Alpline windows: Edge or Chrome in app mode, no address bar or tabs, own taskbar icon.",
+                 font=SANS, fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(500)).pack(fill="x", pady=(S(4), 0))
+        self.set_open_in(self.cfg.get("open_in", "window"), save=False)
+        r = row("DESKTOP")
+        self.button(r, "[add a desktop shortcut]", self.make_shortcut).pack(anchor="w")
+        r = row("YOUR FILES")
+        self.data_lab = FitLabel(r, font=("Consolas", 9), fg=FG, bg=BG)
+        self.data_lab.set(str(ROOT))
+        self.data_lab.pack(fill="x")
+        br = tk.Frame(r, bg=BG); br.pack(anchor="w", pady=(S(4), 0))
+        self.button(br, "[open folder]", self.open_data_folder, small=True).pack(side="left")
+        if paths.FROZEN:
+            ch = self.button(br, "[change…]", self.change_data_folder, small=True)
+            ch.pack(side="left", padx=(S(6), 0))
+            Tip(ch, "Use another folder for locations, flights and maps (e.g. an existing project folder). Restarts Alpline.")
+        r = row("ABOUT")
+        try:
+            from fpv3d import __version__ as ver
+        except Exception:
+            ver = "?"
+        tk.Label(r, text=f"Alpline {ver} · {'installed app' if paths.FROZEN else 'from the source folder'}",
+                 font=("Consolas", 9), fg=FG2, bg=BG, anchor="w").pack(fill="x")
+
+    def set_open_in(self, k, save=True):
+        if save:
+            self.cfg["open_in"] = k
+            self.save()
+            if k == "window" and not self.window_ok():
+                self.say("Alpline windows need Microsoft Edge or Google Chrome: meanwhile the browser", "bad")
+        for key, b in self.where_btns.items():
+            on = key == self.cfg.get("open_in", "window")
+            b.configure(bg=ACC if on else BG2, fg="#000" if on else FG2, activebackground=ACC if on else BG3)
+
+    def open_data_folder(self):
+        try:
+            if os.name == "nt":
+                os.startfile(str(ROOT))                     # noqa: S606
+            else:
+                subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(ROOT)])
+        except Exception as ex:
+            self.say(f"could not open the folder: {ex}", "bad")
+
+    def change_data_folder(self):
+        from tkinter import filedialog, messagebox
+        pick = filedialog.askdirectory(parent=self.root, title="Folder for Alpline's files", initialdir=str(ROOT))
+        if not pick or Path(pick) == ROOT:
+            return
+        if not messagebox.askyesno("Alpline", f"Use {pick} for your files? Alpline restarts.", parent=self.root):
+            return
+        paths.set_data(Path(pick))
+        self.quit()
+        subprocess.Popen([sys.executable] + sys.argv[1:])
+
+    # ------------------------------------------------------------ disk page
+    DISK_ITEMS = [("cache", "download cache (map tiles)", "Tiles from swisstopo. Lets you build offline; tiles no location uses can be removed."),
+                  ("scenes", "built locations", "What the 3D viewer shows. Rebuilt from the cache if deleted."),
+                  ("deleted", "deleted locations", "Kept so you can restore them. Emptying is permanent."),
+                  ("logs", "flight logs", "Your recorded, downloaded and training flights.")]
+
+    def build_disk_page(self, parent):
+        col = self.page_frame(parent, "DISK SPACE")
+        self.disk_labels = {}
+        for key, name, tip in self.DISK_ITEMS:
+            r = tk.Frame(col, bg=BG); r.pack(fill="x", pady=S(2))
+            tk.Label(r, text=name, font=SANS, fg=FG, bg=BG, width=28, anchor="w").pack(side="left")
+            self.disk_labels[key] = tk.Label(r, text="…", font=MONO, fg=FG, bg=BG, anchor="e", width=12)
+            self.disk_labels[key].pack(side="left")
+            Tip(self.disk_labels[key], tip)
+        self.disk_total = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.disk_total.pack(fill="x", pady=(S(6), 0))
+        btns = tk.Frame(col, bg=BG); btns.pack(fill="x", pady=(S(12), 0))
+        b1 = self.button(btns, "[clean unused tiles]", self.disk_prune); b1.pack(side="left", padx=(0, S(6)))
+        Tip(b1, "Deletes downloaded tiles that none of your location files uses. Your locations still build offline.")
+        b2 = self.button(btns, "[empty deleted]", lambda: self.disk_run(["deleted", "--purge"],
+                         confirm="Permanently delete the locations in the 'deleted' folder? They can no longer be restored."))
+        b2.pack(side="left")
+        self.disk_out = FitLabel(col, font=SANS, fg=FG2, bg=BG)
+        self.disk_out.pack(fill="x", pady=(S(10), 0))
+
+    def measure_disk(self):
+        def work():
+            res = {k: self.folder_size(ROOT / k) for k, *_ in self.DISK_ITEMS}
+            def show():
+                for k, (b, n) in res.items():
+                    self.disk_labels[k].configure(text=f"{b / 1e9:.2f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB")
+                tot = sum(b for b, _ in res.values())
+                self.disk_total.set(f"total {tot / 1e9:.1f} GB" if tot >= 1e9 else f"total {tot / 1e6:.0f} MB")
+            self.root.after(0, show)
+        threading.Thread(target=work, daemon=True).start()
+
+    def disk_run(self, args, confirm=None, after=None):
+        from tkinter import messagebox
+        if confirm and not messagebox.askyesno("Alpline", confirm, parent=self.root):
+            return
+        self.disk_out.set("working…")
+        self.logo.busy(True)
+
+        def work():
+            try:
+                r = subprocess.run(paths.cli_cmd() + args, cwd=str(ROOT), capture_output=True, text=True,
+                                   encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                text = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-300:]
+                self.root.after(0, lambda: (self.disk_out.set(text), after and after(r), self.measure_disk()))
+            finally:
+                self.root.after(0, lambda: self.logo.busy(False))
+        threading.Thread(target=work, daemon=True).start()
+
+    def disk_prune(self):                         # first say how much, then ask
+        def asked(r):
+            if r.returncode == 0 and "would free 0 MB" not in r.stdout:
+                self.disk_run(["cache", "prune"], confirm=r.stdout.strip().splitlines()[-1].replace("would free", "This will free")
+                              + ".\n\nTiles of your location files (and 1 km around them) are kept. Delete the rest?")
+        self.disk_run(["cache", "prune", "--dry-run"], after=asked)
+
+    # ------------------------------------------------------------ disk sizes
     @staticmethod
     def folder_size(p: Path):
         total = n = 0
@@ -662,69 +1235,6 @@ $r | ConvertTo-Json -Depth 4 -Compress
             except OSError:
                 pass
         return total, n
-
-    def disk_dialog(self):
-        win = tk.Toplevel(self.root); win.title("Alpline · disk space"); win.configure(bg=BG); win.resizable(False, False)
-        hdr = tk.Frame(win, bg=BG); hdr.pack(fill="x", padx=14, pady=(12, 0))
-        self.section("DISK SPACE", hdr)
-        rows = tk.Frame(win, bg=BG); rows.pack(fill="x", padx=14)
-        out = tk.Label(win, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(460))
-        items = [("cache", "download cache (map tiles)", "Tiles from swisstopo. Lets you build offline; tiles no location uses can be removed."),
-                 ("scenes", "built locations", "What the 3D viewer shows. Rebuilt from the cache if deleted."),
-                 ("deleted", "deleted locations", "Kept so you can restore them. Emptying is permanent."),
-                 ("logs", "flight logs", "Your recorded and training flights.")]
-        labels = {}
-        for key, name, tip in items:
-            r = tk.Frame(rows, bg=BG); r.pack(fill="x", pady=1)
-            tk.Label(r, text=name, font=SANS, fg=FG, bg=BG, width=26, anchor="w").pack(side="left")
-            labels[key] = tk.Label(r, text="…", font=MONO, fg=FG, bg=BG, anchor="e", width=18); labels[key].pack(side="left")
-            Tip(labels[key], tip)
-
-        def measure():
-            res = {k: self.folder_size(ROOT / k) for k, *_ in items}
-            def show():
-                for k, (b, n) in res.items():
-                    labels[k].configure(text=f"{b / 1e9:.2f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB")
-                tot = sum(b for b, _ in res.values())
-                out.configure(text=f"Total {tot / 1e9:.1f} GB (Python libraries not counted).")
-            self.root.after(0, show)
-        threading.Thread(target=measure, daemon=True).start()
-
-        def run(args, confirm=None, after=None):
-            from tkinter import messagebox
-            if confirm and not messagebox.askyesno("Alpline", confirm, parent=win):
-                return
-            out.configure(text="working…")
-
-            self.logo.busy(True)
-
-            def work():
-                try:
-                    work_()
-                finally:
-                    self.root.after(0, lambda: self.logo.busy(False))
-
-            def work_():
-                r = subprocess.run(paths.cli_cmd() + args, cwd=str(ROOT), capture_output=True, text=True,
-                                   encoding="utf-8", errors="replace", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-                text = (r.stdout.strip().splitlines() or [""])[-1] if r.returncode == 0 else (r.stderr or r.stdout).strip()[-300:]
-                self.root.after(0, lambda: (out.configure(text=text), after and after(r), threading.Thread(target=measure, daemon=True).start()))
-            threading.Thread(target=work, daemon=True).start()
-
-        def prune():                              # first say how much, then ask
-            def asked(r):
-                if r.returncode == 0 and "would free 0 MB" not in r.stdout:
-                    run(["cache", "prune"], confirm=r.stdout.strip().splitlines()[-1].replace("would free", "This will free")
-                        + ".\n\nTiles of your location files (and 1 km around them) are kept. Delete the rest?")
-            run(["cache", "prune", "--dry-run"], after=asked)
-
-        btns = tk.Frame(win, bg=BG); btns.pack(fill="x", padx=14, pady=(10, 0))
-        b1 = self.button(btns, "[clean unused tiles]", prune); b1.pack(side="left", padx=(0, 6))
-        Tip(b1, "Deletes downloaded tiles that none of your location files uses. Your locations still build offline.")
-        b2 = self.button(btns, "[empty deleted]", lambda: run(["deleted", "--purge"],
-                         confirm="Permanently delete the locations in the 'deleted' folder? They can no longer be restored."))
-        b2.pack(side="left")
-        out.pack(fill="x", padx=14, pady=(8, 14))
 
     # ------------------------------------------------------------ desktop shortcut (Windows)
     def make_shortcut(self):
@@ -746,10 +1256,12 @@ $r | ConvertTo-Json -Depth 4 -Compress
                  else f"could not create the shortcut: {(r.stderr or r.stdout).strip()[:120]}")
 
 
+
 def split_name(name):
     """'007_moleson' -> ('007', 'moleson'); 'test' -> ('', 'test')"""
     head, _, rest = name.partition("_")
     return (head, rest) if head.isdigit() and rest else ("", name)
+
 
 
 class LogoAnim:
@@ -819,49 +1331,78 @@ class LogoAnim:
         self.job = self.root.after(self.MS[self.mode], self._tick)
 
 
+
 class Table:
-    """Locations in number order: # · name · real logs · sim logs (grey row = not built yet)."""
-    def __init__(self, app, parent, height):
+    """Locations in number order: # · name · real logs · sim logs (grey row = not built yet). Filtered by the box above."""
+    def __init__(self, app, parent):
         self.app = app
-        box = tk.Frame(parent, bg=RULE, padx=1, pady=1); box.pack(fill="x")
-        self.tv = ttk.Treeview(box, style="L.Treeview", columns=("num", "name", "real", "sim"), show="headings",
-                               height=height, selectmode="browse")
-        for c, label, w, anchor in (("num", "#", 42, "w"), ("name", "LOCATION", 190, "w"),
-                                    ("real", "REAL", 54, "e"), ("sim", "SIM", 54, "e")):
+        self.box = tk.Frame(parent, bg=RULE, padx=1, pady=1)
+        self.tv = ttk.Treeview(self.box, style="L.Treeview", columns=("num", "name", "real", "sim"), show="headings",
+                               height=8, selectmode="browse")
+        for c, label, w, anchor in (("num", "#", 40, "w"), ("name", "LOCATION", 150, "w"),
+                                    ("real", "REAL", 46, "e"), ("sim", "SIM", 42, "e")):
             self.tv.heading(c, text=label, anchor=anchor)
-            self.tv.column(c, width=S(w), anchor=anchor, stretch=c == "name")
+            self.tv.column(c, width=S(w), minwidth=S(w if c != "name" else 60), anchor=anchor, stretch=c == "name")
         self.tv.tag_configure("nb", foreground=GREY)
-        sb = ttk.Scrollbar(box, orient="vertical", command=self.tv.yview, style="L.Vertical.TScrollbar")
+        sb = ttk.Scrollbar(self.box, orient="vertical", command=self.tv.yview, style="L.Vertical.TScrollbar")
         def autohide(lo, hi):                   # the scrollbar only shows when the list is longer than the box
             sb.set(lo, hi)
             if float(lo) <= 0 and float(hi) >= 1:
                 sb.pack_forget()
             elif not sb.winfo_ismapped():
-                sb.pack(side="left", fill="y")
+                sb.pack(side="right", fill="y")
         self.tv.configure(yscrollcommand=autohide)
-        self.tv.pack(side="left", fill="x", expand=True)
+        self.tv.pack(side="left", fill="both", expand=True)
         self.tv.bind("<<TreeviewSelect>>", self.on_select)
         self.tv.bind("<Double-1>", lambda e: app.open_location(app.map.current()))
         self.tv.bind("<Return>", lambda e: app.open_location(app.map.current()))
         self.busy = False
+        self.locs = []
+        self.query = ""
+        self.font = tkfont.Font(font=MONO)
 
-    def fill(self, locs):
+    def fill(self, locs=None):
+        if locs is not None:
+            self.locs = locs
+        q = self.query.lower().strip()
         self.busy = True
         self.tv.delete(*self.tv.get_children())
-        for l in locs:
+        for l in self.locs:
             num, rest = split_name(l["name"])
+            title = l.get("title") or rest
+            if q and q not in f"{l['name']} {title}".lower():
+                continue
             st = l.get("stats") or {}
             self.tv.insert("", "end", iid=l["name"], tags=() if l.get("built") else ("nb",),
-                           values=(num, l.get("title") or rest, st.get("real", 0) or "·", st.get("sim", 0) or "·"))
+                           values=(num, self.cut(title), st.get("real", 0) or "·", st.get("sim", 0) or "·"))
         if self.app.map.selected in self.tv.get_children():
             self.tv.selection_set(self.app.map.selected); self.tv.see(self.app.map.selected)
         self.busy = False
+
+    def cut(self, t):
+        w = self.tv.column("name", "width") - S(10)
+        if self.font.measure(t) <= w:
+            return t
+        while t and self.font.measure(t + "…") > w:
+            t = t[:-1]
+        return t.rstrip() + "…"
+
+    def rows(self):
+        return list(self.tv.get_children())
 
     def select(self, name):
         if name in self.tv.get_children() and self.tv.selection() != (name,):
             self.busy = True
             self.tv.selection_set(name); self.tv.see(name)
             self.app.root.after_idle(lambda: setattr(self, "busy", False))
+
+    def step(self, d):
+        rows = self.rows()
+        if not rows:
+            return
+        cur = self.app.map.selected
+        i = rows.index(cur) + d if cur in rows else 0
+        self.app.select(rows[max(0, min(len(rows) - 1, i))])
 
     def on_select(self, _):
         if self.busy:
@@ -872,66 +1413,57 @@ class Table:
 
 
 class Card:
-    """Details of the selected location, with a real / sim bar chart of its logs."""
-    BAR_W = 200
-
+    """Details of the selected location: three lines of fixed height and the open button."""
     def __init__(self, app, parent):
         self.app = app
-        f = tk.Frame(parent, bg=RULE, padx=1, pady=1); f.pack(fill="x", pady=(10, 0))
-        inner = tk.Frame(f, bg=BG, padx=10, pady=8); inner.pack(fill="both")
-        self.title = tk.Label(inner, font=("Consolas", 10, "bold"), fg=FG, bg=BG, anchor="w"); self.title.pack(fill="x")
-        self.info = tk.Label(inner, font=("Consolas", 9), fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(350))
-        self.info.pack(fill="x", pady=(2, 6))
-        self.cv = tk.Canvas(inner, width=S(330), height=S(46), bg=BG, highlightthickness=0); self.cv.pack(anchor="w")
-        row = tk.Frame(inner, bg=BG); row.pack(fill="x", pady=(8, 0))
+        self.frame = tk.Frame(parent, bg=RULE, padx=1, pady=1)
+        inner = tk.Frame(self.frame, bg=BG, padx=S(12), pady=S(10)); inner.pack(fill="both")
+        self.title = FitLabel(inner, font=("Consolas", 10, "bold"), fg=FG, bg=BG); self.title.pack(fill="x")
+        self.info = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.info.pack(fill="x", pady=(S(3), 0))
+        self.stats = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.stats.pack(fill="x", pady=(S(1), S(8)))
+        row = tk.Frame(inner, bg=BG); row.pack(fill="x")
         self.open_btn = app.button(row, "[open in 3d]", lambda: app.open_location(app.map.current()), primary=True)
         self.open_btn.pack(side="left")
-        self.map_btn = app.button(row, "[locations map]", lambda: app.open("/viewer/map.html"))
-        self.map_btn.pack(side="left", padx=(6, 0))
+        self.fly_btn = app.button(row, "[fly]", app.open_live)
+        self.fly_btn.pack(side="left", padx=(S(6), 0))
+        Tip(self.fly_btn, "Open this location on the fly tab: training flight, or live flight with the radio.")
 
     def show(self, l):
-        self.cv.delete("all")
         if not l:
-            self.title.configure(text="no location selected")
-            self.info.configure(text="click one on the map or in the list")
-            self.open_btn.configure(state="disabled")
+            self.title.set("no location selected")
+            self.info.set("click one on the map or in the list")
+            self.stats.set("")
+            self.open_btn.configure(state="disabled"); self.fly_btn.configure(state="disabled")
             return
         num, rest = split_name(l["name"])
-        self.title.configure(text=f"{num + ' · ' if num else ''}{(l.get('title') or rest).upper()}")
+        self.title.set(f"{num + ' · ' if num else ''}{(l.get('title') or rest).upper()}")
         size = (f"route {l['corridor']['length_m'] / 1000:.1f} km" if l.get("corridor")
                 else f"{2 * l['half_size_m'] / 1000:g} × {2 * l['half_size_m'] / 1000:g} km")
         st = l.get("stats") or {}
-        built = f"built {fmt_day(st.get('built'))}" if l.get("built") else "not built yet"
-        last = f" · last log {fmt_day(st.get('last'))}" if st.get("last") else ""
-        self.info.configure(text=f"{size} · terrain {l.get('resolution_m', '?'):g} m · {built}{last}")
+        built = f"built {short_day(st.get('built'))}" if l.get("built") else "not built yet"
+        self.info.set(f"{size} · {l.get('resolution_m', '?'):g} m terrain · {built}")
+        parts = []
+        for k in ("real", "sim"):
+            n = st.get(k, 0)
+            parts.append(f"{n} {k}" + (f" ({fmt_dur(st.get(k + '_s', 0))})" if n else ""))
+        last = f" · last {short_day(st['last'])}" if st.get("last") else ""
+        self.stats.set(" · ".join(parts) + last)
         self.open_btn.configure(state="normal", text="[open in 3d]" if l.get("built") else "[build on the map]")
-        # bar chart: real vs sim logs (bars scaled to the location with the most logs)
-        most = max([1] + [max(x["stats"]["real"], x["stats"]["sim"]) for x in self.app.map.locs if x.get("stats")])
-        for i, (k, label, col) in enumerate((("real", "REAL", ACC), ("sim", "SIM", "#8fb3ff"))):
-            y, bw, x0, h = S(4 + i * 22), S(self.BAR_W), S(40), S(14)
-            n, secs = st.get(k, 0), st.get(k + "_s", 0)
-            self.cv.create_text(0, y + h / 2, text=label, anchor="w", fill=FG2, font=("Consolas", 8, "bold"))
-            self.cv.create_rectangle(x0, y, x0 + bw, y + h, fill=BG2, outline="")
-            if n:
-                self.cv.create_rectangle(x0, y, x0 + max(3, bw * n / most), y + h, fill=col, outline="")
-            self.cv.create_text(x0 + bw + S(8), y + h / 2, anchor="w", fill=FG if n else GREY, font=("Consolas", 9),
-                                text=f"{n}  {fmt_dur(secs)}" if n else "0")
+        self.fly_btn.configure(state="normal" if l.get("built") else "disabled")
 
 
 # ---------------------------------------------------------------- Switzerland map
-# swisstopo grey map + FOCA drone restrictions (the same tiles as the locations map page), downloaded once
-# at zoom 8 (9 on high-DPI screens), cropped to Switzerland and kept in cache/launcher/ so the map also shows offline.
+# swisstopo grey map + FOCA drone restrictions (the same tiles as the locations map page), downloaded once at zoom 9,
+# cropped to Switzerland and kept in cache/launcher/ so the map also shows offline. Scaled to the window's size.
 
 MAP_DIR = ROOT / "cache" / "launcher"
 BBOX = (5.85, 45.75, 10.6, 47.9)                    # lon/lat west, south, east, north
-Z = 8
-MAP_W = 600                                          # canvas width (px)
+ZM = 9                                               # zoom of the stored map (about 1730 px wide)
 TILE_URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
 
 
-def merc(lon, lat, z=None):
+def merc(lon, lat, z=ZM):
     """lon/lat -> global pixel coordinates at zoom z (Web Mercator, 256 px tiles)."""
-    z = Z if z is None else z
     n = 256 * 2 ** z
     x = (lon + 180) / 360 * n
     la = math.radians(lat)
@@ -940,35 +1472,143 @@ def merc(lon, lat, z=None):
 
 
 class SwissMap:
+    """The map page: the map fills it; the locations list (top left), the selected location (bottom right) and the
+    map options (bottom left) float over it at fixed sizes, so a resize only rescales the map."""
     def __init__(self, app: "Launcher", parent):
         self.app = app
         x0, y0 = merc(BBOX[0], BBOX[3]); x1, y1 = merc(BBOX[2], BBOX[1])
-        self.org, self.scale = (x0, y0), MAP_W / (x1 - x0)
-        self.h = round((y1 - y0) * self.scale)
-        f = tk.Frame(parent, bg=BG); f.pack(side="left", anchor="n")
-        self.cv = tk.Canvas(f, width=MAP_W, height=self.h, bg=BG2, highlightthickness=1, highlightbackground=RULE)
-        self.cv.pack()
-        row = tk.Frame(f, bg=BG); row.pack(fill="x", pady=(6, 0))
+        self.org, self.span = (x0, y0), (x1 - x0, y1 - y0)
+        self.s, self.ox, self.oy = 1.0, 0.0, 0.0
+        self.cv = tk.Canvas(parent, bg=BG2, highlightthickness=0)
+        self.cv.pack(fill="both", expand=True)
+        self.src, self.imgs, self.photo = {}, {}, None
+        self.locs = []
+        self.selected = app.cfg.get("selected")
+        self.downloading, self.spin, self.spin_i, self._spin_job, self._resize_job = False, None, 0, None, None
+        self.label_font = tkfont.Font(family="Consolas", size=9, weight="bold")
+
+        # ---- locations list (top left)
+        self.listp = tk.Frame(self.cv, bg=RULE, padx=1, pady=1)
+        li = tk.Frame(self.listp, bg=BG, padx=S(10), pady=S(8)); li.pack(fill="both", expand=True)
+        hdr = tk.Frame(li, bg=BG); hdr.pack(fill="x")
+        self.list_title = tk.Label(hdr, text="LOCATIONS", font=("Consolas", 9, "bold"), fg=FG, bg=BG)
+        self.list_title.pack(side="left")
+        self.fold_btn = app.button(hdr, "[–]", lambda: self.list_open(not self.open_), small=True)
+        self.fold_btn.pack(side="right")
+        Tip(self.fold_btn, "Fold the list to see the whole map.")
+        self.list_body = tk.Frame(li, bg=BG)
+        self.list_body.pack(fill="both", expand=True)
+        self.filter = tk.Entry(self.list_body, font=("Consolas", 10), fg=FG, bg=BG2, insertbackground=FG, bd=0, relief="flat",
+                               highlightthickness=1, highlightbackground=RULE2, highlightcolor=ACC)
+        self.filter.pack(fill="x", pady=(S(6), S(6)), ipady=S(3))
+        self.placeholder = tk.Label(self.filter, text="filter  (Ctrl+F)", font=("Consolas", 9), fg=GREY, bg=BG2)
+        self.placeholder.place(x=S(6), rely=0.5, anchor="w")
+        self.placeholder.bind("<Button-1>", lambda e: self.filter.focus_set())
+        self.filter.bind("<KeyRelease>", self.on_filter)
+        self.filter.bind("<Escape>", lambda e: (self.filter.delete(0, "end"), self.on_filter()))
+        self.filter.bind("<Down>", lambda e: self.into_list())
+        self.filter.bind("<Return>", lambda e: self.filter_enter())
+        self.table = Table(app, self.list_body)
+        self.table.box.pack(fill="both", expand=True)
+        self.list_foot = FitLabel(self.list_body, font=("Consolas", 8), fg=FG2, bg=BG)
+        self.list_foot.pack(fill="x", pady=(S(6), 0))
+        self.open_ = True
+
+        # ---- selected location (bottom right)
+        self.card = Card(app, self.cv)
+
+        # ---- map options (bottom left)
+        self.bar = tk.Frame(self.cv, bg=RULE, padx=1, pady=1)
+        bi = tk.Frame(self.bar, bg=BG, padx=S(8), pady=S(4)); bi.pack(fill="both")
         self.zones = tk.BooleanVar(value=app.cfg.get("map_zones", True))
-        cb = tk.Checkbutton(row, text="drone zones (FOCA)", variable=self.zones, command=self.draw, font=SANS, fg=FG, bg=BG,
+        cb = tk.Checkbutton(bi, text="drone zones", variable=self.zones, command=self.draw, font=SANS, fg=FG, bg=BG,
                             selectcolor=BG2, activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0)
         cb.pack(side="left")
         Tip(cb, "Official drone restrictions from FOCA (map.geo.admin.ch). An overview only: check the locations map "
                 "for the details before flying.")
-        up = app.button(row, "[update map]", lambda: self.download(force=True), small=True); up.pack(side="right")
+        up = app.button(bi, "[update map]", lambda: self.download(force=True), small=True)
+        up.pack(side="left", padx=(S(8), 0))
         Tip(up, "Download the map and the latest drone zones again (needs internet; kept for offline use).")
-        self.hint = "click = select · double-click = open"
-        self.info = tk.Label(row, text=self.hint, font=SANS, fg=FG2, bg=BG); self.info.pack(side="right", padx=(0, 10))
-        self.imgs = {}
-        self.locs = []
-        self.selected = app.cfg.get("selected")
-        self.downloading, self.spin, self.spin_i = False, None, 0
-        if not all((MAP_DIR / f"ch_{k}_{MAP_W}.png").exists() for k in ("base", "zones")):
+        self.info = FitLabel(bi, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.info.pack(side="left", fill="x", expand=True, padx=(S(10), 0))
+        self.hint = ""
+
+        self.cv.bind("<Configure>", lambda e: self.schedule_layout())
+        self.load_sources()
+        if not self.src:
             self.download()
+
+    # ---------------------------------------------------------- list panel
+    def list_open(self, on):
+        self.open_ = on
+        if on:
+            self.list_body.pack(fill="both", expand=True)
+        else:
+            self.list_body.pack_forget()
+        self.fold_btn.configure(text="[–]" if on else "[+]")
+        self.layout()
+
+    def on_filter(self, _=None):
+        q = self.filter.get()
+        self.placeholder.place_forget() if q else self.placeholder.place(x=S(6), rely=0.5, anchor="w")
+        if q != self.table.query:
+            self.table.query = q
+            self.table.fill()
+            self.layout()
+            rows = self.table.rows()
+            if rows and self.selected not in rows:
+                self.app.select(rows[0])
+
+    def into_list(self):
+        rows = self.table.rows()
+        if rows:
+            self.table.tv.focus_set()
+            self.table.tv.focus(self.selected if self.selected in rows else rows[0])
+        return "break"
+
+    def filter_enter(self):
+        rows = self.table.rows()
+        if rows:
+            self.app.open_location(next((l for l in self.locs if l["name"] == (self.selected if self.selected in rows else rows[0])), None))
+        return "break"
+
+    # ---------------------------------------------------------- layout
+    def schedule_layout(self):
+        if self._resize_job:
+            self.app.root.after_cancel(self._resize_job)
+        self._resize_job = self.app.root.after(60, self.layout)
+
+    def layout(self):
+        self._resize_job = None
+        W, H = self.cv.winfo_width(), self.cv.winfo_height()
+        if W < 50 or H < 50:
+            return
+        m = S(12)
+        self.bar.place(x=m, y=H - m, anchor="sw", width=min(S(470), W - S(370)))
+        self.card.frame.place(x=W - m, y=H - m, anchor="se", width=S(360))
+        self.app.root.update_idletasks()
+        bar_h = self.bar.winfo_reqheight()
+        # the list: as tall as fits above the map options, in whole rows
+        rowh = S(21)
+        fixed = self.listp.winfo_reqheight() - (int(self.table.tv.cget("height")) * rowh if self.open_ else 0)
+        avail = H - 3 * m - bar_h - fixed - S(24)
+        rows = max(4, min(16, avail // rowh, len(self.table.rows()) + 1))     # no big empty box for a few locations
+        if self.open_ and int(self.table.tv.cget("height")) != rows:
+            self.table.tv.configure(height=rows)
+        self.listp.place(x=m, y=m, anchor="nw", width=S(330))
+        self.app.root.update_idletasks()
+        self.table.fill()                           # names cut to the final column width
+        # the map: as large as the page allows, centred
+        pad = S(16)
+        self.s = min((W - 2 * pad) / self.span[0], (H - 2 * pad) / self.span[1])
+        self.ox = (W - self.span[0] * self.s) / 2
+        self.oy = (H - self.span[1] * self.s) / 2
+        self.photo = None
+        self.draw(save=False)
 
     def px(self, lat, lon):
         x, y = merc(lon, lat)
-        return (x - self.org[0]) * self.scale, (y - self.org[1]) * self.scale
+        return self.ox + (x - self.org[0]) * self.s, self.oy + (y - self.org[1]) * self.s
 
     def current(self):
         return next((l for l in self.locs if l["name"] == self.selected), None)
@@ -981,11 +1621,45 @@ class SwissMap:
                 sys.path.append(str(sp))
             from fpv3d.locations import list_locations
             self.locs = sorted((l for l in list_locations(ROOT / "scenes") if "center" in l), key=lambda l: l["name"])
+            self.hint = self.map_age()
         except Exception as ex:                     # missing libraries etc.: the map still works without them
             self.locs = []
-            self.info.configure(text=f"locations not shown ({ex.__class__.__name__})")
+            self.hint = f"locations not shown ({ex.__class__.__name__})"
+        self.info.set(self.hint)
+        self.list_title.configure(text=f"LOCATIONS · {len(self.locs)}")
         if self.selected not in [l["name"] for l in self.locs]:
             self.selected = self.locs[0]["name"] if self.locs else None
+
+    def map_age(self):
+        p = MAP_DIR / "ch_base.png"
+        return f"map from {time.strftime('%d %b %Y', time.localtime(p.stat().st_mtime))}" if p.exists() else "no map yet"
+
+    def load_sources(self):
+        """The stored map images (full size). Older launchers stored a small one: used until the new one is there."""
+        self.src.clear(); self.imgs.clear(); self.photo = None
+        for key in ("base", "zones"):
+            p = MAP_DIR / f"ch_{key}.png"
+            if not p.exists():
+                old = sorted(MAP_DIR.glob(f"ch_{key}_*.png"), key=lambda f: f.stat().st_size)
+                p = old[-1] if old else None
+            if p:
+                self.src[key] = p
+
+    def image(self, key, w, h):
+        """The map image at w x h px (PIL resamples it sharply; without PIL the stored size is used)."""
+        k = (key, w, h)
+        if k not in self.imgs:
+            self.imgs = {kk: v for kk, v in self.imgs.items() if kk[1:] == (w, h)}     # keep only this size
+            try:
+                from PIL import Image, ImageTk
+                with Image.open(self.src[key]) as im:
+                    self.imgs[k] = ImageTk.PhotoImage(im.convert("RGB").resize((w, h), Image.LANCZOS))
+            except Exception:
+                try:
+                    self.imgs[k] = tk.PhotoImage(file=str(self.src[key]))
+                except tk.TclError:
+                    return None
+        return self.imgs[k]
 
     def download(self, force=False):
         if self.downloading:                        # [update map] pressed again while it runs
@@ -1001,38 +1675,39 @@ class SwissMap:
             if logo:
                 logo.busy(False)
             if msg is None:
-                self.imgs.clear()
+                self.load_sources()
+                self.hint = self.map_age()
             self.draw()
-            self.info.configure(text=msg or self.hint)
+            self.info.set(msg or self.hint)
+            if msg:
+                self.app.say(msg, "bad")
 
         def work():
             try:
                 from PIL import Image
                 import io
                 x0, y0 = self.org
-                tx0, ty0 = int(x0 // 256), int(y0 // 256)
-                x1, y1 = merc(BBOX[2], BBOX[1])
-                tx1, ty1 = int(x1 // 256), int(y1 // 256)
+                x1, y1 = x0 + self.span[0], y0 + self.span[1]
+                tx0, ty0, tx1, ty1 = int(x0 // 256), int(y0 // 256), int(x1 // 256), int(y1 // 256)
                 out = {}
                 for key, layer, ext in (("base", "ch.swisstopo.pixelkarte-grau", "jpeg"),
                                         ("zones", "ch.bazl.einschraenkungen-drohnen", "png")):
                     mosaic = Image.new("RGBA", ((tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256), (0, 0, 0, 0))
                     for tx in range(tx0, tx1 + 1):
                         for ty in range(ty0, ty1 + 1):
-                            url = TILE_URL.format(layer=layer, z=Z, x=tx, y=ty, ext=ext)
+                            url = TILE_URL.format(layer=layer, z=ZM, x=tx, y=ty, ext=ext)
                             req = urllib.request.Request(url, headers={"User-Agent": "alpline-launcher"})
                             try:
                                 data = urllib.request.urlopen(req, timeout=10).read()
                             except urllib.error.HTTPError:
                                 continue            # no tile there (outside the data)
                             mosaic.paste(Image.open(io.BytesIO(data)).convert("RGBA"), ((tx - tx0) * 256, (ty - ty0) * 256))
-                    crop = mosaic.crop((round(x0 - tx0 * 256), round(y0 - ty0 * 256),
-                                        round(x1 - tx0 * 256), round(y1 - ty0 * 256))).resize((MAP_W, self.h), Image.LANCZOS)
-                    out[key] = crop
+                    out[key] = mosaic.crop((round(x0 - tx0 * 256), round(y0 - ty0 * 256),
+                                            round(x1 - tx0 * 256), round(y1 - ty0 * 256)))
                 base = out["base"].convert("RGB").convert("RGBA")
                 MAP_DIR.mkdir(parents=True, exist_ok=True)
-                base.save(MAP_DIR / f"ch_base_{MAP_W}.png")
-                Image.alpha_composite(base, out["zones"]).save(MAP_DIR / f"ch_zones_{MAP_W}.png")
+                base.convert("RGB").save(MAP_DIR / "ch_base.png")
+                Image.alpha_composite(base, out["zones"]).convert("RGB").save(MAP_DIR / "ch_zones.png")
                 self.app.root.after(0, done)
             except Exception as ex:
                 msg = f"map not downloaded ({ex.__class__.__name__}): needs internet once"
@@ -1046,50 +1721,56 @@ class SwissMap:
         self.app.cfg["selected"] = self.selected
         cv = self.cv
         cv.delete("all")
+        W, H = cv.winfo_width(), cv.winfo_height()
         key = "zones" if self.zones.get() else "base"
-        p = MAP_DIR / f"ch_{key}_{MAP_W}.png"
-        if p.exists():
-            try:
-                self.imgs[key] = self.imgs.get(key) or tk.PhotoImage(file=str(p))
-                cv.create_image(0, 0, image=self.imgs[key], anchor="nw")
-            except tk.TclError:
-                pass
+        w, h = round(self.span[0] * self.s), round(self.span[1] * self.s)
+        if key in self.src and w > 10:
+            img = self.image(key, w, h)
+            if img:
+                cv.create_image(self.ox, self.oy, image=img, anchor="nw")
         elif not self.downloading:
-            cv.create_text(MAP_W / 2, 20, text="no map yet: [update map] when online", fill=FG2, font=MONO)
-        labels = []
-        for l in sorted(self.locs, key=lambda l: not l.get("built")):   # built ones get their name first
+            cv.create_text(W / 2, H / 2, text="no map yet: [update map] when online", fill=FG2, font=MONO)
+        mpp = 156543.03 / 2 ** ZM                    # metres per stored-map pixel at the equator
+        order = sorted(self.locs, key=lambda l: (l["name"] != self.selected, not l.get("built")))
+        anchors = {}
+        for l in reversed(order):                   # shapes first (selected and built ones on top) ...
             col = ACC if l.get("built") else "#8a93a0"
             tag = f"loc_{l['name']}"
             if l.get("corridor"):
                 pts = [c for la, lo in l["corridor"]["points"] for c in self.px(la, lo)]
-                w = max(3, 2 * l["corridor"]["width_m"] / (156543.03 / 2 ** Z) * self.scale)
-                cv.create_line(*pts, fill="#000", width=w + 2, tags=tag)
-                cv.create_line(*pts, fill=col, width=w, tags=tag)
-                lx, ly = pts[-2], pts[-1]
+                wd = max(3, 2 * l["corridor"]["width_m"] / mpp * self.s)
+                cv.create_line(*pts, fill="#000", width=wd + 2, tags=tag)
+                cv.create_line(*pts, fill=col, width=wd, tags=tag)
+                anchors[l["name"]] = (pts[-2], pts[-1], pts[0], pts[1])
             else:
                 cx, cy = self.px(*l["center"])
-                # metres -> px: one tile pixel is 156543 m / 2^Z at the equator (x cos(lat)), then `self.scale`
-                r = max(4, l["half_size_m"] / (156543.03 / 2 ** Z * math.cos(math.radians(l["center"][0]))) * self.scale)
+                r = max(4, l["half_size_m"] / (mpp * math.cos(math.radians(l["center"][0]))) * self.s)
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline="#000", width=3, tags=tag)
                 cv.create_rectangle(cx - r, cy - r, cx + r, cy + r, outline=col, width=2,
                                     fill=col if l.get("built") else "", stipple="gray50" if l.get("built") else "", tags=tag)
-                lx, ly = cx + r, cy - r
-            label = split_name(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
-            if l["name"] == self.selected:                          # selected in the list: a ring around it
-                rx, ry = (cx, cy) if not l.get("corridor") else (pts[0], pts[1])
+                anchors[l["name"]] = (cx + r, cy - r, cx, cy)
+            if l["name"] == self.selected:                          # selected: a ring around it
+                rx, ry = anchors[l["name"]][2:]
                 rr = S(14)
-                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline="#000", width=S(4))
-                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline=ACC, width=S(2))
-            box = (lx + 3, ly - 13, lx + 6 + 7 * len(label), ly + 1)
+                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline="#000", width=S(4), tags=tag)
+                cv.create_oval(rx - rr, ry - rr, rx + rr, ry + rr, outline=ACC, width=S(2), tags=tag)
+        labels = []
+        for l in order:                             # ... then the numbers, selected and built ones first
+            col = ACC if l.get("built") else "#8a93a0"
+            tag = f"loc_{l['name']}"
+            lx, ly = anchors[l["name"]][:2]
+            label = split_name(l["name"])[0] or l["name"]          # the number on the map, the names are in the list
+            tw = self.label_font.measure(label)
+            box = (lx + 2, ly - S(14), lx + 6 + tw, ly + 1)
             if not any(box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3] for o in labels):
-                labels.append(box)                  # names that would overlap another one are left out (hover shows them)
-                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):    # dark halo so the name reads on any background
-                    cv.create_text(lx + 4 + dx, ly + dy, text=label, anchor="sw", fill="#000", font=("Consolas", 9, "bold"), tags=tag)
-                cv.create_text(lx + 4, ly, text=label, anchor="sw", fill=col, font=("Consolas", 9, "bold"), tags=tag)
-            cv.tag_bind(tag, "<Enter>", lambda e, l=l: (self.cv.configure(cursor="hand2"), self.info.configure(
-                text=f"{l.get('title') or l['name']}" + ("" if l.get("built") else " (not built)"))))
-            cv.tag_bind(tag, "<Leave>", lambda e: (self.cv.configure(cursor=""), self.info.configure(text=self.hint)))
-            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.app.select(l["name"]))   # click: select (table + card)
+                labels.append(box)                  # numbers that would overlap another one are left out (hover shows them)
+                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):    # dark halo so the number reads on any background
+                    cv.create_text(lx + 4 + dx, ly + dy, text=label, anchor="sw", fill="#000", font=self.label_font, tags=tag)
+                cv.create_text(lx + 4, ly, text=label, anchor="sw", fill=col, font=self.label_font, tags=tag)
+            cv.tag_bind(tag, "<Enter>", lambda e, l=l: (self.cv.configure(cursor="hand2"), self.info.set(
+                f"{split_name(l['name'])[0]} {l.get('title') or l['name']}" + ("" if l.get("built") else " (not built)"))))
+            cv.tag_bind(tag, "<Leave>", lambda e: (self.cv.configure(cursor=""), self.info.set(self.hint)))
+            cv.tag_bind(tag, "<Button-1>", lambda e, l=l: self.app.select(l["name"]))   # click: select (list + card)
             cv.tag_bind(tag, "<Double-Button-1>", lambda e, l=l: self.app.open_location(l))
         self.busy_box()
 
@@ -1099,12 +1780,12 @@ class SwissMap:
             return
         if self.spin is None:
             self.spin = LogoAnim._load("busy", S(64))
-        cx, cy, w, h = MAP_W / 2, self.h / 2, S(210), S(118)
+        cx, cy, w, h = self.cv.winfo_width() / 2, self.cv.winfo_height() / 2, S(210), S(118)
         self.cv.create_rectangle(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2, fill=BG, outline=RULE, tags="busy")
         if self.spin:
             self.cv.create_image(cx, cy - S(14), image=self.spin[self.spin_i % len(self.spin)], tags=("busy", "busyimg"))
         self.cv.create_text(cx, cy + h / 2 - S(16), text="updating the map…", fill=FG2, font=MONO, tags="busy")
-        if self.spin and not getattr(self, "_spin_job", None):
+        if self.spin and not self._spin_job:
             self._spin_tick()
 
     def _spin_tick(self):
@@ -1163,9 +1844,8 @@ if __name__ == "__main__":
         first_start_folder(root)
         sys.exit(0)
     paths.ensure_data()
+    paths.ensure_data()
     UI = max(1.0, root.winfo_fpixels("1i") / 96)            # 1.25, 1.5 ... on scaled displays
     root.tk.call("tk", "scaling", UI * 96 / 72)              # fonts in points follow the same factor
-    MAP_W = S(600)                                           # map width in real screen pixels
-    Z = 8 if MAP_W <= 860 else 9                             # sharper tiles when the map is drawn larger
     Launcher(root)
     root.mainloop()

@@ -16,7 +16,7 @@ raster_mods = collect_submodules("rasterio")
 raster_data = collect_data_files("rasterio")
 datas = [(os.path.join(ROOT, "viewer"), "viewer")] + raster_data
 gui = Analysis([os.path.join(ROOT, "launcher.pyw")], pathex=[ROOT], datas=datas,
-               hiddenimports=fpv3d_mods + raster_mods + ["yaml"], excludes=["matplotlib", "pytest", "webview", "clr", "pythonnet"])
+               hiddenimports=fpv3d_mods + raster_mods + ["yaml", "serial", "serial.tools.list_ports", "PIL.ImageTk"], excludes=["matplotlib", "pytest", "webview", "clr", "pythonnet"])
 cli = Analysis([os.path.join(SPECPATH, "cli_entry.py")], pathex=[ROOT], datas=raster_data,
                hiddenimports=fpv3d_mods + raster_mods + ["serial", "serial.tools.list_ports", "cryptography"]
                + collect_submodules("orangebox"),          # blackbox download

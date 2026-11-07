@@ -28,23 +28,37 @@ fpv3d/
 ```
 
 
-## Start it: the launcher (Full or Lite)
+## Start it: the launcher
 
-Double-click **`Alpline.bat`** in the project folder. One window:
+Double-click **`Alpline.bat`** in the project folder (or start the installed app). The window has a rail of pages on
+the left and a header that stays the same on every page:
 
-- **Top bar:** *full / lite* (hover for what each changes; remembered), *[3d viewer]*, *[locations map]* and *[stop]*. Opening something starts the local server in that mode; changing the mode restarts it on the next open; closing the window stops it.
-- **Map of Switzerland:** the swisstopo grey map with the FOCA drone restriction zones (tick box to hide them) and your locations with their number (yellow = built, grey = not built). Click = select, double-click = open. Downloaded once into `cache/launcher/` so it also shows offline; *[update map]* fetches the latest zones.
-- **Locations table:** number, name, and how many **real** and **sim** (training flight) logs each location has; grey rows are not built yet. Click a row to select it (a ring marks it on the map), double-click or Enter to open it.
-- **Details card** of the selected location: size, terrain detail, build date, last log, and a bar chart of real vs sim logs with their total flight time. *[open in 3d]* (or *[build on the map]* when it isn't built).
-- **Status bar:** server state, how many locations are built (= usable offline, hover for the list), internet yes/no, total real / sim logs, *[check]* (reload) and *[shortcut]* (an *Alpline* desktop shortcut).
+- **Header:** *online / offline*, the server (*server full :8000*, or *off*), *[stop]*, *[3d viewer]* (opens the
+  selected location) and *[locations map]*. Opening something starts the local server; closing the window stops it.
+- **map:** the swisstopo grey map with the FOCA drone zones and your locations by number (yellow = built, grey = not
+  built). Click = select, double-click = open. Over the map: the **locations list** (top left: filter box, real / sim
+  logs per location, *[–]* folds it), the **selected location** (bottom right: size, terrain, build date, flights,
+  *[open in 3d]* or *[build on the map]*, *[fly]* for the fly tab) and the map options (bottom left: zones, *[update
+  map]*, the map's date). The map is downloaded once into `cache/launcher/` so it shows offline.
+- **drone:** finds a Betaflight drone and the radio on USB by itself (a dot on the rail icon). *[download blackbox]*
+  copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
+  selected location on the fly tab.
+- **phone:** share on your network, the address and PIN, *[qr code]*, *[check access]* (details below).
+- **disk:** space used and clean-up. **settings:** Full / Lite, where pages open (Alpline window or your browser),
+  desktop shortcut, your files folder, version.
 
-**On your phone (Android or any phone with Chrome):** click **[phone]** in the top bar. The server is then shared on your network and the status bar shows the address (e.g. `phone: http://192.168.1.20:8000`); **[qr]** shows a QR code to scan. Phone and computer must be on the same Wi-Fi; at the field, turn on the phone's hotspot and connect the laptop to it. The first time, allow Python on *private networks* when Windows asks. On the phone the panel becomes a sheet at the bottom with the tabs along its top (*[hide]* folds it), buttons are bigger, and *Add to Home screen* in Chrome gives it an icon. The phone can look, fly the simulator, follow live telemetry (radio on the laptop) and build; deleting and renaming only work on the computer. The phone needs a 6-digit **PIN** once (it is in the QR link, and shown in the launcher's status bar); without it other devices on the network get nothing. When the *cryptography* library is installed (the launcher offers it), the phone uses a secure page, `https://<PC address>:8443`: install the PC's certificate once on the phone (the [qr] page links it and explains the Android steps) so Chrome trusts it, which lets the phone keep its screen on during a live flight. The firewall rule made by the launcher covers ports 8000-8019 and 8443-8462. From a terminal: `python -m fpv3d serve --lan`.
+The window can be resized (the map grows, everything else keeps its size) and remembers its size and page. Long names
+are cut with "…" (hover for the whole text). Messages appear for a few seconds at the top right. Keys: **Ctrl+F**
+filter, **↑ ↓** move in the list, **Enter** open, **Esc** clear the filter. The locations reload when the window comes
+back to the front.
+
+**On your phone (Android or any phone with Chrome):** the **phone** page, then *[share on my network]*. The page shows the address (e.g. `http://192.168.1.20:8000`) and the PIN; **[qr code]** shows a QR code to scan. Phone and computer must be on the same Wi-Fi; at the field, turn on the phone's hotspot and connect the laptop to it. The first time, allow Python on *private networks* when Windows asks. On the phone the panel becomes a sheet at the bottom with the tabs along its top (*[hide]* folds it), buttons are bigger, and *Add to Home screen* in Chrome gives it an icon. The phone can look, fly the simulator, follow live telemetry (radio on the laptop) and build; deleting and renaming only work on the computer. The phone needs the 6-digit **PIN** once (it is in the QR link); without it other devices on the network get nothing. When the *cryptography* library is installed (the launcher offers it), the phone uses a secure page, `https://<PC address>:8443`: install the PC's certificate once on the phone (the QR page links it and explains the Android steps) so Chrome trusts it, which lets the phone keep its screen on during a live flight. The firewall rule made by the launcher covers ports 8000-8019 and 8443-8462. From a terminal: `python -m fpv3d serve --lan`.
 
 Logs count as **sim** when they come from the training flight (`<location>_sim_<date>` or `logs/sim/`), everything else counts as **real**.
 
 **Building safely:** the map page shows the size of a new location before you build it (scene size and memory needed) and asks before very large builds; a running build has **[cancel build]**. Only one build runs at a time, and the same location can never be built twice at once (another terminal or window is refused). Downloads from swisstopo are retried 3 times (after 5, 15 and 30 s) when the network hiccups. Library versions are fixed in `requirements.txt`.
 
-**Disk space:** **[disk]** in the launcher shows the size of the download cache, built locations, deleted locations and logs. *[clean unused tiles]* deletes downloaded tiles that none of your location files uses (1 km around each location is kept), *[empty deleted]* empties the deleted folder for good. From a terminal: `python -m fpv3d cache prune --dry-run`, then `python -m fpv3d cache prune`.
+**Disk space:** the launcher's **disk** page shows the size of the download cache, built locations, deleted locations and logs. *[clean unused tiles]* deletes downloaded tiles that none of your location files uses (1 km around each location is kept), *[empty deleted]* empties the deleted folder for good. From a terminal: `python -m fpv3d cache prune --dry-run`, then `python -m fpv3d cache prune`.
 
 **Numbered locations:** a new location gets the next number in front of its name, with as many digits as your existing ones (e.g. `015_gruyere` after `014_vanil_noir`, or `01_...` for the very first). Renaming keeps the number.
 
