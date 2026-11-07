@@ -128,6 +128,8 @@ print("RESULT " + json.dumps(out))
 
 
 def _can_show_windows():
+    if os.environ.get("ALPLINE_NO_WINDOW_TEST"):
+        return False
     if sys.platform != "win32" and not os.environ.get("DISPLAY"):
         return False
     return subprocess.call([sys.executable, "-c", "import tkinter; tkinter.Tk().destroy()"],
@@ -135,6 +137,9 @@ def _can_show_windows():
 
 
 def test_window_layout_stays_put():
+    if os.environ.get("ALPLINE_NO_WINDOW_TEST"):
+        print("  (left out when run from the launcher: it opens a second launcher window. python -m pytest runs it: skipped)")
+        return
     if not _can_show_windows():
         print("  (no screen / Tk here: skipped)")
         return

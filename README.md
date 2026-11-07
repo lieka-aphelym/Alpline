@@ -52,6 +52,10 @@ the left and a header that stays the same on every page:
   copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
   selected location on the fly tab.
 - **phone:** share on your network, the address and PIN, *[qr code]*, *[check access]* (details below).
+- **checks:** *[run quick check]* runs Alpline's own tests (about 20 s, in a temporary folder: your locations are not
+  touched), with a line per group (security, robustness, journeys…), what went wrong for a failure, and *[copy
+  report]* to paste the results in a message. A red dot on the icon means the last check found a problem. From the
+  source folder only (the installed app has no tests).
 - **disk:** space used and clean-up. **settings:** Full / Lite, where pages open (Alpline window or your browser),
   desktop shortcut, your files folder, version.
 
@@ -401,6 +405,7 @@ It's a planning aid. Multipath, your body and goggles, antenna patterns and pola
 python tests/run_all.py             # everything below (except the browser)
 python tests/run_all.py --browser   # + opens the pages in a hidden browser (needs: pip install playwright; python -m playwright install chromium)
 python tools/check.py               # the quick check: ruff + all Python tests (~10 s)
+python tests/run_quick.py           # the launcher's [run quick check]: one line per test
 ```
 
 For development: `pip install -r requirements-dev.txt` (pytest, ruff, coverage, mypy), then `python -m pytest`
