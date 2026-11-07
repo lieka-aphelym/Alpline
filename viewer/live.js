@@ -138,7 +138,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     $('liveConnect').textContent = '[connect]'; $('liveConnect').classList.remove('danger');
     document.body.classList.remove('live-on');
     W.stop(); pred.visible = false;
-    D.loop(null); D.flying(false); D.off(true); linkTxt('not connected');
+    D.loop(null); D.flying(false); D.off(true); linkTxt('not connected'); $('liveHint').classList.add('hidden');
     try {
       const r = await fetch('/api/live/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: $('liveSave').checked }) });
       const j = await r.json();
@@ -273,6 +273,27 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     const s = j.status === 'live' ? (j.gps_age != null && j.gps_age < 1.5 ? 'receiving' : j.frame_age != null && j.frame_age < 1.5 ? 'link, waiting for GPS' : 'no data')
       : j.status;
     $('liveStatus').innerHTML = `<b>${s}</b> · ${j.gps_count} GPS points · ${j.frames} frames${j.bad ? ` (${j.bad} bad)` : ''}`;
+    // why nothing shows: tell the three cases apart (radio silent / not telemetry / telemetry without a GPS fix)
+    const L = j.latest || {}, serial = j.source === 'serial', waited = (j.open_for ?? 0) > 3;
+    let hint = '';
+    if (j.status === 'live' && serial && waited && !j.bytes) {
+      hint = `<b>Nothing comes from the radio</b> on ${j.port || 'this port'}. On the radio: <b>SYS → Hardware → Serial ports</b>, set
+        <b>USB-VCP</b> to <b>Telemetry Mirror</b> (not CLI or debug). Plug the cable and choose <b>USB Serial (VCP)</b>, not USB Storage
+        or Joystick. Then the drone must be <b>on and bound</b>: the radio only passes on the drone's telemetry. Wrong port? Pick the
+        other one under Source and [connect] again.`;
+    } else if (j.status === 'live' && serial && waited && j.bytes && !j.frames) {
+      hint = `<b>Data arrives (${j.bytes} bytes) but it isn't telemetry.</b> On the radio, <b>SYS → Hardware → Serial ports →
+        USB-VCP</b> is set to another mode: set it to <b>Telemetry Mirror</b>.`;
+    } else if (j.status === 'live' && j.frames && !(j.gps_age != null && j.gps_age < 1.5 && L.lat)) {
+      hint = `<b>Telemetry is coming in</b>${L.lq != null ? ` (LQ ${Math.round(L.lq)} %)` : ''}, but no GPS position yet${L.sats != null
+        ? ` (${L.sats} satellites)` : ''}. The drone appears on the map once its GPS has a fix: outdoors, usually within a minute or two.
+        A drone without GPS shows the link values only.`;
+    }
+    $('liveHint').innerHTML = hint;
+    $('liveHint').classList.toggle('hidden', !hint);
+    if (j.status === 'live' && j.frames && L.lq != null && !(j.gps_age != null && j.gps_age < 1.5)) {   // link values without a position
+      D.link(L.lq); linkTxt(`LQ ${Math.round(L.lq)} % · no GPS`);
+    } else if (j.status === 'live' && serial && waited && !j.frames) linkTxt('no data from the radio');
   }
 
   // ------------------------------------------------------------ lost: last known position + likely impact zone

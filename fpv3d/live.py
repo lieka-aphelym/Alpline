@@ -47,7 +47,8 @@ class LiveLink:
 
     def reset(self):
         self.state = dict(status="idle", source=None, scene=None, error=None, frames=0, bad=0, gps_count=0,
-                          started=None, csv=None)
+                          started=None, csv=None, bytes=0, port=None)
+        self.opened = None         # when the port opened: "nothing for N s" needs to know how long we waited
         self.latest = {}
         self.samples = []          # one per GPS frame (merged with the latest other values)
         self.seq = 0
@@ -122,7 +123,8 @@ class LiveLink:
         p, (fh, w) = crsf.Parser(), self._open_csv()
         t0 = time.monotonic()
         with self.lock:
-            self.state["status"] = "live"
+            self.state.update(status="live", port=port)
+            self.opened = t0
         try:
             while not self.stop_ev.is_set():
                 try:
@@ -132,7 +134,7 @@ class LiveLink:
                 if data:
                     self._handle(p.feed(data), w, t0)
                     with self.lock:
-                        self.state.update(frames=p.frames, bad=p.bad)
+                        self.state.update(frames=p.frames, bad=p.bad, bytes=self.state["bytes"] + len(data))
                     fh.flush()
         finally:
             ser.close()
@@ -198,6 +200,7 @@ class LiveLink:
             st["frame_age"] = None if self.last_frame is None else round(now - self.last_frame, 2)
             st["gps_age"] = None if self.last_gps is None else round(now - self.last_gps, 2)
             st["latest"] = dict(self.latest)
+            st["open_for"] = None if self.opened is None else round(now - self.opened, 1)
             st["seq"] = self.seq
             st["samples"] = [s for s in self.samples[-2000:] if s["seq"] > since]
         return st
