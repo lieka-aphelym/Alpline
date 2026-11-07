@@ -455,7 +455,7 @@ async function build(name) {
   $('progCancel').classList.remove('hidden'); $('progCancel').disabled = false;
   $('progCancel').onclick = async () => {
     $('progCancel').disabled = true;
-    try { await fetch(`/api/jobs/${d.job}/cancel`, { method: 'POST' }); } catch { /* finished meanwhile */ }
+    try { await fetch(`/api/jobs/${d.job}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch { /* finished meanwhile */ }
   };
   let since = 0;
   window.alpBusy?.(true);

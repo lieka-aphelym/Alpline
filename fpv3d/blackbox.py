@@ -23,7 +23,6 @@ import re
 import shutil
 import string
 import struct
-import sys
 import time
 from pathlib import Path
 

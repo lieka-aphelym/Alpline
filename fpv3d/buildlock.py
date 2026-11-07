@@ -60,7 +60,7 @@ def scene_lock(scenes_dir: Path, name: str):
             fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         f.close()
-        raise Busy(f"'{name}' is already being built (another window or terminal). Wait for it to finish.")
+        raise Busy(f"'{name}' is already being built (another window or terminal). Wait for it to finish.") from None
     try:
         yield
     finally:

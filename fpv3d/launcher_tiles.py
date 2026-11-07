@@ -46,6 +46,27 @@ def merc(lon, lat, z):
     return (lon + 180) / 360 * n, (1 - math.log(math.tan(la) + 1 / math.cos(la)) / math.pi) / 2 * n
 
 
+def zoom_for_scale(s, zov=ZOV, zmax=ZMAX):
+    """Tile zoom for a view drawn at `s` screen pixels per overview pixel: the first zoom at least about as sharp as
+    the screen (zov = the overview is enough)."""
+    return max(zov, min(zmax, math.ceil(zov + math.log2(max(s, 1e-6)) - 0.35)))
+
+
+def group_points(pts, radius):
+    """[(item, (x, y))] -> [{"m": [(item, (x, y)), ...], "p": (x, y)}]: points closer than `radius` to a group's
+    centre join it (the launcher's numbered badges). Order of the input decides who starts a group."""
+    groups = []
+    for item, p in pts:
+        g = next((g for g in groups if math.hypot(g["p"][0] - p[0], g["p"][1] - p[1]) < radius), None)
+        if g:
+            g["m"].append((item, p))
+            n = len(g["m"])
+            g["p"] = (sum(q[1][0] for q in g["m"]) / n, sum(q[1][1] for q in g["m"]) / n)
+        else:
+            groups.append({"m": [(item, p)], "p": p})
+    return groups
+
+
 def tile_range(box, z):
     x0, y0 = merc(box[0], box[3], z)
     x1, y1 = merc(box[2], box[1], z)

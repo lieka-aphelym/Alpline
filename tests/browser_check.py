@@ -68,7 +68,8 @@ def main():
                 try:
                     pg.goto(base + path, wait_until="load", timeout=30000)
                     if ready == "LOADED":                # the viewer removes #loading when the scene is up (error: it stays, red)
-                        pg.wait_for_function("!document.getElementById('loading') || document.getElementById('loading').classList.contains('err')", timeout=90000)
+                        pg.wait_for_function("!document.getElementById('loading') || "
+                                             "document.getElementById('loading').classList.contains('err')", timeout=90000)
                         if pg.evaluate("!!document.getElementById('loading')"):
                             errors.append("viewer: " + pg.inner_text("#loading"))
                     elif ready:

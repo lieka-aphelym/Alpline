@@ -28,7 +28,7 @@ def list_ports():
     try:
         from serial.tools import list_ports as lp
     except ImportError:
-        raise RuntimeError("the live link needs pyserial: pip install pyserial")
+        raise RuntimeError("the live link needs pyserial: pip install pyserial") from None
     out = []
     for p in lp.comports():
         desc = " ".join(x for x in (p.description, p.manufacturer or "") if x and x != "n/a")

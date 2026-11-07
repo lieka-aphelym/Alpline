@@ -20,7 +20,7 @@ import rasterio
 from rasterio.transform import from_origin
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from fpv3d.geo import lv95_to_wgs84, wgs84_to_lv95  # noqa: E402
+from fpv3d.geo import wgs84_to_lv95  # noqa: E402
 
 PORT = int(os.environ.get("MOCK_PORT", "8765"))
 TMP = Path(tempfile.mkdtemp(prefix="mockstac_"))

@@ -6,7 +6,6 @@ flies a loop that goes behind the terrain, and comes home. RSSI/LQ are simulated
 """
 import csv
 import json
-import math
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path

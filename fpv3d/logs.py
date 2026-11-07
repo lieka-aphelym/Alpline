@@ -59,22 +59,22 @@ def _find(cols: List[str], *cands: str) -> Optional[str]:
 def _parse_time(row, cols) -> Optional[float]:
     tcol = _find(cols, "time (us)", "time(us)", "time_us")
     if tcol:
-        v = _num(row[tcol])
+        v = _num(row.get(tcol))
         return v / 1e6 if not np.isnan(v) else None
     tcol = _find(cols, "time (s)", "time_s", "seconds", "t")
     if tcol:
-        return _num(row[tcol])
+        return _num(row.get(tcol))
     dcol, tcol = _find(cols, "date"), _find(cols, "time", "timestamp", "datetime")
     if tcol:
-        txt = (row[dcol].strip() + "T" if dcol else "") + row[tcol].strip()
+        txt = ((row.get(dcol) or "").strip() + "T" if dcol else "") + (row.get(tcol) or "").strip()
         txt = txt.replace("Z", "+00:00")
         for parse in (datetime.fromisoformat,
                       lambda s: datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%f")):
             try:
                 return parse(txt).timestamp()
-            except ValueError:
+            except (ValueError, OverflowError, OSError):     # not a date, or a date Windows can't convert
                 pass
-        v = _num(row[tcol])
+        v = _num(row.get(tcol))
         return v if not np.isnan(v) else None
     return None
 
@@ -98,10 +98,13 @@ def read_csv(path: Path) -> Track:
         if ("gps" in l or "lat" in l) and "," in line:
             start = i
             break
-    rows = list(csv.DictReader(text[start:]))
+    try:
+        rows = list(csv.DictReader(text[start:]))
+    except csv.Error as ex:                              # e.g. a damaged file with one enormous line
+        raise ValueError(f"{path.name}: not a readable CSV ({ex})") from None
     if not rows:
         raise ValueError(f"{path.name}: empty CSV")
-    cols = list(rows[0].keys())
+    cols = [c for c in rows[0].keys() if c is not None]  # (rows with extra values put them under None)
 
     fmt = "csv"
     gps_combined = _find(cols, "GPS")

@@ -111,8 +111,31 @@ class LocationConfig:
 
     @classmethod
     def load(cls, path) -> "LocationConfig":
+        """Read a location file. Any mistake in it gives a ValueError saying what is wrong (shown on the map page,
+        in the launcher and by the build), never a crash further on."""
         path = Path(path)
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        try:
+            c = cls._load(path)
+        except (AttributeError, TypeError) as ex:          # a section with the wrong shape (text instead of {...} ...)
+            raise ValueError(f"{path.name}: unexpected layout ({ex}); compare with a working location file") from None
+        if isinstance(c.name, (int, float)) and not isinstance(c.name, bool):
+            c.name = str(c.name)                           # name: 015 is read as a number
+        if not isinstance(c.name, str) or not c.name:
+            raise ValueError(f"{path.name}: 'name' must be a text")
+        if not (c.half_size_m > 0):
+            raise ValueError(f"{path.name}: half_size_m must be more than 0")
+        return c
+
+    @classmethod
+    def _load(cls, path: Path) -> "LocationConfig":
+        try:
+            raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as ex:                        # typo in the file: say where
+            mark = getattr(ex, "problem_mark", None)
+            where = f" (line {mark.line + 1})" if mark else ""
+            raise ValueError(f"{path.name}: not a valid location file{where}: {getattr(ex, 'problem', None) or ex}") from None
+        if not isinstance(raw, dict):
+            raise ValueError(f"{path.name}: expected 'name: ...', 'center: ...' lines, found something else")
         terrain = TerrainCfg(**(raw.get("terrain") or {}))
         if terrain.resolution_m not in VALID_RES:
             raise ValueError(f"terrain.resolution_m must be one of {VALID_RES}")

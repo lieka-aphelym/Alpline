@@ -10,16 +10,20 @@ Packaged app: the same file is Alpline.exe. Alpline windows are Edge (or Chrome)
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import socket
 import subprocess
 import sys
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 import urllib.request
 import webbrowser
 from pathlib import Path
+from tkinter import ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fpv3d import paths  # noqa: E402  (standard library only)
@@ -86,10 +90,6 @@ def load_settings() -> dict:
         return {"mode": "full", "port": 8000}
 
 
-import math
-import re
-from tkinter import ttk
-import tkinter.font as tkfont
 
 GREY = "#7d8796"
 RULE2 = "#4a5462"                                     # control borders
@@ -626,7 +626,7 @@ class Launcher:
         self.save()
         if self.cfg["share"]:
             self.https_ready()
-            if not self.server_alive() or self.running_share != True:
+            if not self.server_alive() or not self.running_share:
                 self.busy_status("starting…")
                 if not self.start():
                     return
@@ -969,47 +969,30 @@ $r | ConvertTo-Json -Depth 4 -Compress
         threading.Thread(target=self._watch_devices, daemon=True).start()
 
     def _watch_devices(self):
-        """Every few seconds: which USB serial devices are plugged in. A new one is asked once whether it is a
-        Betaflight flight controller (MSP); anything else is taken as the radio. A port another program holds
-        (a live flight, Betaflight Configurator) shows as busy and is asked again later."""
+        """Every few seconds: which USB serial devices are plugged in (fpv3d/devices.py decides what each one is)."""
         import serial
         from serial.tools import list_ports
+        from fpv3d.devices import Watcher
         try:
             from fpv3d.blackbox import probe
         except Exception:
             probe = lambda dev: None
-        known = {}
+
+        def can_open(dev):
+            serial.Serial(dev, 115200, timeout=0.05).close()
+            return True
+        w = Watcher(can_open, probe)
         while True:
-            changed = False
             try:
-                ports = {p.device: p for p in list_ports.comports()}
+                ports = [(p.device, p.hwid or "", p.description or "") for p in list_ports.comports()]
             except Exception:
-                ports = {}
-            for dev in list(known):
-                if dev not in ports:
-                    known.pop(dev); changed = True
-            for dev, p in ports.items():
-                if "VID:PID" not in (p.hwid or "").upper():
-                    continue                         # built-in / Bluetooth ports
-                if dev in known and known[dev]["kind"] != "busy":
-                    continue
-                if self.bb_proc is not None:
-                    continue                         # the download is using the drone
-                try:
-                    serial.Serial(dev, 115200, timeout=0.05).close()
-                except Exception:
-                    new = dict(kind="busy", port=dev, name=p.description or dev)
-                else:
-                    info = probe(dev)
-                    new = dict(kind="drone", **info) if info else dict(kind="radio", port=dev, name=p.description or dev)
-                if known.get(dev) != new:
-                    old = known.get(dev, {}).get("kind")
-                    known[dev] = new; changed = True
-                    if new["kind"] == "drone" and old != "drone":
-                        self.root.after(0, lambda d=new: self.say(f"drone plugged in: {d['board']} · {d['firmware']} · "
-                                                                  "see the drone page to download its blackbox", "ok"))
+                ports = []
+            changed, drones = w.update(ports, paused=self.bb_proc is not None)
+            for d in drones:
+                self.root.after(0, lambda d=d: self.say(f"drone plugged in: {d['board']} · {d['firmware']} · "
+                                                        "see the drone page to download its blackbox", "ok"))
             if changed:
-                snap = {k: dict(v) for k, v in known.items()}
+                snap = {k: dict(v) for k, v in w.known.items()}
                 self.root.after(0, lambda s=snap: self._devices_changed(s))
             time.sleep(2.5)
 
@@ -1023,11 +1006,10 @@ $r | ConvertTo-Json -Depth 4 -Compress
         radios = [d for d in self.devices.values() if d["kind"] == "radio"]
         busy = [d for d in self.devices.values() if d["kind"] == "busy"]
         if drones:
-            d = drones[0]
-            self.drone_lab.set(f"● {d['board']} · {d['firmware']} · {d['port']}", fg="#3ddc84")
-            used, tot = d.get("flash_used"), d.get("flash_total")
-            self.drone_info.set(f"blackbox: {used / 2 ** 20:.1f} of {tot / 2 ** 20:.0f} MB used" + (" (empty)" if not used else "")
-                                if used is not None else "blackbox on an SD card")
+            from fpv3d.devices import drone_text
+            title, detail = drone_text(drones[0])
+            self.drone_lab.set(title, fg="#3ddc84")
+            self.drone_info.set(detail)
         else:
             self.drone_lab.set("○ no drone on USB", fg=FG2)
             self.drone_info.set(f"{', '.join(b['port'] for b in busy)} in use by another program (Betaflight Configurator?)"
@@ -1036,7 +1018,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.bb_btn.configure(state="normal" if drones and not running else "disabled",
                               text="[downloading…]" if running else "[download blackbox]")
         cur = self.map.current() if hasattr(self, "map") else None
-        self.bb_here_cb.configure(text=f"add every flight to {cur.get('title') or cur['name']}" if cur else "add every flight to the selected location",
+        self.bb_here_cb.configure(text=f"add every flight to {cur.get('title') or cur['name']}" if cur
+                                  else "add every flight to the selected location",
                                   state="normal" if cur else "disabled")
         if radios:
             r = radios[0]
@@ -1247,7 +1230,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         def work():
             res = {k: self.folder_size(ROOT / k) for k, *_ in self.DISK_ITEMS}
             def show():
-                for k, (b, n) in res.items():
+                for k, (b, _n) in res.items():
                     self.disk_labels[k].configure(text=f"{b / 1e9:.2f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB")
                 tot = sum(b for b, _ in res.values())
                 self.disk_total.set(f"total {tot / 1e9:.1f} GB" if tot >= 1e9 else f"total {tot / 1e6:.0f} MB")
@@ -1954,7 +1937,8 @@ class SwissMap:
 
     def detail_zoom(self):
         """Tile zoom for the current view (ZM = only the overview)."""
-        return max(ZM, min(ZMAX, math.ceil(ZM + math.log2(max(self.s, 1e-6)) - 0.35)))
+        from fpv3d.launcher_tiles import zoom_for_scale
+        return zoom_for_scale(self.s, ZM, ZMAX)
 
     def view_image(self, W, H, fast):
         """The visible part of the map at the window's size, as one image: the overview, with sharper tiles on top
@@ -2149,16 +2133,9 @@ class SwissMap:
     def draw_locations(self, W, H):
         cv = self.cv
         self.hits = []
+        from fpv3d.launcher_tiles import group_points
         pts = [(l, self.px(*l["center"])) for l in self.locs]
-        items = []                                   # merge dots closer than GROUP_PX into groups
-        for l, p in pts:
-            it = next((i for i in items if math.hypot(i["p"][0] - p[0], i["p"][1] - p[1]) < S(self.GROUP_PX)), None)
-            if it:
-                it["m"].append((l, p))
-                n = len(it["m"])
-                it["p"] = (sum(q[1][0] for q in it["m"]) / n, sum(q[1][1] for q in it["m"]) / n)
-            else:
-                items.append(dict(m=[(l, p)], p=p))
+        items = group_points(pts, S(self.GROUP_PX))  # dots closer than GROUP_PX merge into groups
         names = self.s >= self.min_s() * 2.2         # zoomed in: names next to the dots
         labels = [(i["p"][0] - S(15), i["p"][1] - S(15), i["p"][0] + S(15), i["p"][1] + S(15))
                   for i in items if len(i["m"]) > 1]  # numbers never cover a group badge

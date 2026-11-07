@@ -398,12 +398,31 @@ It's a planning aid. Multipath, your body and goggles, antenna patterns and pola
 ## Checks
 
 ```bash
-python tests/run_all.py             # basics, server, warnings
+python tests/run_all.py             # everything below (except the browser)
 python tests/run_all.py --browser   # + opens the pages in a hidden browser (needs: pip install playwright; python -m playwright install chromium)
+python tools/check.py               # the quick check: ruff + all Python tests (~10 s)
 ```
 
-- **Basics:** coordinates, log readers, radio maths, the telemetry parser.
-- **Server:** the pages load, bad requests are refused, other devices need the PIN and cannot delete or rename, one build per location, cache cleaning keeps used tiles, the https certificate.
+For development: `pip install -r requirements-dev.txt` (pytest, ruff, coverage, mypy), then `python -m pytest`
+(add `--cov` to see which code the tests reach), `ruff check .` (style and likely bugs) and `mypy` (types of the core
+modules). `python tools/install_hooks.py` runs `tools/check.py` before every `git commit`; `git commit --no-verify`
+skips it once. Settings for all of these are in `pyproject.toml`.
+
+- **Basics** (`test_basic.py`): coordinates, log readers, radio maths, the telemetry parser, blackbox reading, map tiles.
+- **Server** (`test_server.py`): the pages load, bad requests are refused, one build per location, cache cleaning keeps used tiles, the https certificate.
+- **Security** (`test_security.py`): other web pages open in your browser can't use Alpline (requests must be JSON from
+  Alpline's own address; a website's own name pointing at 127.0.0.1 is refused), only the pages and scenes are served
+  (never locations, logs, settings or code), names with `..` or `/` are refused, the phone needs the PIN everywhere
+  (10 wrong tries: one minute locked) and can't delete or rename.
+- **Robustness** (`test_robust.py`): hundreds of damaged inputs (cut, flipped bytes, junk) for the radio telemetry,
+  flight logs, blackbox files and location files: a clear error or a result, never a crash or a hang.
+- **Journeys** (`test_journeys.py`): the real commands in a fresh data folder against the fake swisstopo service:
+  build, add a log, rename the log and the location, delete, restore, empty the bin; rename never overwrites;
+  blackbox twice adds once; cache cleaning keeps what locations need; one broken location file doesn't stop the others.
+- **Snapshots** (`test_snapshots.py`): line of sight, blind-spot heights and radio range on a fixed test terrain,
+  compared with `tests/snapshots/signal.json`. When a change is meant to move them: `UPDATE_SNAPSHOTS=1 python -m pytest tests/test_snapshots.py`.
+- **Launcher** (`test_launcher.py`): USB detection (drone, radio, busy, unplugged during a download), map groups and
+  zoom levels, and the real window at its smallest size: panels inside and apart, long texts never resize it.
 - **Warnings:** 26 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
 - **Browser:** opens the checks page, the map, the share page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
 

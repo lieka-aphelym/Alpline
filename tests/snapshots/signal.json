@@ -1,0 +1,20 @@
+{
+ "ceiling_fresnel_blind_pct": 0.0,
+ "ceiling_fresnel_mean_m": 95.0,
+ "ceiling_los_behind_ridge_m": 51.1,
+ "ceiling_los_blind_pct": 0.0,
+ "ceiling_los_mean_m": 90.8,
+ "ceiling_los_peak_m": 21.4,
+ "ceiling_los_valley_m": 0.0,
+ "ceiling_loss+6_blind_pct": 0.0,
+ "ceiling_loss+6_mean_m": 79.4,
+ "ceiling_loss_blind_pct": 0.0,
+ "ceiling_loss_mean_m": 83.6,
+ "fresnel_pct_10m": 71.28,
+ "fresnel_pct_60m": 38.76,
+ "no_los_pct_10m": 65.16,
+ "no_los_pct_60m": 35.12,
+ "range_1000mW_8dBi_km": 1.639,
+ "range_25mW_2dBi_km": 0.13,
+ "range_500mW_2dBi_km": 0.581
+}

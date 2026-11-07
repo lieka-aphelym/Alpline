@@ -1,0 +1,204 @@
+"""Whole user journeys, start to finish, with the real commands:   python -m pytest tests/test_journeys.py
+
+Each test works in its own fresh data folder (ALPLINE_DATA) against the fake swisstopo service (tests/mock_stac.py,
+started here), so nothing touches your real locations and no internet is needed. They check that every step leaves
+the files where the next step (and you) expect them."""
+import json
+import os
+import socketserver
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(ROOT))
+
+LOC = """name: {name}
+title: "{title}"
+center: {{lat: 46.553, lon: 7.022}}
+half_size_m: 1000
+pilot: {{lat: 46.5553, lon: 7.0305}}
+terrain: {{resolution_m: 10, surface: dtm, ortho: false}}
+links:
+  - {{name: "Video 5.8 GHz", freq_mhz: 5800, tx_power_dbm: 14, tx_gain_dbi: 2, rx_gain_dbi: 2, rx_sensitivity_dbm: -85}}
+"""
+MOCK = {}
+
+
+def mock_port():
+    if "port" not in MOCK:
+        os.environ.setdefault("MOCK_PORT", "0")
+        import mock_stac
+        socketserver.ThreadingTCPServer.allow_reuse_address = True
+        srv = socketserver.ThreadingTCPServer(("127.0.0.1", 0), mock_stac.H)
+        srv.daemon_threads = True
+        mock_stac.PORT = srv.server_address[1]              # tile links point back here
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        MOCK["port"] = srv.server_address[1]
+    return MOCK["port"]
+
+
+class Data:
+    """A fresh Alpline data folder + a runner for `python -m fpv3d ...` inside it."""
+    def __init__(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="alpline_journey_"))
+        for d in ("locations", "scenes", "cache", "logs"):
+            (self.dir / d).mkdir()
+        p = mock_port()
+        self.env = {k: v for k, v in os.environ.items() if k.lower() not in ("http_proxy", "https_proxy")}
+        self.env.update(ALPLINE_DATA=str(self.dir), PYTHONPATH=str(ROOT), PYTHONIOENCODING="utf-8",
+                        FPV3D_STAC_BASE=f"http://127.0.0.1:{p}/api/stac/v0.9",
+                        FPV3D_OVERPASS_URL=f"http://127.0.0.1:{p}/api/interpreter")
+
+    def run(self, *args, ok=True, input_text=None):
+        r = subprocess.run([sys.executable, "-m", "fpv3d", *args], cwd=self.dir, env=self.env, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", input=input_text, timeout=300)
+        if ok:
+            assert r.returncode == 0, f"fpv3d {' '.join(args)} failed:\n{r.stdout[-1500:]}\n{r.stderr[-1500:]}"
+        return r
+
+    def location(self, name="001_field", title="Field"):
+        f = self.dir / "locations" / f"{name}.yaml"
+        f.write_text(LOC.format(name=name, title=title), encoding="utf-8")
+        return f
+
+    def scene(self, name):
+        return json.loads((self.dir / "scenes" / name / "scene.json").read_text(encoding="utf-8"))
+
+
+def demo_log(path, minutes=1.0):
+    """A small flight around the test field, in the CSV format radios write."""
+    import math
+    rows = ["Date,Time,GPS,Alt(m),1RSS(dB),RQly(%)"]
+    for i in range(int(minutes * 60)):
+        a = i / 20
+        la, lo = 46.5553 + 0.002 * math.sin(a), 7.0305 + 0.003 * (1 - math.cos(a))
+        rows.append(f"2026-11-01,10:{i // 60:02d}:{i % 60:02d}.000,{la:.6f} {lo:.6f},{1220 + i % 40},{-60 - i % 20},{100 - i % 5}")
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return path
+
+
+# ------------------------------------------------------------ journeys
+def test_build_add_rename_delete_restore():
+    d = Data()
+    d.location("001_field", "Field")
+    d.run("build", "locations/001_field.yaml")
+    m = d.scene("001_field")
+    assert m["name"] == "001_field" and (d.dir / "scenes" / "001_field" / "terrain.f32").exists()
+
+    log = demo_log(d.dir / "logs" / "flight1.csv")
+    d.run("add-log", "locations/001_field.yaml", str(log))
+    m = d.scene("001_field")
+    assert len(m["tracks"]) == 1 and (d.dir / "scenes" / "001_field" / m["tracks"][0]["file"]).exists()
+
+    d.run("rename", "log", "001_field", m["tracks"][0]["name"], "001_field_first_flight")
+    m = d.scene("001_field")
+    assert m["tracks"][0]["name"] == "001_field_first_flight"
+    assert (d.dir / "scenes" / "001_field" / m["tracks"][0]["file"]).exists()
+
+    d.run("rename", "location", "001_field", "001_ridge", "--title", "Ridge spot")
+    assert (d.dir / "locations" / "001_ridge.yaml").exists() and not (d.dir / "locations" / "001_field.yaml").exists()
+    assert d.scene("001_ridge")["title"] == "Ridge spot" and len(d.scene("001_ridge")["tracks"]) == 1
+    assert not (d.dir / "scenes" / "001_field").exists()
+
+    d.run("delete", "001_ridge", "--yes")
+    assert not (d.dir / "locations" / "001_ridge.yaml").exists() and not (d.dir / "scenes" / "001_ridge").exists()
+    assert "001_ridge" in d.run("restore").stdout          # listed in deleted/
+
+    d.run("restore", "001_ridge")
+    assert (d.dir / "locations" / "001_ridge.yaml").exists()
+    m = d.scene("001_ridge")
+    assert len(m["tracks"]) == 1 and (d.dir / "scenes" / "001_ridge" / m["tracks"][0]["file"]).exists()
+
+
+def test_rename_refuses_to_overwrite():
+    d = Data()
+    d.location("001_a", "A"); d.location("002_b", "B")
+    d.run("build", "locations/001_a.yaml"); d.run("build", "locations/002_b.yaml")
+    r = d.run("rename", "location", "001_a", "002_b", ok=False)
+    assert r.returncode != 0
+    assert d.scene("001_a")["name"] == "001_a" and d.scene("002_b")["name"] == "002_b"
+
+
+def test_delete_needs_confirmation():
+    d = Data()
+    d.location()
+    d.run("build", "locations/001_field.yaml")
+    r = d.run("delete", "001_field", ok=False, input_text="n\n")
+    assert r.returncode != 0 and (d.dir / "locations" / "001_field.yaml").exists()
+
+
+def test_purge_deleted_is_final():
+    d = Data()
+    d.location()
+    d.run("build", "locations/001_field.yaml")
+    d.run("delete", "001_field", "--yes")
+    d.run("deleted", "--purge")
+    assert "nothing" in d.run("restore").stdout
+    assert d.run("restore", "001_field", ok=False).returncode != 0
+
+
+def test_blackbox_twice_adds_once():
+    try:
+        import orangebox  # noqa: F401
+    except ImportError:
+        print("  (orangebox not installed: skipped)")
+        return
+    from make_bbl import make
+    d = Data()
+    d.location()
+    d.run("build", "locations/001_field.yaml")
+    bbl = d.dir / "LOG00001.BBL"
+    make(bbl, [dict(lat0=46.5553, lon0=7.0305, alt_m=1215), dict(lat0=46.0207, lon0=7.7491, alt_m=1620)])
+    out1 = d.run("blackbox", "--file", str(bbl)).stdout
+    assert "1 flight(s) added" in out1 and "no location contains" in out1
+    out2 = d.run("blackbox", "--file", str(bbl)).stdout
+    assert "already added before" in out2 and "0 flight(s) added" in out2
+    assert len(d.scene("001_field")["tracks"]) == 1
+
+
+def test_cache_prune_keeps_what_locations_need():
+    d = Data()
+    d.location()
+    d.run("build", "locations/001_field.yaml")
+    cache = d.dir / "cache"
+    tiles = [p for p in cache.rglob("*.tif")]
+    assert tiles, "the build downloaded no tiles?"
+    junk = tiles[0].parent / "swissalti3d_2019_2700-1100_2_2056_5728.tif"   # a tile far away, no location uses it
+    junk.write_bytes(b"x" * 1000)
+    out = d.run("cache", "prune", "--dry-run").stdout
+    assert junk.exists() and "would free" in out
+    d.run("cache", "prune")
+    assert not junk.exists()
+    assert all(p.exists() for p in tiles), "a tile the location needs was removed"
+    t = time.time()
+    d.run("build", "locations/001_field.yaml", "--reuse-terrain")    # still builds from what is left
+    assert time.time() - t < 120
+
+
+def test_broken_location_file_does_not_break_the_rest():
+    d = Data()
+    d.location("001_ok", "OK")
+    (d.dir / "locations" / "002_broken.yaml").write_text("name: [\n", encoding="utf-8")
+    d.run("build", "locations/001_ok.yaml")
+    r = d.run("build", "locations/002_broken.yaml", ok=False)
+    assert r.returncode != 0 and "Traceback" not in r.stderr, r.stderr[-800:]     # a message, not a crash dump
+    r = d.run("refresh-all", "--zones-only", ok=False)                            # the good one still updates,
+    out = r.stdout + r.stderr                                                     # the broken one is named with why
+    assert "ok      001_ok" in out and "002_broken" in out and "line 2" in out, out[-800:]
+
+
+if __name__ == "__main__":
+    fails = 0
+    for name, fn in list(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            try:
+                t = time.time(); fn(); print(f"  ok    {name} ({time.time() - t:.1f} s)")
+            except Exception as ex:                         # noqa: BLE001
+                fails += 1; print(f"  FAIL  {name}: {ex!r}")
+    sys.exit(1 if fails else 0)

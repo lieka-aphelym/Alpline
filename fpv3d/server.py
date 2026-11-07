@@ -24,9 +24,19 @@ GET  /api/share Â· /api/ca.crt   phone sharing: addresses + PIN (this PC only) Â
 
 Listens on 127.0.0.1 only (this computer), unless started with --lan (launcher [phone]): then other devices on
 the network can connect too, over http on the port and https on port + 443, after typing the PIN.
+
+Safety (tests/test_security.py):
+  - other web pages open in your browser can't use the API: POST needs Content-Type application/json and, when the
+    browser says where it comes from (Origin), the same address as Alpline itself; requests on this computer must be
+    addressed to 127.0.0.1 / localhost (blocks "DNS rebinding" through a website's own name)
+  - only the pages (/viewer/), scenes (/scenes/) and the API are served: never your locations, logs or settings files
+  - the phone needs the PIN (10 wrong tries from one address: locked out for a minute); deleting and renaming only
+    work on this computer
+  - names in requests are letters, digits, _ and - only; paths with .. are refused
 """
 from __future__ import annotations
 
+import hmac
 import html
 import http.server
 import os
@@ -36,6 +46,7 @@ import socketserver
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -141,7 +152,6 @@ def location_file_for_scene(scene: str):
 
 def save_sim_track(scenes_dir: Path, cache_dir: Path, b: dict):
     """Write the simulator CSV under logs/sim/<scene>/ and run add-log on it."""
-    import time
     scene = b.get("scene", "")
     if not re.match(r"^[\w-]+$", scene):
         return dict(error="bad scene name"), 400
@@ -185,7 +195,35 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
 
         def end_headers(self):
             self.send_header("Cache-Control", "no-store, must-revalidate")   # always serve fresh files
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")            # the PIN link never leaks to other sites
             super().end_headers()
+
+        def _refuse(self, status, msg):
+            self._json(dict(error=msg), status)
+            return True
+
+        def _host_ok(self) -> bool:
+            """On this computer, only requests addressed to 127.0.0.1 / localhost. A website that points its own name
+            at 127.0.0.1 ("DNS rebinding") sends its name here and is refused."""
+            if not self._local():
+                return True                        # other devices: the PIN decides
+            host = (self.headers.get("Host") or "").strip().lower()
+            name = host.rsplit(":", 1)[0] if not host.startswith("[") else host.split("]")[0] + "]"
+            return name in ("127.0.0.1", "localhost", "[::1]", "")
+
+        def _origin_ok(self) -> bool:
+            """A request sent by another web page carries that page's address in Origin: it must be Alpline's own."""
+            origin = self.headers.get("Origin")
+            if origin is None:
+                return True                        # not sent by a web page (tests, the launcher, scripts)
+            o = urllib.parse.urlparse(origin)
+            return o.scheme in ("http", "https") and o.netloc.lower() == (self.headers.get("Host") or "").lower()
+
+        def _static_ok(self, path: str) -> bool:
+            """Files served as they are: the pages and the built scenes only (not locations, logs, settings, code)."""
+            p = urllib.parse.unquote(path)
+            return (p.startswith("/viewer/") or p.startswith("/scenes/") or p in ("/favicon.ico",)) and ".." not in p
 
         def log_message(self, fmt, *args):   # keep the terminal quiet except for errors
             if args and str(args[1])[:1] in "45":
@@ -225,10 +263,13 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return False
             pin = SHARE["pin"]
             cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
-            if pin and cookies.get("alp_pin") == pin:
+            if pin and hmac.compare_digest(cookies.get("alp_pin", ""), pin):
                 return False
             q = urllib.parse.parse_qs(u.query)
-            if pin and (q.get("k") or [""])[0] == pin:        # right PIN in the link: remember it, drop it from the URL
+            ip = self.client_address[0]
+            if PIN_TRIES.get(ip, (0, 0))[1] > time.time():      # too many wrong PINs: wait a minute
+                return self._refuse(429, "Too many wrong PINs: wait a minute.")
+            if pin and hmac.compare_digest((q.get("k") or [""])[0], pin):   # right PIN in the link: remember it
                 rest = urllib.parse.urlencode({k: v[0] for k, v in q.items() if k != "k"})
                 self.send_response(302)
                 self.send_header("Set-Cookie", f"alp_pin={pin}; Path=/; Max-Age=31536000; SameSite=Lax"
@@ -237,6 +278,9 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 self.end_headers()
                 return True
             wrong = bool(q.get("k"))
+            if wrong:
+                n = PIN_TRIES.get(ip, (0, 0))[0] + 1
+                PIN_TRIES[ip] = (0, time.time() + 60) if n >= 10 else (n, 0)
             body = (f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Alpline</title>"
                     "<body style='font:16px system-ui;background:#07090c;color:#f2f5f8;padding:28px'>"
                     "<h2 style='font-family:monospace'>ALPLINE</h2><p>Type the PIN shown in the Alpline launcher on the computer "
@@ -245,7 +289,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     "<form method=get>" + "".join(f"<input type=hidden name='{html.escape(k)}' value='{html.escape(v[0])}'>"
                                                   for k, v in q.items() if k != "k") +
                     "<input name=k inputmode=numeric autocomplete=off autofocus "
-                    "style='font:24px monospace;width:8em;padding:6px'> <button style='font:18px monospace;padding:6px 12px'>open</button></form>").encode()
+                    "style='font:24px monospace;width:8em;padding:6px'> "
+                    "<button style='font:18px monospace;padding:6px 12px'>open</button></form>").encode()
             self.send_response(401)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -255,6 +300,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
 
         def do_GET(self):
             u = urllib.parse.urlparse(self.path)
+            if not self._host_ok():
+                return self._refuse(403, "Alpline only answers requests addressed to 127.0.0.1 or localhost.")
             if self._gate(u):
                 return
             if not self._local() and (u.path.endswith("/") or u.path.endswith(".html")):
@@ -354,11 +401,30 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     return
             except Exception as ex:
                 return self._json(dict(error=str(ex)), 500)
+            if u.path.startswith("/api/"):
+                return self._json(dict(error="not found"), 404)
+            if not self._static_ok(u.path):
+                return self._json(dict(error="not found"), 404)
             return super().do_GET()
+
+        def do_HEAD(self):
+            if not self._host_ok() or not self._static_ok(urllib.parse.urlparse(self.path).path):
+                return self._refuse(404, "not found")
+            if self._gate(urllib.parse.urlparse(self.path)):
+                return
+            return super().do_HEAD()
 
         # ---------------------------------------------------------------- POST
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
+            if not self._host_ok():
+                return self._refuse(403, "Alpline only answers requests addressed to 127.0.0.1 or localhost.")
+            # other web pages can't post here: a JSON body needs a browser "preflight" that this server never
+            # allows, and a page's Origin must be Alpline's own address
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                return self._refuse(415, "requests must be JSON (Content-Type: application/json)")
+            if not self._origin_ok():
+                return self._refuse(403, "requests from other web pages are not allowed")
             if self._gate(u):
                 return
             if int(self.headers.get("Content-Length") or 0) > 20_000_000:       # 20 MB: a training flight CSV fits
@@ -539,6 +605,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
 
 
 LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename")
+PIN_TRIES: dict = {}            # phone address -> (wrong PINs in a row, locked until)
 
 
 SHARE = {"on": False, "pin": None, "port": None, "https_port": None}   # set by serve(lan=True)

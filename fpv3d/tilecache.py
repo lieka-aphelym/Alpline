@@ -123,7 +123,7 @@ class TileCache:
         except OSError as ex:
             raise SystemExit(f"cannot reach data.geo.admin.ch ({ex}). {len(missing)} {kind} tile(s) at "
                              f"{res:g} m are not cached yet - connect to the internet once, or use "
-                             f"`python -m fpv3d prefetch` beforehand.")
+                             f"`python -m fpv3d prefetch` beforehand.") from ex
         index_path = d / "_index.json"
         try:
             index = json.loads(index_path.read_text())

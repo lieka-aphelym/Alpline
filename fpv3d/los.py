@@ -218,7 +218,7 @@ def los_ceilings(terrain: Terrain, src, los_grid: Grid, freq_mhz: float, k_facto
             for j in range(len(offs)):
                 np.fmax(s_ls[j], (obst + fl_fin[j] * r1) * w, out=s_ls[j])
         gt = ground_t[idx].astype(np.float32)
-        ceil = lambda s: np.maximum(np.float32(sz) + np.where(np.isfinite(s), s, -1e3) * hd - gt, 0)  # noqa: E731
+        ceil = lambda s: np.maximum(np.float32(sz) + np.where(np.isfinite(s), s, -1e3) * hd - gt, 0)  # noqa: E731, B023 (used at once, in this loop turn)
         out["los"][idx] = ceil(s_los)
         out["fresnel"][idx] = ceil(s_fr)
         for j in range(len(offs)):

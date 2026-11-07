@@ -142,7 +142,7 @@ def fetch_tiles(kind: str, grid: Grid, gsd: float, cache_root: Path) -> List[Pat
     if not items:
         raise RuntimeError(f"no {coll} tiles found here - is the area inside Switzerland?")
     paths = []
-    for key, it in sorted(items.items()):
+    for _key, it in sorted(items.items()):
         asset = pick_asset(it, gsd)
         if asset is None:
             continue

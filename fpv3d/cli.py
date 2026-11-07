@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -173,7 +174,7 @@ def location_tile_keys(margin_km: int = 1) -> set:
         try:
             cfg = LocationConfig.load(f)
         except Exception as ex:                  # a broken file: keep everything rather than guess
-            raise SystemExit(f"{f.name} cannot be read ({ex}); fix it before cleaning the cache")
+            raise SystemExit(f"{f.name} cannot be read ({ex}); fix it before cleaning the cache") from ex
         if cfg.corridor is not None:
             ks = set(cfg.corridor.tile_keys()) | set(cfg.corridor.context_keys(cfg.pilot.lv95() if cfg.pilot else None))
         else:
@@ -471,7 +472,12 @@ def main(argv=None):
     vc.set_defaults(func=cmd_video_convert)
 
     a = p.parse_args(argv)
-    a.func(a)
+    try:
+        a.func(a)
+    except (ValueError, FileNotFoundError) as ex:        # a broken location file, a missing file: the message, not a crash dump
+        if os.environ.get("FPV3D_DEBUG"):
+            raise
+        sys.exit(f"error: {ex}")
 
 
 if __name__ == "__main__":

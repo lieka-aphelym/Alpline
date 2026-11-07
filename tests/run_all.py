@@ -1,7 +1,7 @@
-"""Run every Alpline check:   python tests/run_all.py   [--browser]
+"""Run every Alpline check:   python tests/run_all.py   [--browser]      (pytest does 1-2 too: python -m pytest)
 
-  1. basics      coordinates, log readers, radio maths, telemetry parser     (tests/test_basic.py)
-  2. server      pages, refused requests, phone PIN, build lock, cache, https (tests/test_server.py)
+  1. python      every tests/test_*.py: basics, server, security, robustness, journeys, snapshots, launcher
+  2. (same)      without pytest installed, each test function is run here one by one
   3. warnings    what the pilot sees and hears, radio range, file names       (viewer/test/cases.js)
                  needs Node (nodejs.org); without it, open http://localhost:8000/viewer/test/ while Alpline runs
   4. --browser   opens the real pages in a hidden browser and looks for errors (tests/browser_check.py, needs playwright)
@@ -32,8 +32,13 @@ def run_module(name):
 
 def main():
     results = {}
-    print("1. basics"); results["basics"] = run_module("test_basic")
-    print("2. server"); results["server"] = run_module("test_server")
+    try:
+        import pytest  # noqa: F401
+        print("1. python checks (pytest)")
+        results["python"] = subprocess.call([sys.executable, "-m", "pytest", "-q", str(HERE)], cwd=ROOT)
+    except ImportError:
+        for f in sorted(HERE.glob("test_*.py")):
+            print(f"1. {f.stem[5:]}"); results[f.stem[5:]] = run_module(f.stem)
     print("3. warnings")
     node = shutil.which("node")
     if node:

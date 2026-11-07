@@ -10,7 +10,6 @@ import numpy as np
 
 C = 299_792_458.0
 
-7.971720
 def wavelength_m(freq_mhz: float) -> float:
     return C / (freq_mhz * 1e6)
 
