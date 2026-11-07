@@ -96,23 +96,75 @@ RULE2 = "#4a5462"                                     # control borders
 
 
 class Tip:
-    """Small hover tooltip (the explanations live here instead of on the screen)."""
-    def __init__(self, w, text):
-        self.w, self.text, self.top = w, text, None
-        w.bind("<Enter>", self.show, add="+"); w.bind("<Leave>", self.hide, add="+")
+    """Small hover tooltip (the explanations live here instead of on the screen). Shows after a short pause, one at a
+    time, and checks the mouse itself: it goes away even when the window moves under the mouse (Tk then sends no
+    'leave'), on a click, or when its widget is hidden."""
+    current = None
 
-    def show(self, _=None):
+    def __init__(self, w, text):
+        self.w, self.text, self.top, self.job = w, text, None, None
+        for ev, fn in (("<Enter>", self.enter), ("<Leave>", self.hide), ("<ButtonPress>", self.hide),
+                       ("<Unmap>", self.hide), ("<Destroy>", self.hide)):
+            w.bind(ev, fn, add="+")
+
+    def enter(self, _=None):
+        self.cancel()
+        self.job = self.w.after(450, self.show)
+
+    def cancel(self):
+        if self.job:
+            try:
+                self.w.after_cancel(self.job)
+            except tk.TclError:
+                pass
+            self.job = None
+
+    def over(self) -> bool:
+        try:
+            x, y = self.w.winfo_pointerxy()
+            wx, wy = self.w.winfo_rootx(), self.w.winfo_rooty()
+            return self.w.winfo_viewable() and wx <= x < wx + self.w.winfo_width() and wy <= y < wy + self.w.winfo_height()
+        except tk.TclError:
+            return False
+
+    def show(self):
+        self.job = None
         t = self.text() if callable(self.text) else self.text
-        if not t:
+        if not t or not self.over():
             return
+        if Tip.current and Tip.current is not self:
+            Tip.current.hide()
         self.top = tk.Toplevel(self.w); self.top.wm_overrideredirect(True)
-        self.top.wm_geometry(f"+{self.w.winfo_rootx()}+{self.w.winfo_rooty() + self.w.winfo_height() + 4}")
-        tk.Label(self.top, text=t, font=SANS, fg=FG, bg=BG3, justify="left", wraplength=S(340), padx=S(8), pady=S(5),
-                 highlightthickness=1, highlightbackground=RULE).pack()
+        lab = tk.Label(self.top, text=t, font=SANS, fg=FG, bg=BG3, justify="left", wraplength=S(340), padx=S(8), pady=S(5),
+                       highlightthickness=1, highlightbackground=RULE)
+        lab.pack()
+        self.top.update_idletasks()
+        x, y = self.w.winfo_rootx(), self.w.winfo_rooty() + self.w.winfo_height() + 4
+        if y + self.top.winfo_reqheight() > self.w.winfo_screenheight() - 40:      # no room below: above
+            y = self.w.winfo_rooty() - self.top.winfo_reqheight() - 4
+        x = min(x, self.w.winfo_screenwidth() - self.top.winfo_reqwidth() - 8)
+        self.top.wm_geometry(f"+{x}+{y}")
+        Tip.current = self
+        self.w.after(250, self.watch)
+
+    def watch(self):
+        if not self.top:
+            return
+        if not self.over():
+            self.hide()
+            return
+        self.w.after(250, self.watch)
 
     def hide(self, _=None):
+        self.cancel()
         if self.top:
-            self.top.destroy(); self.top = None
+            try:
+                self.top.destroy()
+            except tk.TclError:
+                pass
+            self.top = None
+        if Tip.current is self:
+            Tip.current = None
 
 
 def is_sim(t: dict) -> bool:
@@ -358,6 +410,8 @@ class Launcher:
         root.bind("<Up>", lambda e: self.move_selection(-1, e))
         root.bind("<Down>", lambda e: self.move_selection(1, e))
         root.bind("<Return>", lambda e: self.on_return(e))
+        root.bind("<Escape>", lambda e: self.select(None) if self.cfg.get("page") == "map"
+                  and not isinstance(e.widget, (tk.Entry, tk.Text)) else None)
 
         self.show_page(self.cfg.get("page", "map") if self.cfg.get("page") in self.pages else "map")
         self.set_mode(self.mode.get(), save=False)
@@ -765,7 +819,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
         threading.Thread(target=net, daemon=True).start()
 
     def select(self, name):
-        """one location chosen (map click or table row): ring on the map, row in the table, details card"""
+        """one location chosen (map click or table row): ring on the map, row in the table, callout. None = no
+        location selected: the plain map."""
         self.map.selected = name
         self.map.show_selected()
         self.map.draw()
@@ -1392,6 +1447,12 @@ class Table:
         return list(self.tv.get_children())
 
     def select(self, name):
+        if name is None:
+            if self.tv.selection():
+                self.busy = True
+                self.tv.selection_remove(*self.tv.selection())
+                self.app.root.after_idle(lambda: setattr(self, "busy", False))
+            return
         if name in self.tv.get_children() and self.tv.selection() != (name,):
             self.busy = True
             self.tv.selection_set(name); self.tv.see(name)
@@ -1419,7 +1480,12 @@ class Card:
         self.app = app
         self.frame = tk.Frame(parent, bg=ACC, padx=1, pady=1)
         inner = tk.Frame(self.frame, bg=BG, padx=S(12), pady=S(10)); inner.pack(fill="both")
-        self.title = FitLabel(inner, font=("Consolas", 10, "bold"), fg=FG, bg=BG); self.title.pack(fill="x")
+        top = tk.Frame(inner, bg=BG); top.pack(fill="x")
+        close = tk.Button(top, text="×", command=lambda: app.select(None), font=("Consolas", 11, "bold"), relief="flat", bd=0,
+                          cursor="hand2", bg=BG, fg=FG2, activebackground=BG3, activeforeground=FG, padx=S(4), pady=0)
+        close.pack(side="right")
+        Tip(close, "Close: no location selected (Esc, or click an empty spot on the map)")
+        self.title = FitLabel(top, font=("Consolas", 10, "bold"), fg=FG, bg=BG); self.title.pack(side="left", fill="x", expand=True)
         self.info = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.info.pack(fill="x", pady=(S(3), 0))
         self.stats = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.stats.pack(fill="x", pady=(S(1), S(8)))
         row = tk.Frame(inner, bg=BG); row.pack(fill="x")
@@ -1489,6 +1555,18 @@ def dark_map(base, relief=None):
         inv = ImageChops.multiply(inv.point(lambda v: min(255, v * 1.9)), shade)
     rgb = Image.merge("RGB", (inv.point(lambda v: v * 0.90), inv.point(lambda v: v * 0.96), inv.point(lambda v: min(255, v * 1.10 + 4))))
     return rgb
+
+
+def soft_edges(img, width=110):
+    """Fade the map into the page background along its edges, so it doesn't end like a picture on a screen."""
+    from PIL import Image, ImageDraw
+    w, h = img.size
+    mask = Image.new("L", (w, h), 255)
+    d = ImageDraw.Draw(mask)
+    for i in range(width):
+        t = i / width
+        d.rectangle([i, i, w - 1 - i, h - 1 - i], outline=int(255 * t * t * (3 - 2 * t)))
+    return Image.composite(img, Image.new("RGB", (w, h), MAP_BG), mask)
 
 
 def zone_overlay(zones):
@@ -1597,6 +1675,7 @@ class SwissMap:
         self.cv.bind("<Button-4>", lambda e: self.zoom(1.25, e.x, e.y))          # Linux wheel
         self.cv.bind("<Button-5>", lambda e: self.zoom(0.8, e.x, e.y))
         self.cv.bind("<Motion>", self.on_hover)
+        self.cv.bind("<Leave>", lambda e: self.info.set(self.hint))
         self.load_sources()
         if not (MAP_DIR / "ch_base.png").exists() or not (MAP_DIR / "ch_zones_raw.png").exists():
             self.download()
@@ -1728,6 +1807,11 @@ class SwissMap:
         wx, wy = self.cx + (x - W / 2) / self.s, self.cy + (y - H / 2) / self.s
         self.s = max(self.min_s(), min(self.max_s(), self.s * f))
         self.cx, self.cy = wx - (x - W / 2) / self.s, wy - (y - H / 2) / self.s
+        if not getattr(self, "_zoom_job", None):    # several wheel notches: one redraw
+            self._zoom_job = self.app.root.after(16, self._zoom_draw)
+
+    def _zoom_draw(self):
+        self._zoom_job = None
         self.draw(fast=True)
 
     def mpx(self, lat, lon):
@@ -1770,22 +1854,31 @@ class SwissMap:
             return
         if abs(e.x - d["x"]) + abs(e.y - d["y"]) > 3:
             d["moved"] = True
-        if d["moved"]:
+        if d["moved"]:                               # move what is drawn (cheap); redraw once on release
+            W, H = self.size()
+            ocx, ocy = self.cx, self.cy
             self.cx = d["cx"] - (e.x - d["x"]) / self.s
             self.cy = d["cy"] - (e.y - d["y"]) / self.s
-            if not getattr(self, "_drag_job", None):  # at most one redraw per frame while dragging
-                self._drag_job = self.app.root.after(16, self._drag_draw)
-
-    def _drag_draw(self):
-        self._drag_job = None
-        self.draw(fast=True)
+            self.clamp(W, H)
+            dx, dy = round((ocx - self.cx) * self.s), round((ocy - self.cy) * self.s)
+            if dx or dy:
+                self.cv.move("all", dx, dy)
+                for h in self.hits:
+                    h["x"] += dx; h["y"] += dy
+                f = self.card.frame
+                if f.winfo_ismapped():
+                    info = f.place_info()
+                    f.place_configure(x=int(float(info["x"])) + dx, y=int(float(info["y"])) + dy)
 
     def on_release(self, e):
         d, self.drag = self.drag, None
         if d and d["moved"]:
+            self.draw()
             return
         h = self.hit(e.x, e.y)
         if not h:
+            if self.selected:
+                self.app.select(None)              # click on empty map: no location selected
             return
         if h.get("group"):                          # a group: zoom in until its locations separate
             pts = [self.mpx(*l["center"]) for l in h["group"]]
@@ -1835,7 +1928,7 @@ class SwissMap:
         self.info.set(self.hint)
         self.list_title.configure(text=f"LOCATIONS · {len(self.locs)}")
         if self.selected not in [l["name"] for l in self.locs]:
-            self.selected = self.locs[0]["name"] if self.locs else None
+            self.selected = None
 
     def map_age(self):
         p = MAP_DIR / "ch_base.png"
@@ -1862,34 +1955,39 @@ class SwissMap:
                     rel = MAP_DIR / "ch_relief.png"
                     relief = Image.open(rel) if rel.exists() else None
                     self.src["map"] = dark_map(b, relief)
-            zr = MAP_DIR / "ch_zones_raw.png"
-            if zr.exists():
-                with Image.open(zr) as z:
-                    self.src["zones"] = zone_overlay(z.convert("RGBA").resize((round(self.span[0]), round(self.span[1]))))
+            if "map" in self.src:
+                full = soft_edges(self.src.pop("map"))
+                self.src["map"] = full
+                zr = MAP_DIR / "ch_zones_raw.png"
+                if zr.exists():
+                    with Image.open(zr) as z:
+                        ov = zone_overlay(z.convert("RGBA").resize(full.size))
+                    zm = full.copy(); zm.paste(ov, (0, 0), ov)
+                    self.src["map_z"] = zm
+                for k in list(self.src):              # half size: used when zoomed out (4x fewer pixels to scale)
+                    self.src[k + "_half"] = self.src[k].resize((full.size[0] // 2, full.size[1] // 2), Image.LANCZOS)
         except Exception as ex:                     # a damaged file: download again with [update map]
             self.hint = f"map file not readable ({ex.__class__.__name__}): [update map]"
 
     def view_image(self, W, H, fast):
-        """The visible part of the map at the window's size, as one image."""
+        """The visible part of the map at the window's size, as one image (zones already drawn in)."""
         from PIL import Image, ImageTk
-        x0, y0 = self.cx - W / 2 / self.s, self.cy - H / 2 / self.s
-        x1, y1 = x0 + W / self.s, y0 + H / self.s
+        key = "map_z" if self.zones.get() and "map_z" in self.src else "map"
+        k = 1.0
+        if self.s <= 0.55 and key + "_half" in self.src:          # zoomed out: the half-size copy is enough
+            key, k = key + "_half", 0.5
+        im = self.src[key]
+        s = self.s / k
+        x0, y0 = (self.cx - W / 2 / self.s) * k, (self.cy - H / 2 / self.s) * k
+        x1, y1 = x0 + W / s, y0 + H / s
         out = Image.new("RGB", (W, H), MAP_BG)
-        layers = [self.src["map"]] + ([self.src["zones"]] if self.zones.get() and "zones" in self.src else [])
         ix0, iy0 = max(0, x0), max(0, y0)
-        ix1, iy1 = min(self.span[0], x1), min(self.span[1], y1)
-        if ix1 - ix0 < 1 or iy1 - iy0 < 1:
-            return ImageTk.PhotoImage(out)
-        dx, dy = round((ix0 - x0) * self.s), round((iy0 - y0) * self.s)
-        dw, dh = max(1, round((ix1 - ix0) * self.s)), max(1, round((iy1 - iy0) * self.s))
-        box = (int(ix0), int(iy0), math.ceil(ix1), math.ceil(iy1))
-        flt = Image.BILINEAR if fast else Image.LANCZOS
-        for i, im in enumerate(layers):
-            part = im.crop(box).resize((dw, dh), flt)
-            if i == 0:
-                out.paste(part, (dx, dy))
-            else:
-                out.paste(part, (dx, dy), part)
+        ix1, iy1 = min(im.size[0], x1), min(im.size[1], y1)
+        if ix1 - ix0 >= 1 and iy1 - iy0 >= 1:
+            box = (int(ix0), int(iy0), math.ceil(ix1), math.ceil(iy1))
+            dx, dy = round((box[0] - x0) * s), round((box[1] - y0) * s)
+            dw, dh = max(1, round((box[2] - box[0]) * s)), max(1, round((box[3] - box[1]) * s))
+            out.paste(im.crop(box).resize((dw, dh), Image.BILINEAR if fast else Image.LANCZOS), (dx, dy))
         return ImageTk.PhotoImage(out)
 
     def download(self, force=False):
@@ -1998,7 +2096,8 @@ class SwissMap:
             else:
                 items.append(dict(m=[(l, p)], p=p))
         names = self.s >= self.min_s() * 1.8         # zoomed in: names next to the dots
-        labels = []
+        labels = [(i["p"][0] - S(15), i["p"][1] - S(15), i["p"][0] + S(15), i["p"][1] + S(15))
+                  for i in items if len(i["m"]) > 1]  # numbers never cover a group badge
 
         def label(text, x, y, col, force=False):
             tw = self.label_font.measure(text)
@@ -2058,7 +2157,7 @@ class SwissMap:
         f = self.card.frame
         cur = self.current()
         if not cur:
-            f.place(x=W - S(12), y=H - S(12), anchor="se", width=S(340))       # "no location" note in the corner
+            f.place_forget()
             return
         it = next((h for h in self.hits if h.get("loc", {}).get("name") == cur["name"]
                    or cur["name"] in [g["name"] for g in h.get("group", [])]), None)

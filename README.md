@@ -38,7 +38,8 @@ the left and a header that stays the same on every page:
 - **map:** a dark map of Switzerland with relief shading and the FOCA drone zones as red outlines (tick box to hide
   them). Drag to move, mouse wheel or *+ / −* to zoom, *fit* frames all your locations (it opens that way), *CH* shows
   the whole country. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered
-  group (click it to zoom in). Names appear next to the dots once you zoom in. Click = select, double-click = open.
+  group (click it to zoom in). Names appear next to the dots once you zoom in. Click = select, double-click = open;
+  a click on an empty spot, *×* on the callout or **Esc** selects nothing (the plain map).
   The selected location's details sit in a callout next to its dot (size, terrain, build date, flights, *[open in 3d]*
   or *[build on the map]*, *[fly]*), with its real area drawn dashed. The **locations list** floats top left (filter
   box, real / sim logs, *[–]* folds it); the map's date and *[update map]* are bottom left. The map, relief and zones
