@@ -54,6 +54,7 @@ class LiveLink:
         self.seq = 0
         self.last_frame = None
         self.last_gps = None
+        self.gaps = dict(frame=[], gps=[])   # recent intervals between messages (s): the usual rate of this radio
 
     # ------------------------------------------------------------ control
     def start(self, scene: str, source: str, port: str = None, replay_file: Path = None, speed: float = 1.0):
@@ -85,11 +86,15 @@ class LiveLink:
         now = time.monotonic()
         with self.lock:
             for f in frames:
+                if self.last_frame is not None and now - self.last_frame > 0.02:     # one read can hold several frames
+                    self._gap("frame", now - self.last_frame)
                 self.last_frame = now
                 kind = f.pop("kind")
                 self.latest.update(f)
                 if kind != "gps":
                     continue
+                if self.last_gps is not None:
+                    self._gap("gps", now - self.last_gps)
                 self.last_gps = now
                 self.seq += 1
                 L = self.latest
@@ -104,6 +109,15 @@ class LiveLink:
                     writer.writerow([s["t"], f"{s['lat']:.7f}", f"{s['lon']:.7f}", s["alt"], s["speed_kmh"], s["heading"],
                                      s["sats"], s["rssi1"], s["rssi2"], s["lq"], s["snr"], s["tx_power"], s["vspeed"],
                                      s["baro_alt"], s["voltage"], s["current"], s["mah"], s["mode"]])
+
+    def _gap(self, kind, dt):
+        g = self.gaps[kind]
+        g.append(dt)
+        del g[:-15]
+
+    def _usual(self, kind):
+        g = sorted(self.gaps[kind])
+        return round(g[len(g) // 2], 2) if len(g) >= 3 else None
 
     def _open_csv(self):
         f = open(self.state["csv"], "w", newline="", encoding="utf-8")
@@ -201,6 +215,8 @@ class LiveLink:
             st["gps_age"] = None if self.last_gps is None else round(now - self.last_gps, 2)
             st["latest"] = dict(self.latest)
             st["open_for"] = None if self.opened is None else round(now - self.opened, 1)
+            st["gps_every"] = self._usual("gps")         # e.g. 2.9 s with a slow telemetry ratio
+            st["frame_every"] = self._usual("frame")
             st["seq"] = self.seq
             st["samples"] = [s for s in self.samples[-2000:] if s["seq"] > since]
         return st

@@ -1106,6 +1106,7 @@ async function loadScene(name) {
     S.live = initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved: (file) => refreshTracks(file),
       onStart: () => { if (S.playing) togglePlay(); } });
   } catch (e) { console.warn('live', e); }
+  window.__alpline = { live: S.live };            // for the automated browser checks
   try { S.zones = await loadZones({ S, scene3, toWorld, demHeight }); } catch (e) { console.warn('geozones', e); S.zones = null; }
   if (S.zones) S.terrainMat.uniforms.uZones.value = S.zones.texture;
   ['zonesOn', 'zonesWalls', 'zonesInactive'].forEach((id) => { $(id).onchange = applyZones; });

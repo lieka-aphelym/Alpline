@@ -19,7 +19,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
 
   // ------------------------------------------------------------ 3D objects
   const drone = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.ConeGeometry(6, 16, 4), new THREE.MeshBasicMaterial({ color: 0x22d3ee }));
+  const body = new THREE.Mesh(new THREE.ConeGeometry(6, 16, 4), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true }));
   body.rotation.x = Math.PI / 2;
   const halo = new THREE.Mesh(new THREE.SphereGeometry(13, 16, 12), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.25, depthWrite: false }));
   drone.add(body, halo); drone.visible = false; scene3.add(drone);
@@ -94,7 +94,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || r.status);
     } catch (e) { $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err'; D.loop(null); D.off(true); linkTxt('not connected'); return; }
-    Object.assign(st, { armedShown: false, flying: false, seenGround: false });
+    Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null });
     Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
     tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
     $('liveConnect').textContent = '[disconnect]'; $('liveConnect').classList.add('danger');
@@ -102,7 +102,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     onStart?.();
     st.poll = setInterval(poll, 200);
     // warning sounds on their own timer: the 3D drawing loop stops when the page is hidden
-    st.tickTimer = setInterval(() => W.tick(performance.now()), 100);
+    st.tickTimer = setInterval(() => { const now = performance.now(); estimate(now); W.tick(now); }, 100);
     keepAwake(true);
     st.pilotChecked = false; $('livePilot').classList.add('hidden');
     const silent = W.silentSummary();             // never start a flight silent without saying so
@@ -159,15 +159,18 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     j.samples = j.samples.filter((s) => s.seq > st.seq);
     if (j.status === 'error') { $('liveMsg').textContent = j.error; $('liveMsg').className = 'small err'; disconnect(); return; }
     if (j.samples.length && $('liveMsg').textContent === 'connecting…') $('liveMsg').textContent = '';
-    if (!st.armedShown && (j.samples.length || (j.frame_age != null && j.frame_age < 1.5))) {   // first data: the quad arms
+    if (!st.armedShown && (j.samples.length || (j.frame_age != null && j.frame_age < 2.5))) {   // first data: the quad arms
       st.armedShown = true; D.play('arm', () => D.loop('ping')); D.loop('ping'); linkTxt('link');
     }
     j.samples.forEach((s, i) => ingest(s, i === j.samples.length - 1));   // warnings only for the newest point
     if (j.samples.length) st.seq = j.samples.at(-1).seq;
+    st.gpsEvery = j.gps_every; st.frameEvery = j.frame_every;
     status(j);
-    // link loss: no GPS frame for 1.5 s while we had a position
-    if (st.last && j.gps_age != null && j.gps_age > 1.5 && !st.lost) markLost(j);
-    if (st.lost && j.gps_age != null && j.gps_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); D.off(false); }
+    // Signal lost = nothing at all from the drone for a while (link values included), measured against how often this
+    // radio usually sends (some send GPS only every 3 s). A late GPS alone is not a loss: the position is estimated.
+    const lostAfter = Math.max(2.5, 2 * (j.frame_every || 0) + 0.5);
+    if (st.last && j.frame_age != null && j.frame_age > lostAfter && !st.lost) markLost(j);
+    if (st.lost && j.frame_age != null && j.frame_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); D.off(false); }
     if (j.status === 'ended' && !st.endedShown) { st.endedShown = true; $('liveMsg').textContent = 'Replay finished.'; }
   }
 
@@ -187,6 +190,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (vz == null && st.last) vz = (z - st.last.z) / Math.max(s.t - st.last.t, 0.05);
     const cur = { t: s.t, x, y, z, agl: z - ground, vx: spd * Math.sin(h), vy: spd * Math.cos(h), vz: vz || 0, heading: s.heading || 0, lq: s.lq, raw: s };
     st.prev = st.last; st.last = cur;
+    if (newest) { st.lastAt = performance.now(); st.estAt = 0; body.material.opacity = 1; halo.material.opacity = 0.25; }
     if (cur.agl < 3 && spd < 1) st.seenGround = true;      // every sample: a batch may hold the takeoff
     if (newest) {
       D.link(s.lq);
@@ -218,6 +222,28 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     const r = W.update(cur);
     pred.material.color.set(r.level === 'ok' ? 0xffffff : r.level === 'caution' ? 0xffb000 : 0xff3b30);
     values(cur, s);
+  }
+
+  // ------------------------------------------------------------ between two GPS positions: estimate the path
+  // Radios send GPS from several times a second down to once every ~3 s. Between two positions the drone keeps
+  // moving on its last speed, heading and climb, drawn faded ("estimated"), and the warnings look ahead from there.
+  // It stops estimating after twice the usual GPS interval (at least 3 s) and holds; at the next fix it snaps back.
+  function estimate(now) {
+    const c = st.last;
+    if (!st.on || !c || st.lost || !st.lastAt) return;
+    const dt = (now - st.lastAt) / 1000;
+    if (dt < 0.25) return;                                  // the real position is fresh
+    const t = Math.min(dt, Math.max(3, 2 * (st.gpsEvery || 1)));
+    const x = c.x + c.vx * t, y = c.y + c.vy * t, g = demHeight(x, y), z = Math.max(g + 0.5, c.z + c.vz * t);
+    toWorld(x, y, z, drone.position);
+    body.material.opacity = 0.55; halo.material.opacity = 0.12;
+    const L = W.cfg.lookahead;
+    pred.geometry.setFromPoints([toWorld(x, y, z), toWorld(x + c.vx * L, y + c.vy * L, z + c.vz * L)]); pred.computeLineDistances();
+    S.requestRender?.(200);
+    if (now - (st.estAt || 0) < 250) return;                // warnings 4 times a second from the estimate
+    st.estAt = now;
+    const r = W.update({ ...c, x, y, z, agl: z - g });
+    pred.material.color.set(r.level === 'ok' ? 0xffffff : r.level === 'caution' ? 0xffb000 : 0xff3b30);
   }
 
   // ------------------------------------------------------------ is the pilot where the location says?
@@ -270,9 +296,13 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
         : 'GPS altitude uncorrected (connect while the drone is on the ground to calibrate)';
   }
   function status(j) {
-    const s = j.status === 'live' ? (j.gps_age != null && j.gps_age < 1.5 ? 'receiving' : j.frame_age != null && j.frame_age < 1.5 ? 'link, waiting for GPS' : 'no data')
+    const every = j.gps_every || 0, fresh = j.gps_age != null && j.gps_age < Math.max(1.5, 1.5 * every);
+    const late = st.last && !st.lost && j.gps_age != null && j.gps_age > Math.max(4, 2.5 * every);
+    const s = j.status === 'live' ? (late ? 'GPS late' : fresh ? 'receiving' : j.frame_age != null && j.frame_age < 2.5 ? (st.last ? 'estimating' : 'link, waiting for GPS') : 'no data')
       : j.status;
-    $('liveStatus').innerHTML = `<b>${s}</b> · ${j.gps_count} GPS points · ${j.frames} frames${j.bad ? ` (${j.bad} bad)` : ''}`;
+    const gps = every ? ` · GPS every ${every.toFixed(1)} s` : '';
+    const age = st.last && j.gps_age != null ? ` · last ${j.gps_age.toFixed(1)} s ago` : '';
+    $('liveStatus').innerHTML = `<b${late ? ' style="color:var(--warn)"' : ''}>${s}</b>${gps}${age} · ${j.gps_count} points${j.bad ? ` · ${j.bad} bad frames` : ''}`;
     // why nothing shows: tell the three cases apart (radio silent / not telemetry / telemetry without a GPS fix)
     const L = j.latest || {}, serial = j.source === 'serial', waited = (j.open_for ?? 0) > 3;
     let hint = '';
@@ -284,15 +314,15 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     } else if (j.status === 'live' && serial && waited && j.bytes && !j.frames) {
       hint = `<b>Data arrives (${j.bytes} bytes) but it isn't telemetry.</b> On the radio, <b>SYS → Hardware → Serial ports →
         USB-VCP</b> is set to another mode: set it to <b>Telemetry Mirror</b>.`;
-    } else if (j.status === 'live' && j.frames && !(j.gps_age != null && j.gps_age < 1.5 && L.lat)) {
+    } else if (j.status === 'live' && j.frames && !st.last) {
       hint = `<b>Telemetry is coming in</b>${L.lq != null ? ` (LQ ${Math.round(L.lq)} %)` : ''}, but no GPS position yet${L.sats != null
         ? ` (${L.sats} satellites)` : ''}. The drone appears on the map once its GPS has a fix: outdoors, usually within a minute or two.
         A drone without GPS shows the link values only.`;
     }
     $('liveHint').innerHTML = hint;
     $('liveHint').classList.toggle('hidden', !hint);
-    if (j.status === 'live' && j.frames && L.lq != null && !(j.gps_age != null && j.gps_age < 1.5)) {   // link values without a position
-      D.link(L.lq); linkTxt(`LQ ${Math.round(L.lq)} % · no GPS`);
+    if (j.status === 'live' && j.frames && L.lq != null && !st.lost) {   // link values come more often than GPS
+      D.link(L.lq); linkTxt(`LQ ${Math.round(L.lq)} %${st.last ? '' : ' · no GPS'}`);
     } else if (j.status === 'live' && serial && waited && !j.frames) linkTxt('no data from the radio');
   }
 
@@ -353,5 +383,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     simTick, simStop: () => { if (!st.on) W.stop(); },
     tick(now) { W.tick(now); },
     setExag() { if (st.last) { toWorld(st.last.x, st.last.y, st.last.z, drone.position); } },
+    /** for the automated checks: where the drone is drawn and whether that is an estimate */
+    debug: () => ({ x: drone.position.x, z: drone.position.z, opacity: body.material.opacity, lost: st.lost }),
   };
 }

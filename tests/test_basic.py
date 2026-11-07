@@ -98,6 +98,16 @@ def test_crsf_roundtrip():
     assert crsf.Parser().feed(bytes(bad)) == []
 
 
+
+def test_crsf_rssi_both_conventions():
+    from fpv3d import crsf
+    assert crsf.dbm(51) == -51          # CRSF spec: dBm x -1
+    assert crsf.dbm(205) == -51         # ExpressLRS: the signed byte (-51 dBm), was shown as -205
+    p = crsf.Parser()
+    f = crsf.encode(0x14, bytes([205, 211, 100, 11, 0, 6, 1, 200, 100, 9]))
+    out = p.feed(f)[0]
+    assert out["rssi1"] == -51 and out["rssi2"] == -45 and out["lq"] == 100
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

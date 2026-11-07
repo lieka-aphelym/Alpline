@@ -20,6 +20,12 @@ SYNC = (0xC8, 0xEA, 0xEE, 0xEC)          # flight controller, radio, TX module, 
 TX_POWER_MW = [0, 10, 25, 100, 500, 1000, 2000, 250, 50]
 
 
+def dbm(v: int) -> int:
+    """CRSF RSSI byte -> dBm. The spec sends dBm x -1 (51 = -51 dBm); ExpressLRS and others send the signed value
+    (-51 dBm = 205). Real RSSI is always negative, so both read the same way."""
+    return v - 256 if v > 127 else -v
+
+
 def crc8(data: bytes) -> int:
     crc = 0
     for b in data:
@@ -54,9 +60,9 @@ def decode(ftype: int, p: bytes):
             return dict(kind="baro", baro_alt=alt)
         if ftype == 0x14 and len(p) >= 10:
             r1, r2, lq, snr, ant, mode, pw, drssi, dlq, dsnr = struct.unpack(">BBBbBBBBBb", p[:10])
-            return dict(kind="link", rssi1=-r1, rssi2=-r2, lq=lq, snr=snr, antenna=ant, rf_mode=mode,
+            return dict(kind="link", rssi1=dbm(r1), rssi2=dbm(r2), lq=lq, snr=snr, antenna=ant, rf_mode=mode,
                         tx_power=TX_POWER_MW[pw] if pw < len(TX_POWER_MW) else None,
-                        down_rssi=-drssi, down_lq=dlq, down_snr=dsnr)
+                        down_rssi=dbm(drssi), down_lq=dlq, down_snr=dsnr)
         if ftype == 0x1E and len(p) >= 6:
             pitch, roll, yaw = struct.unpack(">hhh", p[:6])
             k = 180 / 3.141592653589793 / 10000
