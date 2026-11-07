@@ -4,6 +4,7 @@
 // patch a 0.5 m scene looks like a 2-8 m one.
 import * as THREE from 'three';
 import { LITE, PHONE } from './env.js';
+import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 
 const N = PHONE ? 256 : LITE ? 384 : 768;   // cells per side (phone 256, Lite 384, Full 768)
 
@@ -31,10 +32,10 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
     const r0 = Math.max(0, Math.min(g.rows - N, Math.round((S.H - cy) / g.res - 0.5 - N / 2)));
     const cols = Math.min(N, g.cols), rows = Math.min(N, g.rows);
     try {
-      const r = await fetch(`${api}/terrain?scene=${encodeURIComponent(S.meta.name)}&which=${which}&step=1&c0=${c0}&r0=${r0}&cols=${cols}&rows=${rows}`);
+      const r = await fetch(`${api}/terrain?scene=${encodeURIComponent(S.meta.name)}&which=${which}&step=1&c0=${c0}&r0=${r0}&cols=${cols}&rows=${rows}&enc=${TERRAIN_ENC}`);
       if (!r.ok) throw new Error(r.status);
-      const h = new Float32Array(await r.arrayBuffer());
       const nc = +r.headers.get('X-Cols') || cols, nr = +r.headers.get('X-Rows') || rows;
+      const h = await readTerrain(r, nc);
       const x0 = (c0 + 0.5) * g.res, x1 = (c0 + nc - 0.5) * g.res;
       const y1 = S.H - (r0 + 0.5) * g.res, y0 = S.H - (r0 + nr - 0.5) * g.res;
       build(h, nc, nr, c0, r0);

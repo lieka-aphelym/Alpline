@@ -17,6 +17,7 @@ import { loadBuildings } from './buildings.js';
 import { initProfile } from './profile.js';
 import { initLive } from './live.js';
 import { initBlackbox } from './blackbox.js';
+import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
 
 const $ = (id) => document.getElementById(id);
@@ -49,11 +50,12 @@ function fitRenderer() {
   requestRender();
 }
 
-// ------------------------------------------------------------------ render on demand (Lite mode)
-// Lite: the scene is only drawn when something changes (camera, playback, simulator, live data, UI),
-// instead of 60 times per second. Full mode draws continuously. ?render=always / ?render=demand override.
+// ------------------------------------------------------------------ render on demand
+// The scene is only drawn when something changes (camera, playback, simulator, live data, UI), instead of 60 times
+// per second: same picture, far less GPU work (cooler laptop, longer battery at the field). ?render=always draws
+// continuously (for comparison or a screen recorder that needs steady frames).
 const RENDER_PARAM = new URLSearchParams(location.search).get('render');
-const RENDER_ALWAYS = RENDER_PARAM === 'always' || (!LIGHT && RENDER_PARAM !== 'demand');   // phones: on demand (battery)
+const RENDER_ALWAYS = RENDER_PARAM === 'always';
 let renderUntil = 0;
 function requestRender(ms = 250) { renderUntil = Math.max(renderUntil, performance.now() + ms); }
 for (const ev of ['input', 'change', 'click', 'keydown', 'keyup', 'wheel', 'pointerup']) addEventListener(ev, () => requestRender(400), true);
@@ -114,9 +116,9 @@ async function loadOverview(which) {
   const step = Math.max(1, Math.ceil(Math.max(g.cols, g.rows) / maxSide));
   let dem = null, cols, rows, api = null;
   try {
-    const r = await fetch(`${API}/terrain?scene=${encodeURIComponent(S.meta.name)}&which=${which}&step=${step}`);
+    const r = await fetch(`${API}/terrain?scene=${encodeURIComponent(S.meta.name)}&which=${which}&step=${step}&enc=${TERRAIN_ENC}`);
     if (r.ok && r.headers.get('X-Cols')) {
-      dem = new Float32Array(await r.arrayBuffer()); cols = +r.headers.get('X-Cols'); rows = +r.headers.get('X-Rows'); api = API;
+      cols = +r.headers.get('X-Cols'); rows = +r.headers.get('X-Rows'); dem = await readTerrain(r, cols); api = API;
     }
   } catch { /* static hosting */ }
   if (!dem) {

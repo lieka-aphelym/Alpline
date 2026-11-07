@@ -23,7 +23,7 @@ from . import buildings as bldmod
 from . import geozones, progress, radio, swisstopo
 from .config import VALID_RES, LocationConfig
 from .geo import Grid, lv95_to_wgs84, wgs84_to_lv95
-from .los import Terrain, los_ceilings, los_map, path_clearance
+from .los import Terrain, los_ceilings, path_clearance
 
 
 def log(msg):
@@ -212,54 +212,22 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
          None if lmask is None else hashlib.sha1(np.packbits(lmask).tobytes()).hexdigest()[:12],
          vars(link), cfg.analysis.k_factor, cfg.analysis.fresnel_clearance], sort_keys=True, default=str)
     progress.emit("phase", id="los", label="Signal shadows")
-    n_steps = len(cfg.analysis.los_agl_m) + 4          # the 3D volumes take about 4 shadow maps of time
-    for i_agl, agl in enumerate(cfg.analysis.los_agl_m):
-        t0 = time.time()
-        step = lambda f, i=i_agl, a=agl: progress.emit("pct", throttle=0.3, phase="los", pct=round(100 * (i + f) / n_steps),  # noqa: E731
-                                                        label=f"shadow map at {a:g} m above ground")
-        step(0)
-        key = hashlib.sha1(f"{base_key}|{agl}".encode()).hexdigest()
-        name = f"los_{int(agl)}.png"
-        if memo.get(name, {}).get("key") == key and (out / name).exists():
-            layers.append(memo[name]["layer"])
-            log(f"[los] {agl:>5} m AGL: unchanged, reused")
-            continue
-        clear, fres, dist = los_map(terrain, src, float(agl), lgrid, link.freq_mhz, cfg.analysis.k_factor, on_progress=step,
-                                    mask=lmask)
-        margin = radio.link_margin_db(link, dist, fres)
-        rgba = np.zeros(clear.shape + (4,), np.uint8)
-        fresnel_bad = (fres < cfg.analysis.fresnel_clearance) & (clear >= 0)
-        blocked = clear < 0
-        lost = margin < 0
-        # Out-of-range-only areas are left transparent: the range sphere / ring shows those.
-        rgba[fresnel_bad] = (255, 176, 0, 110)       # amber: Fresnel zone partly obstructed
-        rgba[fresnel_bad & lost] = (255, 120, 0, 150)
-        rgba[blocked] = (40, 30, 90, 175)            # indigo: no direct line of sight (diffraction may still work)
-        rgba[blocked & lost] = (5, 5, 12, 225)       # near-black: no LOS and predicted signal loss
-        name = f"los_{int(agl)}.png"
-        Image.fromarray(rgba, "RGBA").save(out / name)
-        stats = dict(blocked=float(blocked.mean()), fresnel=float(fresnel_bad.mean()), lost=float((lost & blocked).mean()))
-        layers.append(dict(agl=float(agl), file=name, **stats))
-        memo[name] = dict(key=key, layer=layers[-1])
-        memo_path.write_text(json.dumps(memo), encoding="utf-8")
-        log(f"[los] {agl:>5} m AGL: no-LOS {stats['blocked']:.0%}, Fresnel {stats['fresnel']:.0%}, "
-            f"shadow+loss {stats['lost']:.0%}  ({time.time() - t0:.1f}s)")
-
-    # 3D blind-spot volumes: per column, the height above ground below which the link is blocked
-    vol = None
+    # One pass computes the 3D blind-spot volumes: per map column, the height above ground below which the drone is
+    # out of sight / in a blocked Fresnel zone / losing the signal. The flat shadow maps at 10, 30, 60... m are then
+    # just "is that height above the ceiling" (identical to computing each map on its own, see tests, and ~3x faster).
     offsets = sorted(set(cfg.analysis.loss_offsets_db) | {0})    # dB: lets the viewer follow antenna/power edits live
+    names = ["los", "fresnel", "loss"] + [f"loss{d:+g}" for d in offsets if d != 0]
     key = hashlib.sha1(f"{base_key}|ceilings|v2|{offsets}".encode()).hexdigest()
+    ceil = None
     if memo.get("shadow3d", {}).get("key") == key and (out / "shadow3d.bin").exists():
         vol = memo["shadow3d"]["meta"]
         log("[3d] blind-spot volumes: unchanged, reused")
     else:
         t0 = time.time()
-        n0 = len(cfg.analysis.los_agl_m)
         ceil, _ = los_ceilings(terrain, src, lgrid, link.freq_mhz, cfg.analysis.k_factor,
                                cfg.analysis.fresnel_clearance, radio.allowed_path_loss_db(link), offsets, mask=lmask,
                                on_progress=lambda f: progress.emit("pct", throttle=0.3, phase="los", label="3D blind-spot volumes",
-                                                                   pct=round(100 * (n0 + 4 * f) / n_steps)))
-        names = ["los", "fresnel", "loss"] + [f"loss{d:+g}" for d in offsets if d != 0]
+                                                                   pct=round(90 * f)))
         stack = np.stack([np.where(np.isfinite(ceil[k]), np.clip(np.round(ceil[k] * 10), 0, 65534), 65535)
                           for k in names]).astype("<u2")           # decimetres, 65535 = whole column
         stack.tofile(out / "shadow3d.bin")
@@ -269,6 +237,44 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
         memo["shadow3d"] = dict(key=key, meta=vol)
         memo_path.write_text(json.dumps(memo), encoding="utf-8")
         log(f"[3d] blind-spot volumes {lgrid.cols}x{lgrid.rows} ({time.time() - t0:.1f}s)")
+
+    def ceilings():
+        """The volumes as heights in metres (inf = whole column), from this build or read back from shadow3d.bin."""
+        nonlocal ceil
+        if ceil is None:
+            raw = np.fromfile(out / vol["file"], dtype="<u2").reshape(len(vol["layers"]), vol["rows"], vol["cols"])
+            ceil = {k: np.where(raw[i] == vol["inf"], np.inf, raw[i] * vol["scale"]).astype(np.float32)
+                    for i, k in enumerate(vol["layers"])}
+        return ceil
+
+    layers = []
+    for agl in cfg.analysis.los_agl_m:
+        t0 = time.time()
+        key = hashlib.sha1(f"{base_key}|{agl}|from-ceilings".encode()).hexdigest()
+        name = f"los_{int(agl)}.png"
+        if memo.get(name, {}).get("key") == key and (out / name).exists():
+            layers.append(memo[name]["layer"])
+            log(f"[los] {agl:>5} m AGL: unchanged, reused")
+            continue
+        c = ceilings()
+        blocked = c["los"] > agl                     # no direct line of sight at this height
+        fresnel_bad = (c["fresnel"] > agl) & ~blocked
+        lost = c["loss"] > agl                       # predicted link margin below 0
+        rgba = np.zeros(blocked.shape + (4,), np.uint8)
+        # Out-of-range-only areas are left transparent: the range sphere / ring shows those.
+        rgba[fresnel_bad] = (255, 176, 0, 110)       # amber: Fresnel zone partly obstructed
+        rgba[fresnel_bad & lost] = (255, 120, 0, 150)
+        rgba[blocked] = (40, 30, 90, 175)            # indigo: no direct line of sight (diffraction may still work)
+        rgba[blocked & lost] = (5, 5, 12, 225)       # near-black: no LOS and predicted signal loss
+        Image.fromarray(rgba, "RGBA").save(out / name)
+        stats = dict(blocked=float(blocked.mean()), fresnel=float(fresnel_bad.mean()), lost=float((lost & blocked).mean()))
+        layers.append(dict(agl=float(agl), file=name, **stats))
+        memo[name] = dict(key=key, layer=layers[-1])
+        memo_path.write_text(json.dumps(memo), encoding="utf-8")
+        log(f"[los] {agl:>5} m AGL: no-LOS {stats['blocked']:.0%}, Fresnel {stats['fresnel']:.0%}, "
+            f"shadow+loss {stats['lost']:.0%}  ({time.time() - t0:.1f}s)")
+        progress.emit("pct", throttle=0.3, phase="los", pct=90 + round(10 * len(layers) / len(cfg.analysis.los_agl_m)),
+                      label=f"shadow map at {agl:g} m above ground")
     return layers, vol
 
 

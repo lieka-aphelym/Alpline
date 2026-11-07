@@ -82,6 +82,29 @@ def test_signal_model_unchanged():
         "\n(if that is intended: UPDATE_SNAPSHOTS=1 python -m pytest tests/test_snapshots.py)"
 
 
+def test_flat_maps_equal_the_3d_volumes():
+    """Builds draw the flat shadow maps from the 3D volumes (one pass instead of one per height). Checks that this
+    gives the same answer as computing each flat map on its own, for line of sight, Fresnel zone and signal loss."""
+    t, grid = terrain()
+    src = (300.0, 1000.0, float(t.height(np.array([300.0]), np.array([1000.0]))[0]) + 1.8)
+    lg = grid.with_resolution(40)
+    for link in (Link("v", 5800, 27, 8, 8, -95, 3, 10), Link("w", 5800, 14, 2, 2, -85, 3, 10)):
+        ce, _ = los_ceilings(t, src, lg, link.freq_mhz, 4 / 3, 0.6, radio.allowed_path_loss_db(link))
+        for agl in (10, 30, 60, 120):
+            c, f, d = los_map(t, src, agl, lg, link.freq_mhz, 4 / 3)
+            same = lambda a, b: float((a == b).mean())                                  # noqa: E731
+            assert same(c < 0, ce["los"] > agl) > 0.999, (link.name, agl, "line of sight")
+
+            def colours(blocked, fresnel_bad, lost):             # what the map shows (see scene.build_los_layers)
+                k = np.zeros(blocked.shape, int)
+                k[fresnel_bad] = 1; k[fresnel_bad & lost] = 2; k[blocked] = 3; k[blocked & lost] = 4
+                return k
+            one_by_one = colours(c < 0, (f < 0.6) & (c >= 0), radio.link_margin_db(link, d, f) < 0)
+            bl = ce["los"] > agl
+            from_3d = colours(bl, (ce["fresnel"] > agl) & ~bl, ce["loss"] > agl)
+            assert same(one_by_one, from_3d) > 0.999, (link.name, agl, "map colours")
+
+
 def test_snapshot_terrain_is_meaningful():
     """The test terrain really has shadows and clear areas (otherwise the snapshot would prove nothing)."""
     now = compute()

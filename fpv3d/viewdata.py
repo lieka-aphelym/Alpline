@@ -36,6 +36,23 @@ def terrain_window(scene_dir: Path, which="surface", step=1, c0=0, r0=0, cols=No
     return win, g
 
 
+def encode_d16(win: np.ndarray):
+    """Terrain heights in a compact form for the viewer: decimetres above the lowest point, as 16-bit numbers, each
+    stored as the difference to its left neighbour (wrapping at 65536). Half the size of float32, and the small
+    differences of real terrain compress 3-5x better on top. Returns (bytes, base_m). Precision: 0.1 m."""
+    base = float(np.nanmin(win)) if np.isfinite(win).any() else 0.0
+    q = np.round((np.nan_to_num(win, nan=base) - base) * 10).clip(0, 65535).astype(np.uint32)
+    d = (np.diff(q, axis=1, prepend=0) & 0xFFFF).astype("<u2")
+    return d.tobytes(), base
+
+
+def decode_d16(data: bytes, rows: int, cols: int, base: float) -> np.ndarray:
+    """The inverse of encode_d16 (what the viewer does in JavaScript), for the tests."""
+    d = np.frombuffer(data, dtype="<u2").reshape(rows, cols).astype(np.uint32)
+    q = np.cumsum(d, axis=1) & 0xFFFF
+    return (q * 0.1 + base).astype(np.float32)
+
+
 def ortho_window(scene_dir: Path, cache_dir: Path, x0, y0, x1, y1, max_px=2048):
     """JPEG bytes of the aerial photo over local rect (x0, y0)-(x1, y1), or None."""
     m = _scene_meta(scene_dir)

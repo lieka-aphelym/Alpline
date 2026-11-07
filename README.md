@@ -80,7 +80,6 @@ The viewer and the map page show the current mode in the small badge next to the
 
 | | Full | Lite |
 |---|---|---|
-| 3D drawing | continuously | only when something changes (camera, playback, simulator, live data, a setting) |
 | overview mesh | 1500 × 1500 | 800 × 800 (`&maxgrid=` to change) |
 | sharp close-up patch | 768 × 768 | 384 × 384 |
 | pixels on high-DPI screens | up to 2× | up to 1.25× |
@@ -89,6 +88,15 @@ The viewer and the map page show the current mode in the small badge next to the
 | new location: signal grid | 10 m | 20 m |
 | new location: flat shadow maps / antenna-edit steps | 4 / 11 | 2 / 4 |
 | new location: 3D buildings, sharp near-pilot photo | on | off |
+
+Both modes draw the 3D only when something changes (camera, playback, simulator, live data, a setting): the same
+picture as drawing 60 times a second, with far less GPU work (`?render=always` draws continuously).
+
+**Speed:** a build computes the 3D blind-spot volumes once and draws the flat shadow maps (10, 30, 60, 120 m) from
+them, instead of computing each map separately: the signal step of a 5 × 5 km location at 2 m went from 24 s to 9 s
+(same maps, checked by `test_snapshots.py`). The viewer gets the terrain in a compact form (0.1 m steps, half the
+size), and the phone gets every scene file, page and flight log compressed (a 5 × 5 km location: about 13 MB down to
+3–5 MB); this computer gets them uncompressed, where compressing would only cost time.
 
 Existing location files keep their own values in both modes; edit them to change (e.g. `buildings: true`). On a 5 × 5 km test area a Lite location built in 2.3 s instead of 29 s, with 6–9× smaller terrain and shadow files.
 

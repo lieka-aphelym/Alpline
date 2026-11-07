@@ -36,6 +36,7 @@ Safety (tests/test_security.py):
 """
 from __future__ import annotations
 
+import gzip
 import hmac
 import html
 import http.server
@@ -241,11 +242,22 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             self.end_headers()
             self.wfile.write(body)
 
+        def _gzip_ok(self) -> bool:
+            """Compress for other devices (the phone over Wi-Fi); on this computer sending is free and compressing
+            would only cost time."""
+            return not self._local() and "gzip" in (self.headers.get("Accept-Encoding") or "")
+
         def _bin(self, data: bytes, ctype: str, headers=None):
+            enc = None
+            if self._gzip_ok() and len(data) > 1024 and not ctype.startswith("image/"):
+                data, enc = gzip.compress(data, 5), "gzip"
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
-            self.send_header("Access-Control-Expose-Headers", "X-Rows, X-Cols, X-Res")
+            if enc:
+                self.send_header("Content-Encoding", enc)
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Access-Control-Expose-Headers", "X-Rows, X-Cols, X-Res, X-Enc, X-Base, X-Scale")
             for k, v in (headers or {}).items():
                 self.send_header(k, str(v))
             self.end_headers()
@@ -369,8 +381,11 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                         win, g = viewdata.terrain_window(sd, q.get("which", "surface"), int(q.get("step", 1)),
                                                          int(q.get("c0", 0)), int(q.get("r0", 0)),
                                                          int(q["cols"]) if "cols" in q else None, int(q["rows"]) if "rows" in q else None)
-                        return self._bin(win.tobytes(), "application/octet-stream",
-                                         {"X-Rows": win.shape[0], "X-Cols": win.shape[1], "X-Res": g["res"]})
+                        hdr = {"X-Rows": win.shape[0], "X-Cols": win.shape[1], "X-Res": g["res"]}
+                        if q.get("enc") == "d16":           # compact: 0.1 m steps, half the size, compresses well
+                            data, base = viewdata.encode_d16(win)
+                            return self._bin(data, "application/octet-stream", {**hdr, "X-Enc": "d16", "X-Base": base, "X-Scale": 0.1})
+                        return self._bin(win.tobytes(), "application/octet-stream", hdr)
                     jpg = viewdata.ortho_window(sd, cache_dir, float(q["x0"]), float(q["y0"]), float(q["x1"]), float(q["y1"]),
                                                 int(q.get("px", 2048)))
                     if jpg is None:
@@ -405,7 +420,35 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return self._json(dict(error="not found"), 404)
             if not self._static_ok(u.path):
                 return self._json(dict(error="not found"), 404)
+            if self._gzip_ok() and u.path.endswith(GZIP_TYPES) and self._send_gzipped(u.path):
+                return
             return super().do_GET()
+
+        def _send_gzipped(self, path: str) -> bool:
+            """A page or scene file, compressed (kept compressed in memory until the file changes)."""
+            f = Path(self.translate_path(path))
+            try:
+                st = f.stat()
+            except OSError:
+                return False
+            if not f.is_file() or st.st_size < 1024:
+                return False
+            key = (str(f), st.st_mtime_ns, st.st_size)
+            data = GZ_CACHE.get(key)
+            if data is None:
+                data = gzip.compress(f.read_bytes(), 5)
+                with GZ_LOCK:
+                    GZ_CACHE[key] = data
+                    while sum(len(v) for v in GZ_CACHE.values()) > 150_000_000:      # keep at most ~150 MB
+                        GZ_CACHE.pop(next(iter(GZ_CACHE)))
+            self.send_response(200)
+            self.send_header("Content-Type", self.guess_type(str(f)))
+            self.send_header("Content-Encoding", "gzip")
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return True
 
         def do_HEAD(self):
             if not self._host_ok() or not self._static_ok(urllib.parse.urlparse(self.path).path):
@@ -605,6 +648,9 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
 
 
 LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename")
+GZIP_TYPES = (".json", ".bin", ".f32", ".js", ".css", ".html", ".svg", ".geojson", ".webmanifest")   # not png/jpg: already packed
+GZ_CACHE: dict = {}             # (file, mtime, size) -> compressed bytes, for the phone
+GZ_LOCK = threading.Lock()
 PIN_TRIES: dict = {}            # phone address -> (wrong PINs in a row, locked until)
 
 

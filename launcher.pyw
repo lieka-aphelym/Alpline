@@ -472,9 +472,9 @@ class Launcher:
 
 
     # ------------------------------------------------------------ mode
-    MODE_TEXT = {"full": "Full: the whole 3D at full quality, redrawn continuously. New locations: 2 m terrain, 2 m photo, "
+    MODE_TEXT = {"full": "Full: the whole 3D at full quality. New locations: 2 m terrain, 2 m photo, "
                          "10 m signal grid, 3D buildings.",
-                 "lite": "Lite: for slower computers. 3D redrawn only when something changes, lighter mesh. New locations: "
+                 "lite": "Lite: for slower computers: lighter mesh, fewer pixels on sharp screens. New locations: "
                          "5 m terrain, lighter photo, 20 m signal grid, no 3D buildings."}
 
     def set_mode(self, m, save=True):
@@ -1215,6 +1215,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
                     ("robust", "Robustness", "damaged logs, blackbox files, radio data and location files"),
                     ("journeys", "Journeys", "build, add a log, rename, delete, restore, blackbox, cache clean-up"),
                     ("snapshots", "Signal model", "line of sight and range give the same results as before"),
+                    ("performance", "Speed-ups", "compact terrain and compression give the same data"),
                     ("launcher", "Launcher", "USB detection, map groups and zoom"))
 
     def build_checks_page(self, parent):
