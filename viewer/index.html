@@ -207,33 +207,43 @@
 
   <section data-tab="fly" id="liveSection">
     <h2>Live flight</h2>
-    <p class="summary" id="sumLive">See the real drone on the map from your radio's telemetry, with sound and voice warnings before it flies out of sight.</p>
-    <label class="row">Source <select id="liveSrc">
-      <option value="serial">My radio (USB cable)</option>
-      <option value="replay">Replay a flight (test)</option>
-    </select></label>
-    <div id="liveSerialRow">
-      <div class="pickrow"><select id="livePort"></select><button id="livePortRefresh" class="iconbtn">[refresh]</button></div>
-      <div id="livePortMsg" class="small muted"></div>
+    <!-- layout A "flight first": the flight status on top; the connection form takes its place until connected -->
+    <div id="lvHero" class="lvHero" data-state="off"><span id="liveDrone"></span>
+      <div><b id="liveLinkTxt">not connected</b><span id="liveStatus">pick the radio and connect</span></div></div>
+    <div id="liveConnectBox">
+      <div class="lvLbl">Source</div>
+      <select id="liveSrc">
+        <option value="serial">My radio (USB cable)</option>
+        <option value="replay">Replay a flight (test)</option>
+      </select>
+      <div id="liveSerialRow">
+        <div class="pickrow"><select id="livePort"></select><button id="livePortRefresh" class="iconbtn">[refresh]</button></div>
+        <div id="livePortMsg" class="small muted"></div>
+      </div>
+      <div id="liveReplayRow" class="hidden">
+        <select id="liveTrack"></select>
+        <label class="row">Speed <select id="liveSpeed"><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
+      </div>
+      <button id="liveConnect" class="primary lvWide">[connect]</button>
+      <div class="lvNote">Radio: <b>SYS → Hardware → USB-VCP = Telemetry Mirror</b>, plug in as <b>USB Serial (VCP)</b>. Drone on and bound; connect while it is still on the ground.</div>
     </div>
-    <div id="liveReplayRow" class="hidden">
-      <select id="liveTrack"></select>
-      <label class="row">Speed <select id="liveSpeed"><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
-    </div>
-    <div class="row btns"><button id="liveConnect" class="primary">[connect]</button></div>
-    <div class="droneRow"><span id="liveDrone"></span><div><b id="liveLinkTxt">not connected</b><div id="liveStatus" class="small muted"></div></div></div>
     <div id="liveHint" class="summary small hidden"></div>
     <div id="liveMsg" class="small"></div>
     <div id="liveSilent" class="summary small hidden"></div>
-    <div id="livePilot" class="renbox hidden"><div id="livePilotText" class="small"></div>
-      <div class="row btns"><button id="livePilotSet">[use the takeoff point as pilot]</button></div></div>
-    <div id="liveVals" class="livevals"></div>
-    <div id="liveLost" class="renbox delbox hidden">
-      <b>Signal lost</b>
+    <div id="liveLost" class="lvLost hidden">
+      <b>Signal lost <span id="liveLostAge"></span></b>
       <div id="liveLostText" class="small"></div>
       <div class="row btns"><button id="liveZoom">[zoom]</button><button id="liveCopy">[copy GPS]</button><a id="liveGeoAdmin" target="_blank" rel="noopener" class="navlink">[map.geo.admin]</a></div>
     </div>
-    <h2 style="margin-top:12px">Warnings</h2>
+    <div id="liveTiles" class="lvTiles hidden">
+      <div><b id="lvHeight">–</b><span>height</span></div><div><b id="lvDist">–</b><span>distance</span></div><div><b id="lvSpeed">–</b><span>speed</span></div>
+      <div><b id="lvBatt">–</b><span>battery</span></div><div><b id="lvClimb">–</b><span>climb</span></div><div><b id="lvTime">–</b><span>flight time</span></div>
+    </div>
+    <div id="livePilot" class="renbox hidden"><div id="livePilotText" class="small"></div>
+      <div class="row btns"><button id="livePilotSet">[use the takeoff point as pilot]</button></div></div>
+    <div id="liveConnBar" class="lvConn hidden"><span id="liveConnTxt"></span><button id="liveDisconnect" class="danger">[disconnect]</button></div>
+
+    <details class="lvFold"><summary>Warnings <em id="warnSum"></em></summary>
     <label class="row">Alerts <select id="warnMode">
       <option value="mixed">Sounds + voice the first time</option>
       <option value="sounds">Sounds only</option>
@@ -255,16 +265,20 @@
       <option value="compact">Small, only when warning</option>
       <option value="off">Off (sound only)</option>
     </select></label>
+    <label class="row">Warn this far ahead <output id="warnLookOut"></output></label>
+    <input type="range" id="warnLook" min="3" max="10" step="1" value="5">
+    <label class="row"><input type="checkbox" id="warnSim" checked> Also warn during training flights</label>
     <div class="row btns"><button id="warnTest">[test a warning]</button></div>
-    <details class="adv"><summary>Advanced</summary>
-      <label class="row">Warn this far ahead <output id="warnLookOut"></output></label>
-      <input type="range" id="warnLook" min="3" max="10" step="1" value="5">
-      <label class="row"><input type="checkbox" id="warnSim" checked> Also warn during training flights</label>
+    </details>
+    <details class="lvFold"><summary>Recording &amp; view <em id="recSum"></em></summary>
       <label class="row"><input type="checkbox" id="liveSave" checked> Save the flight when disconnecting</label>
       <label class="row"><input type="checkbox" id="liveFollow" checked> Keep the drone in view</label>
-      <p id="liveCalibInfo" class="small muted"></p>
-      <label class="row small">Height correction (m, empty = automatic) <input id="liveCalib" type="number" step="1" style="width:70px"></label>
     </details>
+    <details class="lvFold"><summary>Height correction <em id="calSum"></em></summary>
+      <p id="liveCalibInfo" class="small muted"></p>
+      <label class="row small">Correction (m, empty = automatic) <input id="liveCalib" type="number" step="1" style="width:70px"></label>
+    </details>
+    <details class="lvFold"><summary>All values <em>link, battery, mode</em></summary><div id="liveVals" class="livevals"></div></details>
     <details class="help"><summary>Radio setup (EdgeTX, TX15)</summary><p class="muted small">
       On the radio: <b>SYS → Hardware → USB-VCP</b> = <b>Telemetry mirror</b> (EdgeTX 2.9+; the menu name can differ slightly).
       Plug the USB cable and choose <b>USB Serial (VCP)</b> when the radio asks. Then [refresh] here, pick the port and [connect],

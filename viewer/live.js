@@ -45,6 +45,17 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   const D = mountDrone($('liveDrone'), { size: 56 });
   D.off(true);
   const linkTxt = (t) => { $('liveLinkTxt').textContent = t; };
+  // the coloured bar on the left of the status: off (grey) · ok (green) · warn (amber: weak link, GPS late) · lost (red)
+  const hero = (state) => { $('lvHero').dataset.state = state; };
+  const lqState = (lq) => (lq == null || lq >= 80 ? 'ok' : lq >= 60 ? 'warn' : 'lost');
+  // one line on each folded section, so the settings can stay closed during a flight
+  function summaries() {
+    const modes = { mixed: 'sounds + voice', sounds: 'sounds only', voice: 'voice + beeps', off: 'off' };
+    const on = 7 - W.cfg.muted.length;
+    $('warnSum').textContent = `${modes[W.cfg.mode] || W.cfg.mode} · ${on} of 7 sounds · ${W.cfg.lookahead} s ahead`;
+    $('recSum').textContent = [$('liveSave').checked ? 'saves the flight' : 'not saved', $('liveFollow').checked ? 'follows the drone' : 'free camera'].join(' · ');
+    $('calSum').textContent = st.manual != null ? `manual ${st.manual} m` : st.calib != null ? `automatic (${st.calib >= 0 ? '+' : ''}${st.calib.toFixed(0)} m)` : 'automatic';
+  }
 
   // ------------------------------------------------------------ UI
   const srcSel = $('liveSrc');
@@ -66,6 +77,9 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   };
   $('livePortRefresh').onclick = fillPorts;
   $('liveConnect').onclick = () => (st.on ? disconnect() : connect());
+  $('liveDisconnect').onclick = () => disconnect();
+  ['warnMode', 'warnLook', 'liveSave', 'liveFollow', 'liveCalib'].forEach((id) => $(id).addEventListener('change', () => summaries()));
+  $('warnBoard').addEventListener('change', () => summaries());
   $('warnMode').value = W.cfg.mode;
   $('warnMode').onchange = () => { W.cfg.mode = $('warnMode').value; W.save(); };
   $('warnScreen').value = W.cfg.screen;
@@ -79,12 +93,14 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   $('warnLook').oninput = () => { W.cfg.lookahead = +$('warnLook').value; $('warnLookOut').textContent = `${W.cfg.lookahead} s`; W.save(); };
   $('warnTest').onclick = () => W.test();
   $('liveCalib').onchange = () => { st.manual = $('liveCalib').value === '' ? null : +$('liveCalib').value; };
+  summaries();
   srcSel.onchange();
 
   // ------------------------------------------------------------ connect / poll
   async function connect() {
     $('liveMsg').textContent = 'connecting…'; $('liveMsg').className = 'small muted';
-    D.off(false); D.flying(false); D.loop('scan'); linkTxt('connecting…');
+    D.off(false); D.flying(false); D.loop('scan'); linkTxt('connecting…'); hero('warn');
+    $('liveStatus').textContent = srcSel.value === 'serial' ? `opening ${$('livePort').value || 'the port'}…` : 'starting the replay…';
     W.unlock();                                 // a click is needed before the browser plays sound
     const body = { scene: S.meta.name, source: srcSel.value };
     if (srcSel.value === 'serial') body.port = $('livePort').value;
@@ -93,11 +109,18 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       const r = await fetch('/api/live/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || r.status);
-    } catch (e) { $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err'; D.loop(null); D.off(true); linkTxt('not connected'); return; }
+    } catch (e) {
+      $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err';
+      D.loop(null); D.off(true); linkTxt('not connected'); hero('off'); $('liveStatus').textContent = 'pick the radio and connect'; return;
+    }
     Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null });
     Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
     tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
-    $('liveConnect').textContent = '[disconnect]'; $('liveConnect').classList.add('danger');
+    st.t0 = performance.now(); st.flyT0 = null;
+    $('liveConnectBox').classList.add('hidden'); $('liveTiles').classList.remove('hidden', 'dim'); $('liveConnBar').classList.remove('hidden');
+    $('liveConnTxt').textContent = (srcSel.value === 'serial' ? `${$('livePort').value} · radio` : 'replay')
+      + ($('liveSave').checked ? ' · recording' : '');
+    ['lvHeight', 'lvDist', 'lvSpeed', 'lvBatt', 'lvClimb', 'lvTime'].forEach((id) => { $(id).textContent = '–'; });
     document.body.classList.add('live-on');
     onStart?.();
     st.poll = setInterval(poll, 200);
@@ -135,7 +158,8 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   async function disconnect() {
     clearInterval(st.poll); clearInterval(st.tickTimer); st.on = false;
     keepAwake(false); $('liveSilent').classList.add('hidden');
-    $('liveConnect').textContent = '[connect]'; $('liveConnect').classList.remove('danger');
+    $('liveConnectBox').classList.remove('hidden'); $('liveTiles').classList.add('hidden'); $('liveConnBar').classList.add('hidden');
+    hero('off'); $('liveStatus').textContent = 'pick the radio and connect';
     document.body.classList.remove('live-on');
     W.stop(); pred.visible = false;
     D.loop(null); D.flying(false); D.off(true); linkTxt('not connected'); $('liveHint').classList.add('hidden');
@@ -160,7 +184,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (j.status === 'error') { $('liveMsg').textContent = j.error; $('liveMsg').className = 'small err'; disconnect(); return; }
     if (j.samples.length && $('liveMsg').textContent === 'connecting…') $('liveMsg').textContent = '';
     if (!st.armedShown && (j.samples.length || (j.frame_age != null && j.frame_age < 2.5))) {   // first data: the quad arms
-      st.armedShown = true; D.play('arm', () => D.loop('ping')); D.loop('ping'); linkTxt('link');
+      st.armedShown = true; D.play('arm', () => D.loop('ping')); D.loop('ping'); linkTxt('link'); hero('ok');
     }
     j.samples.forEach((s, i) => ingest(s, i === j.samples.length - 1));   // warnings only for the newest point
     if (j.samples.length) st.seq = j.samples.at(-1).seq;
@@ -168,9 +192,10 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     status(j);
     // Signal lost = nothing at all from the drone for a while (link values included), measured against how often this
     // radio usually sends (some send GPS only every 3 s). A late GPS alone is not a loss: the position is estimated.
-    const lostAfter = Math.max(2.5, 2 * (j.frame_every || 0) + 0.5);
+    const lostAfter = j.frame_every ? Math.max(2.5, 2 * j.frame_every + 0.5) : 5;   // 5 s until the rate is known
     if (st.last && j.frame_age != null && j.frame_age > lostAfter && !st.lost) markLost(j);
-    if (st.lost && j.frame_age != null && j.frame_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); D.off(false); }
+    if (st.lost && j.frame_age != null && j.frame_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); $('liveTiles').classList.remove('dim'); D.off(false); hero('ok'); }
+    if (st.lost) $('liveLostAge').textContent = j.frame_age != null ? `· ${Math.round(j.frame_age)} s` : '';
     if (j.status === 'ended' && !st.endedShown) { st.endedShown = true; $('liveMsg').textContent = 'Replay finished.'; }
   }
 
@@ -194,9 +219,9 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (cur.agl < 3 && spd < 1) st.seenGround = true;      // every sample: a batch may hold the takeoff
     if (newest) {
       D.link(s.lq);
-      linkTxt(s.lq != null ? `LQ ${Math.round(s.lq)} %` : 'link');
+      linkTxt(s.lq != null ? `link · LQ ${Math.round(s.lq)} %` : 'link');
       if (!st.flying && cur.agl > 5 && spd > 2) {          // take-off, only if we saw it on the ground (else: connected mid-air)
-        st.flying = true;
+        st.flying = true; st.flyT0 ??= performance.now();
         if (st.seenGround) D.play('takeoff', () => D.loop('ping')); else D.flying(true);
       }
       else if (st.flying && cur.agl < 2 && spd < 1) { st.flying = false; D.flying(false); }
@@ -291,18 +316,37 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       cell('mode', s.mode), cell('height', `${Math.round(c.agl)} m AGL`), cell('speed', `${Math.round(s.speed_kmh || 0)} km/h`),
       cell('distance', fmtDist(d)), cell('sats', s.sats),
     ].join('');
+    const u = (v, unit) => `${v}<small> ${unit}</small>`;
+    $('lvHeight').innerHTML = u(Math.round(c.agl), 'm');
+    $('lvDist').innerHTML = d >= 1000 ? u((d / 1000).toFixed(2), 'km') : u(Math.round(d), 'm');
+    $('lvSpeed').innerHTML = u(Math.round(s.speed_kmh || 0), 'km/h');
+    $('lvBatt').innerHTML = s.voltage != null ? u(s.voltage.toFixed(1), 'V') : '–';
+    $('lvClimb').innerHTML = u(`${c.vz >= 0 ? '+' : ''}${c.vz.toFixed(1)}`, 'm/s');
     $('liveCalibInfo').textContent = st.manual != null ? `manual correction ${st.manual} m`
       : st.calib != null ? `GPS altitude corrected by ${st.calib >= 0 ? '+' : ''}${st.calib.toFixed(1)} m (measured on the ground)`
         : 'GPS altitude uncorrected (connect while the drone is on the ground to calibrate)';
+    summaries();
   }
   function status(j) {
     const every = j.gps_every || 0, fresh = j.gps_age != null && j.gps_age < Math.max(1.5, 1.5 * every);
     const late = st.last && !st.lost && j.gps_age != null && j.gps_age > Math.max(4, 2.5 * every);
-    const s = j.status === 'live' ? (late ? 'GPS late' : fresh ? 'receiving' : j.frame_age != null && j.frame_age < 2.5 ? (st.last ? 'estimating' : 'link, waiting for GPS') : 'no data')
-      : j.status;
-    const gps = every ? ` · GPS every ${every.toFixed(1)} s` : '';
-    const age = st.last && j.gps_age != null ? ` · last ${j.gps_age.toFixed(1)} s ago` : '';
-    $('liveStatus').innerHTML = `<b${late ? ' style="color:var(--warn)"' : ''}>${s}</b>${gps}${age} · ${j.gps_count} points${j.bad ? ` · ${j.bad} bad frames` : ''}`;
+    const L0 = j.latest || {};
+    // the line under the status: RSSI · how old the GPS position is (and that it is estimated in between) · satellites
+    if (!st.lost && j.status === 'live') {
+      const parts = [];
+      if (L0.rssi1 != null) parts.push(`RSSI ${L0.rssi1} dBm`);
+      if (st.last && j.gps_age != null) parts.push(late ? `<b style="color:var(--warn)">GPS late · ${j.gps_age.toFixed(0)} s</b>`
+        : `GPS ${j.gps_age.toFixed(1)} s ago${!fresh || j.gps_age > 0.6 ? ' · estimated' : ''}`);
+      else if (j.frames) parts.push('waiting for a GPS fix');
+      if (L0.sats != null) parts.push(`${L0.sats} sats`);
+      $('liveStatus').innerHTML = parts.join(' · ') || (j.frames ? 'link' : 'waiting for the radio…');
+      $('liveStatus').title = `GPS every ${every ? every.toFixed(1) + ' s' : '?'} · ${j.gps_count} positions · ${j.frames} frames${j.bad ? ` (${j.bad} bad)` : ''}`;
+      if (j.frames) hero(late ? 'warn' : lqState(L0.lq));
+    } else if (j.status === 'ended' && !st.lost) $('liveStatus').textContent = 'replay finished';
+    if (st.t0) {                                   // flight time: from take-off (or from connecting when already flying)
+      const t = (performance.now() - (st.flyT0 ?? st.t0)) / 1000;
+      $('lvTime').textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    }
     // why nothing shows: tell the three cases apart (radio silent / not telemetry / telemetry without a GPS fix)
     const L = j.latest || {}, serial = j.source === 'serial', waited = (j.open_for ?? 0) > 3;
     let hint = '';
@@ -322,14 +366,15 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     $('liveHint').innerHTML = hint;
     $('liveHint').classList.toggle('hidden', !hint);
     if (j.status === 'live' && j.frames && L.lq != null && !st.lost) {   // link values come more often than GPS
-      D.link(L.lq); linkTxt(`LQ ${Math.round(L.lq)} %${st.last ? '' : ' · no GPS'}`);
+      D.link(L.lq); linkTxt(`link · LQ ${Math.round(L.lq)} %${st.last ? '' : ' · no GPS'}`);
     } else if (j.status === 'live' && serial && waited && !j.frames) linkTxt('no data from the radio');
   }
 
   // ------------------------------------------------------------ lost: last known position + likely impact zone
   function markLost(j) {
     st.lost = true;
-    D.off(true); linkTxt('signal lost');
+    D.off(true); linkTxt('signal lost'); hero('lost'); $('liveTiles').classList.add('dim');
+    $('liveStatus').textContent = 'no telemetry from the drone';
     const c = st.last, p = S.meta.pilot;
     toWorld(c.x, c.y, demHeight(c.x, c.y), lostPin.position);
     const hgt = 40 * S.exag; pinPole.scale.y = hgt; pinPole.position.y = hgt / 2; pinHead.position.y = hgt;
