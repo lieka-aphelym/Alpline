@@ -11,6 +11,7 @@
   zones      locations/x.yaml [--no-refresh]           update the drone no-fly / restricted zones of a scene
   prefetch   locations/x.yaml --res 2 5 10              download + memoise terrain at several detail levels
   cache      info | clear [--raw] [--lod] [--kind dtm] | prune [--dry-run]   inspect / clean the tile cache
+  blackbox   [--port COM5] [--file LOG.BBL]             download the drone's blackbox over USB, add its flights
   video-convert FILE [...]                             re-encode H.265 DVR footage to browser-friendly H.264
 """
 from __future__ import annotations
@@ -212,6 +213,11 @@ def cmd_add_log(a):
     add_logs(cfg, Path(a.scenes), a.logs, ov)
 
 
+def cmd_blackbox(a):
+    from .blackbox import run
+    run(port=a.port, file=a.file, location=a.location, scenes=a.scenes, timeout=a.timeout, skip=a.skip or ())
+
+
 def cmd_serve(a, path=None):
     from .server import serve
     from . import mode
@@ -353,6 +359,14 @@ def main(argv=None):
     al.add_argument("--altitude-offset", type=float, help="override log_options.altitude_offset_m")
     al.add_argument("--altitude-scale", type=float, help="override log_options.altitude_scale")
     al.set_defaults(func=cmd_add_log)
+
+    bb = sub.add_parser("blackbox", help="download the blackbox from a Betaflight drone on USB and add its flights")
+    bb.add_argument("--port", help="serial port of the drone (default: found automatically)")
+    bb.add_argument("--file", help="read a .BBL / .BFL file you already have instead")
+    bb.add_argument("--location", help="add the flights to this location (default: the one containing the take-off)")
+    bb.add_argument("--timeout", type=float, default=60, help="seconds to wait for the USB drive")
+    bb.add_argument("--skip", action="append", help="serial port to leave alone (e.g. the radio)")
+    bb.set_defaults(func=cmd_blackbox)
 
     s = sub.add_parser("serve", help="open the viewer")
     s.add_argument("--port", type=int, default=8000)

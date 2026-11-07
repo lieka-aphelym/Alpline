@@ -16,6 +16,7 @@ import { initDetail } from './detail.js';
 import { loadBuildings } from './buildings.js';
 import { initProfile } from './profile.js';
 import { initLive } from './live.js';
+import { initBlackbox } from './blackbox.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
 
 const $ = (id) => document.getElementById(id);
@@ -1107,6 +1108,7 @@ async function loadScene(name) {
     S.live = initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved: (file) => refreshTracks(file),
       onStart: () => { if (S.playing) togglePlay(); } });
   } catch (e) { console.warn('live', e); }
+  try { initBlackbox({ S, $, onAdded: (file) => refreshTracks(file) }); } catch (e) { console.warn('blackbox', e); }
   window.__alpline = { live: S.live };            // for the automated browser checks
   try { S.zones = await loadZones({ S, scene3, toWorld, demHeight }); } catch (e) { console.warn('geozones', e); S.zones = null; }
   if (S.zones) S.terrainMat.uniforms.uZones.value = S.zones.texture;

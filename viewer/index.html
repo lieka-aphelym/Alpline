@@ -144,6 +144,17 @@
       <div class="row"><button id="trkRenOk" class="primary">Rename</button><button id="trkRenCancel">Cancel</button><span id="trkRenMsg" class="small"></span></div>
     </div>
     <p id="trackInfo" class="summary"></p>
+    <div class="bbBox">
+      <button id="bbGet" title="Plug the drone in with its USB cable (no battery needed), then click">[download from the drone]</button>
+      <label class="row small"><input type="checkbox" id="bbHere"> add every flight to this location</label>
+      <div id="bbLog" class="bbLog small hidden"></div>
+      <details class="help"><summary>How it works</summary><p class="muted small">For Betaflight drones that log to the
+        onboard flash or an SD card (F4 / G4 / F7 / H7 boards). Close Betaflight Configurator first. Alpline finds the drone,
+        switches it to USB drive mode, copies the blackbox to <code>logs/blackbox/</code> and adds each flight with GPS to
+        the location where it took off (or to this one, with the box ticked). Flights already added are skipped. Unplug the
+        drone afterwards: it stays in drive mode until then. GPS must be logged: in the Configurator's Blackbox tab,
+        check that GPS is among the logged fields.</p></details>
+    </div>
     <label class="row">Colour the path by</label>
     <select id="colorMode"></select>
     <div id="colorLegend" class="gradient"></div>

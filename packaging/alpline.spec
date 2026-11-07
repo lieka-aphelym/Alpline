@@ -18,7 +18,8 @@ datas = [(os.path.join(ROOT, "viewer"), "viewer")] + raster_data
 gui = Analysis([os.path.join(ROOT, "launcher.pyw")], pathex=[ROOT], datas=datas,
                hiddenimports=fpv3d_mods + raster_mods + ["yaml"], excludes=["matplotlib", "pytest", "webview", "clr", "pythonnet"])
 cli = Analysis([os.path.join(SPECPATH, "cli_entry.py")], pathex=[ROOT], datas=raster_data,
-               hiddenimports=fpv3d_mods + raster_mods + ["serial", "serial.tools.list_ports", "cryptography"],
+               hiddenimports=fpv3d_mods + raster_mods + ["serial", "serial.tools.list_ports", "cryptography"]
+               + collect_submodules("orangebox"),          # blackbox download
                excludes=["matplotlib", "pytest", "tkinter", "webview", "clr", "pythonnet"])
 
 gui_exe = EXE(PYZ(gui.pure), gui.scripts, [], exclude_binaries=True, name="Alpline", console=False, icon=ICON)

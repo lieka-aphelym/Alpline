@@ -345,9 +345,25 @@ Things you'll want to edit in a location file:
 | source | how |
 |---|---|
 | EdgeTX / OpenTX | radio SD card `LOGS/*.csv` (enable logging with a Special Function). Reads `GPS`, `Alt`, `1RSS`, `RQly`, `RSNR`… |
+| Betaflight blackbox, straight from the drone | flights tab → **[download from the drone]** (see below), or `python -m fpv3d blackbox [--file LOG.BBL]` |
 | Betaflight / INAV blackbox | decode `.bbl` with `blackbox_decode` → `*.gps.csv`, or export CSV from Blackbox Explorer |
 | GPX | any GPS app / converter |
 | generic CSV | needs `lat`, `lon`, optional `alt` and `time` columns |
+
+### Blackbox from the drone (USB)
+
+Plug the drone in with its USB cable (no battery needed), close Betaflight Configurator, then **[download from the
+drone]** in the flights tab (or `python -m fpv3d blackbox`). Alpline:
+
+1. finds the flight controller among the serial ports (the one answering Betaflight's MSP protocol: the radio is left alone),
+2. switches it to USB drive mode (Betaflight's `msc`; F4 / G4 / F7 / H7 boards with onboard flash or an SD card),
+3. copies the logs to `logs/blackbox/<date>/`, reads the GPS of each flight (several flights in one file are split),
+4. adds each flight to the location whose map contains its take-off point, named `<location>_bb_<date>_<time>`
+   (tick *add every flight to this location* to force the open one). Flights outside every location are kept as CSV.
+
+Downloading again skips flights already added (`logs/blackbox/added.txt`). The drone stays in drive mode until you unplug
+it. GPS must be among the logged fields (Configurator → Blackbox). Erase the flash in the Configurator when you want.
+Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GPL-3; 0.5.0 does not install with pip).
 
 ## How the signal model works (and its limits)
 

@@ -10,6 +10,7 @@ POST /api/build                 build a scene in the background  body: {"name": 
 POST /api/simtrack              save a simulator training flight as a track  body: {"scene", "name", "csv"}
 GET  /api/live/ports | /api/live/state?since=N        live telemetry (radio USB serial)
 POST /api/live/start {scene, source: serial|replay, port | track, speed} · /api/live/stop {save}
+POST /api/blackbox {scene?}     download the blackbox from a Betaflight drone on USB, add its flights (background job)
 POST /api/delete                delete a location (moved to deleted/)  body: {"name"}
 POST /api/restore               restore it  body: {"folder"}
 POST /api/rename                rename a location or a log  body: {"kind": "location"|"log", "scene", "old", "new", "title"}
@@ -83,6 +84,7 @@ def run_build(job_id: str, args: list):
     job["cmd"] = " ".join(args)
     job.setdefault("events", [])
     env = dict(os.environ, FPV3D_PROGRESS="1", PYTHONIOENCODING="utf-8")
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(APP), env.get("PYTHONPATH")]))  # data folder elsewhere
     try:
         p = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", errors="replace", bufsize=1, env=env)
@@ -496,6 +498,20 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{loc.name}"]
                     jid = uuid.uuid4().hex[:10]
                     JOBS[jid] = dict(id=jid, name=loc.stem, status="running", lines=[])
+                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+                    return self._json(dict(job=jid))
+                if u.path == "/api/blackbox":    # flights tab: [download from the drone]
+                    from .live import LINK
+                    if busy_job():
+                        return self._json(dict(error=f"another job is running ({busy_job()['name']}): wait for it to finish"), 409)
+                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "blackbox"]
+                    scene = b.get("scene") or ""
+                    if b.get("only_here") and re.match(r"^[\w-]+$", scene):
+                        args += ["--location", scene]
+                    if LINK.thread and LINK.thread.is_alive() and LINK.state.get("port"):
+                        args += ["--skip", LINK.state["port"]]      # the radio of a running live flight
+                    jid = uuid.uuid4().hex[:10]
+                    JOBS[jid] = dict(id=jid, name="blackbox", status="running", lines=[], kind="blackbox")
                     threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
                     return self._json(dict(job=jid))
                 if u.path == "/api/build":

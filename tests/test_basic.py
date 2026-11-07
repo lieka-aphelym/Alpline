@@ -108,6 +108,37 @@ def test_crsf_rssi_both_conventions():
     out = p.feed(f)[0]
     assert out["rssi1"] == -51 and out["rssi2"] == -45 and out["lq"] == 100
 
+def test_blackbox_read():
+    """A synthetic Betaflight log file with two logs (two flights): GPS read in degrees, metres, m/s."""
+    import tempfile
+    try:
+        import orangebox  # noqa: F401
+    except ImportError:
+        print("  (orangebox not installed: skipped)")
+        return
+    sys.path.insert(0, str(Path(__file__).parent))
+    from make_bbl import make
+    from fpv3d.blackbox import _alt_scale, flights_in, write_csv
+    from fpv3d.logs import read_csv
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d) / "LOG00001.BBL"
+        make(f, [dict(lat0=46.5553, lon0=7.0305, alt_m=1215), dict(lat0=46.0207, lon0=7.7491, alt_m=1620, alt_unit=1.0,
+                                                                   firmware="4.3.2")])
+        fl = flights_in(f)
+        assert [x["index"] for x in fl] == [1, 2], fl
+        a, b = fl
+        assert abs(a["start"][0] - 46.5553) < 1e-4 and abs(a["start"][1] - 7.0305) < 1e-4, a["start"]
+        assert abs(a["rows"][0][3] - 1215) < 1 and abs(a["rows"][-1][3] - 1255) < 1.5, a["rows"][-1]
+        assert abs(b["rows"][0][3] - 1620) < 1, b["rows"][0]             # older Betaflight: whole metres
+        assert 29 < a["seconds"] < 31 and len(a["rows"]) == 300
+        assert abs(a["rows"][5][5] - 12.57) < 0.02                       # cm/s -> m/s
+        out = Path(d) / "x.csv"
+        write_csv(a["rows"], out)
+        t = read_csv(out)
+        assert t.source_format == "blackbox" and len(t.t) == 300, (t.source_format, len(t.t))
+    assert _alt_scale({}, [12150]) == 0.1 and _alt_scale({}, [1215]) == 1.0
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
