@@ -712,6 +712,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     return;
   }
   const h = terrainHit(e);
+  if (h && S.pickHook) { const f = S.pickHook; S.pickHook = null; f(h); return; }   // live flight: [pick on the map]
   if (!h) { pk.classList.add('hidden'); return; }
   const p = S.meta.pilot, g = S.meta.grid;
   const d = Math.hypot(h.x - p.x, h.y - p.y, h.h - p.z);

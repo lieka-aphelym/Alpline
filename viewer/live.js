@@ -11,13 +11,85 @@ function toLV95(lat, lon) {
     1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p ** 3];
 }
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+function lv95ToWgs(e, n) {                       // swisstopo's approximate formulas (about 1 m)
+  const y = (e - 2600000) / 1e6, x = (n - 1200000) / 1e6;
+  const lon = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3;
+  const lat = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.0140 * x ** 3;
+  return [lat * 100 / 36, lon * 100 / 36];
+}
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
 
 export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved, onStart }) {
-  const W = createWarner({ S, demHeight, el: { box: $('warnBox'), title: $('warnTitle'), text: $('warnText'), detail: $('warnDetail'), dial: $('warnDial'), hand: $('warnHand') } });
-  const st = { on: false, seq: 0, poll: null, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [], fps: 0 };
+  const W = createWarner({ S, demHeight, ceil: (x, y) => liveCeil(x, y),
+    el: { box: $('warnBox'), title: $('warnTitle'), text: $('warnText'), detail: $('warnDetail'), dial: $('warnDial'), hand: $('warnHand') } });
+  const st = { fixes: [], pilot: null, pilotManual: false, pilotLocked: false, rel: false, on: false, seq: 0, poll: null, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [], fps: 0 };
 
-  // ------------------------------------------------------------ 3D objects
+  // ------------------------------------------------------------ the live pilot: where you really are
+  // The location file has a planned pilot point; at the field you may stand elsewhere. The live pilot is, in order:
+  //   1. what you chose: your phone's GPS ([my position]) or a point picked on the map,
+  //   2. the take-off point: the median of the drone's GPS positions while it sits on the ground (a single drifting
+  //      fix can't move it), locked when it takes off so it never jumps during the flight,
+  //   3. the location's pilot point.
+  // The warnings compute the line of sight from it live (below), so nothing has to be rebuilt at the field.
+  const P0 = S.meta.pilot, ANT = Math.max(0.5, (P0.z ?? 0) - (P0.ground ?? (P0.z ?? 0) - 1.8)) || 1.8;
+  const PILOT_SRC = { location: "the location's pilot point", takeoff: 'the take-off point', phone: 'your phone\'s position', map: 'the point picked on the map' };
+  function pilot() { return st.pilot || { x: P0.x, y: P0.y, z: P0.z, source: 'location' }; }
+  function setLivePilot(x, y, source, n = 0) {
+    st.pilot = { x, y, z: demHeight(x, y) + ANT, source, n };
+    showPilot();
+  }
+  const median = (a) => { const b = [...a].sort((p, q) => p - q); return b[b.length >> 1]; };
+  function groundFix(x, y, sats) {                 // drone on the ground before take-off: collect positions
+    if (st.pilotLocked || (st.pilot && st.pilot.source !== 'takeoff')) return;
+    if (sats != null && sats < 5 && st.fixes.length) return;       // poor fixes only if there is nothing better
+    st.fixes.push([x, y]); st.fixes.splice(0, st.fixes.length - 8);
+    if (st.fixes.length >= 2) setLivePilot(median(st.fixes.map((f) => f[0])), median(st.fixes.map((f) => f[1])), 'takeoff', st.fixes.length);
+  }
+  // line of sight from the live pilot: the height above the ground needed at (x, y) to see the pilot, over the
+  // terrain, with the earth's curvature (radio k = 4/3). At the location's own point the precomputed shadows serve.
+  const kR2 = 2 * (4 / 3) * 6371000;
+  function liveCeil(x, y) {
+    if (x < 0 || y < 0 || x > S.W || y > S.H) return null;
+    const p = pilot();
+    if (p.source === 'location' && S.vol?.ceilAt) return S.vol.ceilAt('los', x, y);
+    return ceilFrom(p, x, y);
+  }
+  function ceilFrom(p, x, y) {
+    const D = Math.hypot(x - p.x, y - p.y), g = demHeight(x, y);
+    if (D < 20) return 0;
+    const n = Math.max(8, Math.min(300, Math.round(D / Math.max(2, S.meta.grid.res || 5))));
+    let need = -Infinity;
+    for (let i = 1; i < n; i++) {
+      const t = i / n, d = t * D;
+      if (d < 10) continue;                       // the ground right under the pilot's antenna
+      const h = demHeight(p.x + (x - p.x) * t, p.y + (y - p.y) * t) + d * (D - d) / kR2 + 3;   // +3 m: the browser's blended heights shave ridges a little
+      need = Math.max(need, p.z + (h - p.z) / t);
+    }
+    return Math.max(0, need - g);
+  }
+  // the pilot on the 3D map (cyan) when it is not the location's point
+  const pilotMark = new THREE.Group();
+  {
+    const m = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 1, 8), m); pole.name = 'pole';
+    const head = new THREE.Mesh(new THREE.OctahedronGeometry(6), m); head.name = 'head';
+    pilotMark.add(pole, head); pilotMark.visible = false; scene3.add(pilotMark);
+  }
+  function showPilot() {
+    const p = pilot(), d0 = Math.hypot(p.x - P0.x, p.y - P0.y);
+    pilotMark.visible = p.source !== 'location';
+    if (pilotMark.visible) {
+      toWorld(p.x, p.y, p.z - ANT, pilotMark.position);
+      const hgt = 25 * S.exag, pole = pilotMark.getObjectByName('pole'), head = pilotMark.getObjectByName('head');
+      pole.scale.y = hgt; pole.position.y = hgt / 2; head.position.y = hgt;
+    }
+    const src = PILOT_SRC[p.source] + (p.source === 'takeoff' ? ` (${p.n} GPS${st.pilotLocked ? ', locked' : ''})` : '');
+    $('lvPilotTxt').innerHTML = `Pilot: <b>${src}</b>` + (p.source !== 'location' && d0 > 15
+      ? ` · ${fmtDist(d0)} from the location's point. Warnings use this position; the coloured maps are from the location's point.` : '');
+    $('lvPilotSave').classList.toggle('hidden', p.source === 'location' || d0 < 15);
+    S.requestRender?.(200);
+  }
+
   const drone = new THREE.Group();
   const body = new THREE.Mesh(new THREE.ConeGeometry(6, 16, 4), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true }));
   body.rotation.x = Math.PI / 2;
@@ -54,7 +126,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     const on = 7 - W.cfg.muted.length;
     $('warnSum').textContent = `${modes[W.cfg.mode] || W.cfg.mode} · ${on} of 7 sounds · ${W.cfg.lookahead} s ahead`;
     $('recSum').textContent = [$('liveSave').checked ? 'saves the flight' : 'not saved', $('liveFollow').checked ? 'follows the drone' : 'free camera'].join(' · ');
-    $('calSum').textContent = st.manual != null ? `manual ${st.manual} m` : st.calib != null ? `automatic (${st.calib >= 0 ? '+' : ''}${st.calib.toFixed(0)} m)` : 'automatic';
+    $('calSum').textContent = st.rel ? 'armed: height above the take-off point' : st.manual != null ? `manual ${st.manual} m` : st.calib != null ? `automatic (${st.calib >= 0 ? '+' : ''}${st.calib.toFixed(0)} m)` : 'automatic';
   }
 
   // ------------------------------------------------------------ UI
@@ -78,6 +150,22 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   $('livePortRefresh').onclick = fillPorts;
   $('liveConnect').onclick = () => (st.on ? disconnect() : connect());
   $('liveDisconnect').onclick = () => disconnect();
+  $('lvPilotMe').onclick = () => {
+    if (!navigator.geolocation) { $('livePilotText').textContent = 'This browser has no location (the phone needs the secure https page).'; return; }
+    $('livePilotText').textContent = 'getting your position…';
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const g = S.meta.grid, [e, n] = toLV95(pos.coords.latitude, pos.coords.longitude), x = e - g.min_e, y = n - g.min_n;
+      if (x < 0 || y < 0 || x > S.W || y > S.H) { $('livePilotText').textContent = 'You are outside this location\'s map.'; return; }
+      st.pilotManual = true; setLivePilot(x, y, 'phone');
+      $('livePilotText').textContent = `±${Math.round(pos.coords.accuracy)} m`;
+    }, (err) => { $('livePilotText').textContent = `No position: ${err.message}`; }, { enableHighAccuracy: true, timeout: 15000 });
+  };
+  $('lvPilotPick').onclick = () => {
+    $('livePilotText').textContent = 'Click the ground where you stand…';
+    S.pickHook = (h) => { st.pilotManual = true; setLivePilot(h.x, h.y, 'map'); $('livePilotText').textContent = ''; };
+  };
+  $('lvPilotLoc').onclick = () => { st.pilotManual = true; st.pilot = null; showPilot(); $('livePilotText').textContent = ''; };
+  $('lvPilotSave').onclick = () => { const p = pilot(), [lat, lon] = lv95ToWgs(S.meta.grid.min_e + p.x, S.meta.grid.min_n + p.y); setPilot(lat, lon); };
   ['warnMode', 'warnLook', 'liveSave', 'liveFollow', 'liveCalib'].forEach((id) => $(id).addEventListener('change', () => summaries()));
   $('warnBoard').addEventListener('change', () => summaries());
   $('warnMode').value = W.cfg.mode;
@@ -94,6 +182,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   $('warnTest').onclick = () => W.test();
   $('liveCalib').onchange = () => { st.manual = $('liveCalib').value === '' ? null : +$('liveCalib').value; };
   summaries();
+  showPilot();
   srcSel.onchange();
 
   // ------------------------------------------------------------ connect / poll
@@ -113,7 +202,10 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err';
       D.loop(null); D.off(true); linkTxt('not connected'); hero('off'); $('liveStatus').textContent = 'pick the radio and connect'; return;
     }
-    Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null });
+    Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null,
+      fixes: [], pilotLocked: false, rel: false, relBase: null, calibs: [] });
+    if (!st.pilotManual) st.pilot = null;
+    showPilot();
     Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
     tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
     st.t0 = performance.now(); st.flyT0 = null;
@@ -127,7 +219,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     // warning sounds on their own timer: the 3D drawing loop stops when the page is hidden
     st.tickTimer = setInterval(() => { const now = performance.now(); estimate(now); W.tick(now); }, 100);
     keepAwake(true);
-    st.pilotChecked = false; $('livePilot').classList.add('hidden');
+    $('livePilotText').textContent = '';
     const silent = W.silentSummary();             // never start a flight silent without saying so
     $('liveSilent').classList.toggle('hidden', !silent.length);
     $('liveSilent').innerHTML = silent.length ? `<b>Check your warnings:</b> ${silent.join(' · ')}. Change it in Warnings below.` : '';
@@ -205,11 +297,22 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     const ground = demHeight(x, y), spd = (s.speed_kmh || 0) / 3.6;
     // altitude: GPS, corrected by an offset measured while the drone sits on the ground
     if (st.manual == null && st.calibN < 5 && spd < 0.8 && Math.abs(s.vspeed || 0) < 0.5 && s.alt != null) {
-      st.calibSum += ground + 0.2 - s.alt; st.calibN++; st.calib = st.calibSum / st.calibN;
+      (st.calibs ||= []).push(ground + 0.2 - s.alt); st.calibN++;
+      st.calib = median(st.calibs);                // median: one drifting GPS fix doesn't shift the heights
     }
-    if (!st.pilotChecked && st.calibN >= 3) checkPilot(x, y, s);     // drone on the ground = the takeoff point
-    const off = st.manual ?? st.calib ?? 0;
-    const z = (s.alt ?? ground) + off;
+    // Altitude. Disarmed, Betaflight sends the GPS altitude above sea level (corrected by the offset measured on
+    // the ground). Armed, it sends the height above the arming point instead (760 m becomes 0). Switzerland is never
+    // below ~190 m, so an altitude far below the ground under the drone can only be that height above take-off:
+    // it is added to the ground height where the drone armed.
+    let z;
+    if (s.alt != null && s.alt < ground - 100) {
+      if (!st.rel) { st.rel = true; st.relBase = st.fixes.length ? demHeight(median(st.fixes.map((f) => f[0])), median(st.fixes.map((f) => f[1]))) : ground; }
+      z = st.relBase + 0.2 + s.alt;
+    } else {
+      if (st.rel) st.rel = false;                 // disarmed again: back to the GPS altitude
+      z = (s.alt ?? ground) + (st.manual ?? st.calib ?? 0);
+    }
+    if (!st.flying && spd < 1) groundFix(x, y, s.sats);              // on the ground: the take-off point = the pilot
     const h = (s.heading || 0) * Math.PI / 180;
     let vz = s.vspeed;
     if (vz == null && st.last) vz = (z - st.last.z) / Math.max(s.t - st.last.t, 0.05);
@@ -222,6 +325,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       linkTxt(s.lq != null ? `link · LQ ${Math.round(s.lq)} %` : 'link');
       if (!st.flying && cur.agl > 5 && spd > 2) {          // take-off, only if we saw it on the ground (else: connected mid-air)
         st.flying = true; st.flyT0 ??= performance.now();
+        if (!st.pilotManual && st.pilot) { st.pilotLocked = true; showPilot(); }   // the take-off point stays put now
         if (st.seenGround) D.play('takeoff', () => D.loop('ping')); else D.flying(true);
       }
       else if (st.flying && cur.agl < 2 && spd < 1) { st.flying = false; D.flying(false); }
@@ -274,20 +378,8 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   // ------------------------------------------------------------ is the pilot where the location says?
   // Signal shadows are computed from the location's pilot point. Taking off far from it means every warning is
   // computed from the wrong place: say so, and offer to move the pilot point there (rebuilds the shadows).
-  function checkPilot(x, y, s) {
-    st.pilotChecked = true;
-    const p = S.meta.pilot, d = Math.hypot(x - p.x, y - p.y);
-    if (d < 75) return;
-    const dx = x - p.x, dy = y - p.y, brg = (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
-    $('livePilot').classList.remove('hidden');
-    $('livePilotText').innerHTML = `You took off <b>${fmtDist(d)}</b> ${COMPASS[Math.round(brg / 45) % 8]} of this location's pilot point. `
-      + 'The signal shadows and warnings are computed from that point, so they may be wrong here.';
-    $('livePilotSet').disabled = false;
-    $('livePilotSet').onclick = () => setPilot(s.lat, s.lon);
-    W.notice(`Takeoff is ${Math.round(d / 10) * 10} meters from the pilot point. Warnings may be wrong.`);
-  }
   async function setPilot(lat, lon) {
-    $('livePilotSet').disabled = true;
+    $('lvPilotSave').disabled = true;
     $('livePilotText').textContent = 'Saving the new pilot point and rebuilding the shadows…';
     window.alpBusy?.(true);
     try {
@@ -303,12 +395,12 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
           : `The rebuild failed: ${(k.lines || []).at(-1) || k.status}`;
         break;
       }
-    } catch (e) { $('livePilotText').textContent = `Could not move the pilot point: ${e.message}`; $('livePilotSet').disabled = false; }
+    } catch (e) { $('livePilotText').textContent = `Could not move the pilot point: ${e.message}`; $('lvPilotSave').disabled = false; }
     finally { window.alpBusy?.(false); }
   }
 
   function values(c, s) {
-    const p = S.meta.pilot, d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
+    const p = pilot(), d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
     const cell = (k, v) => `<div><span class="muted">${k}</span><b>${v ?? '–'}</b></div>`;
     $('liveVals').innerHTML = [
       cell('LQ', s.lq != null ? `${s.lq}%` : null), cell('RSSI', s.rssi1 != null ? `${s.rssi1} dBm` : null), cell('SNR', s.snr),
@@ -375,7 +467,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     st.lost = true;
     D.off(true); linkTxt('signal lost'); hero('lost'); $('liveTiles').classList.add('dim');
     $('liveStatus').textContent = 'no telemetry from the drone';
-    const c = st.last, p = S.meta.pilot;
+    const c = st.last, p = pilot();
     toWorld(c.x, c.y, demHeight(c.x, c.y), lostPin.position);
     const hgt = 40 * S.exag; pinPole.scale.y = hgt; pinPole.position.y = hgt / 2; pinHead.position.y = hgt;
     lostPin.visible = true;
@@ -429,6 +521,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     tick(now) { W.tick(now); },
     setExag() { if (st.last) { toWorld(st.last.x, st.last.y, st.last.z, drone.position); } },
     /** for the automated checks: where the drone is drawn and whether that is an estimate */
-    debug: () => ({ x: drone.position.x, z: drone.position.z, opacity: body.material.opacity, lost: st.lost }),
+    ceilCheck: (pts) => pts.map(([x, y]) => [S.vol?.ceilAt ? S.vol.ceilAt('los', x, y) : null, ceilFrom({ x: P0.x, y: P0.y, z: P0.z }, x, y)]),
+    debug: () => ({ x: drone.position.x, z: drone.position.z, opacity: body.material.opacity, lost: st.lost, pilot: pilot(), rel: st.rel, last: st.last && { agl: st.last.agl, z: st.last.z } }),
   };
 }

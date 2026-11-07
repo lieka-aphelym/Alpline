@@ -26,7 +26,9 @@
 const RANK = { ok: 0, link: 1, outside: 1.5, caution: 2, urgent: 3, blind: 4, lost: 5 };
 const COLORS = { ok: '#1f6f4a', link: '#9a6b00', outside: '#3d4654', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };
 
-export function createWarner({ S, demHeight, el }) {
+export function createWarner({ S, demHeight, el, ceil: ceilFn = null }) {
+  // ceil(x, y): metres above the ground needed there to see the pilot (null = unknown). The live flight passes its
+  // own (from the live pilot position); otherwise the scene's precomputed 3D shadows are used.
   const cfg = { mode: 'mixed', lookahead: 5, margin: 5, climbRate: 12 };
   try { Object.assign(cfg, JSON.parse(localStorage.getItem('fpv3d:warn') || '{}')); } catch { /* private mode */ }
   if (!['mixed', 'sounds', 'voice', 'off'].includes(cfg.mode)) cfg.mode = 'mixed';
@@ -37,7 +39,8 @@ export function createWarner({ S, demHeight, el }) {
   let last = { level: 'ok' }, lastSpoke = 0, lastText = '', lastKind = '', active = false;
 
   // ------------------------------------------------------------ model
-  const ceil = (x, y) => (S.vol?.ceilAt ? S.vol.ceilAt('los', x, y) : null);
+  const ceil = ceilFn || ((x, y) => (S.vol?.ceilAt ? S.vol.ceilAt('los', x, y) : null));
+  const ready = () => !!ceilFn || !!S.vol?.ceilAt;
   function blindAt(x, y, z) {
     if (x < 0 || y < 0 || x > S.W || y > S.H) return null;
     const c = ceil(x, y);
@@ -70,7 +73,7 @@ export function createWarner({ S, demHeight, el }) {
   const round5 = (m) => Math.max(5, Math.ceil(m / 5) * 5);
 
   function evaluate(s) {
-    if (!S.vol?.ceilAt) return { level: 'ok', text: '', detail: 'no 3D shadow data in this scene (refresh it)' };
+    if (!ready()) return { level: 'ok', text: '', detail: 'no 3D shadow data in this scene (refresh it)' };
     const speed = Math.hypot(s.vx, s.vy);
     if (s.z - demHeight(s.x, s.y) < 4 && speed < 4) return { level: 'ok', text: '', detail: 'on the ground' };
     const now = blindAt(s.x, s.y, s.z);

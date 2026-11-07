@@ -175,6 +175,17 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
 - The impact zone is an estimate; the last known position is the solid part.
 - The warnings need the 3D shadows of the scene (built by default; `refresh-all` for old scenes).
 
+
+**Pilot position at the field.** The warnings use the *live pilot*: the take-off point (the median of the drone's
+GPS positions while it sits on the ground, locked at take-off so it never jumps), or your phone's GPS (*[my
+position]*), or a point picked on the map. The line of sight is computed live from there, in the browser, so
+taking off away from the location's planned point needs no rebuild. The coloured shadow maps stay those of the
+location's point; *[save as this location's pilot]* rebuilds them from the live point (do it at home, it takes a while).
+
+**Altitude when armed.** Betaflight sends the GPS altitude while disarmed and the height above the arming point
+while armed (760 m becomes 0). Alpline recognises the second case (an altitude far below the ground) and adds the
+ground height at the take-off point.
+
 ## Deleting locations
 
 On the map page, *[saved] → [delete]* next to a location (or *[map] → This location → [delete]* in the 3D viewer) deletes it after a confirmation. Nothing is destroyed right away: the location file, its 3D scene and its training flights move to the `deleted/` folder.

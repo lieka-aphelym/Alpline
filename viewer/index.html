@@ -239,8 +239,10 @@
       <div><b id="lvHeight">–</b><span>height</span></div><div><b id="lvDist">–</b><span>distance</span></div><div><b id="lvSpeed">–</b><span>speed</span></div>
       <div><b id="lvBatt">–</b><span>battery</span></div><div><b id="lvClimb">–</b><span>climb</span></div><div><b id="lvTime">–</b><span>flight time</span></div>
     </div>
-    <div id="livePilot" class="renbox hidden"><div id="livePilotText" class="small"></div>
-      <div class="row btns"><button id="livePilotSet">[use the takeoff point as pilot]</button></div></div>
+    <div id="lvPilot" class="lvPilot"><div id="lvPilotTxt" class="small"></div>
+      <div class="row btns"><button id="lvPilotMe" title="Use this device's GPS (the phone at the field)">[my position]</button><button id="lvPilotPick" title="Then click the ground where you stand">[pick on the map]</button><button id="lvPilotLoc">[location's point]</button></div>
+      <button id="lvPilotSave" class="hidden" title="Rebuilds the coloured shadow maps from here: do it at home, it takes a while">[save as this location's pilot]</button>
+      <div id="livePilotText" class="small"></div></div>
     <div id="liveConnBar" class="lvConn hidden"><span id="liveConnTxt"></span><button id="liveDisconnect" class="danger">[disconnect]</button></div>
 
     <details class="lvFold"><summary>Warnings <em id="warnSum"></em></summary>

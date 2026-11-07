@@ -350,3 +350,7 @@ details.lvFold > summary::before { content: "▸ "; color: var(--t-fg2); }
 details.lvFold[open] > summary::before { content: "▾ "; }
 details.lvFold > summary em { display: block; font-style: normal; font-size: 11px; color: var(--t-fg2); margin-left: 14px; }
 details.lvFold[open] > summary { margin-bottom: 6px; }
+.lvPilot { border-top: 1px solid var(--t-rule); padding: 6px 0; margin-bottom: 4px; }
+.lvPilot .btns { flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.lvPilot button { font-size: 11px !important; padding: 2px 6px !important; }
+#lvPilotSave { margin-top: 4px; }
