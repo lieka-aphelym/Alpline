@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07090c">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Alpline · battery packs</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="packs.css">
+<script src="/api/mode.js"></script>
+<script src="theme.js"></script>
+</head>
+<body class="packsPage">
+<main>
+  <header class="pkHead">
+    <h1 data-logo>ALPLINE <small>by lieka · battery packs</small></h1>
+    <nav><a class="navlink" href="index.html">[3d viewer]</a> <a class="navlink" href="map.html">[locations]</a></nav>
+  </header>
+  <p class="lead">Each flight with battery data (blackbox, or radio logs with RxBt / Curr) measures the pack: how much it
+    gave, how low the cells went and its internal resistance. Say which pack flew each flight and Alpline follows every
+    pack's health, how long it lasts at your flying, and flags the tired ones.</p>
+
+  <div class="lbl">Your packs <button id="newPack" class="small">[+ new pack]</button></div>
+  <div id="packForm" class="pkForm hidden">
+    <input type="hidden" id="pfId">
+    <label>name <input id="pfName" maxlength="40" spellcheck="false" placeholder="pack 1"></label>
+    <label>cells <select id="pfCells"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select></label>
+    <label>capacity <input id="pfCap" type="number" min="100" max="30000" step="50" value="1300"> mAh</label>
+    <label class="wide">note <input id="pfNote" maxlength="200" placeholder="brand, bought where, …"></label>
+    <label><input type="checkbox" id="pfRetired"> retired</label>
+    <div class="row"><button id="pfSave" class="primary">save</button><button id="pfCancel">cancel</button>
+      <button id="pfDelete" class="danger hidden" title="The flights stay; they just lose their pack">delete this pack</button>
+      <span id="pfMsg" class="small bad"></span></div>
+  </div>
+  <div id="packs"></div>
+
+  <div id="detail" class="hidden">
+    <div class="lbl" id="dTitle">Pack</div>
+    <div class="pkGrid">
+      <div><div class="sub">resistance per cell over its flights (mΩ)</div><canvas id="dTrend" class="pkCanvas"></canvas></div>
+      <div id="dText" class="small"></div>
+    </div>
+  </div>
+
+  <div class="lbl">Flights <span class="filters"><button data-f="all" class="on">[all]</button><button data-f="none">[without a pack]</button></span></div>
+  <div id="flights"></div>
+  <div id="flight" class="hidden">
+    <div class="sub" id="fTitle"></div>
+    <div class="legend pkLegend"><span><i style="background:var(--t-acc)"></i>V/cell under load</span><span><i class="dash"></i>V/cell resting (estimate)</span>
+      <span><i style="background:#4cc9f0"></i>current (A)</span><span><i style="background:#b388ff"></i>throttle</span></div>
+    <div class="pkGrid wideLeft">
+      <canvas id="fChart" class="pkCanvas tall"></canvas>
+      <div><div class="sub">sag vs current</div><canvas id="fSag" class="pkCanvas"></canvas></div>
+    </div>
+  </div>
+
+  <div class="lbl">Charger check</div>
+  <div id="charger" class="small"></div>
+</main>
+<script type="module" src="packs.js"></script>
+</body>
+</html>

@@ -7,6 +7,7 @@ import { createWarner } from '../warn.js';
 import { linkBudget, rangeFor, presetIndex, presetKind, fsplDb } from '../links.js';
 import { slugify, noEmoji } from '../rename.js';
 import { telName } from '../hud.js';
+import { createBatteryWatch } from '../batwarn.js';
 
 // ------------------------------------------------------------ fakes
 // Terrain flat at 1000 m. The scene is 2000 x 2000 m. East of x = 1000 a hill blocks the view: no line of sight
@@ -38,7 +39,8 @@ function installFakes() {
 }
 // which command sound a tone belongs to (first note of each sound in warn.js)
 const SOUND_OF = (t) => (t.f === 450 ? 'climb' : t.f === 1500 ? 'turn' : t.f === 950 ? 'back' : t.f === 150 ? 'blind'
-  : t.f === 330 ? 'weak' : t.f === 420 ? 'lost' : t.f === 880 && t.type === 'sine' ? 'clear' : t.f === 1320 ? null : `?${t.f}`);
+  : t.f === 330 ? 'weak' : t.f === 420 ? 'lost' : t.f === 880 && t.type === 'sine' ? 'clear' : t.f === 1046 ? 'battery'
+  : t.f === 1320 || t.f === 784 || t.f === 523 ? null : `?${t.f}`);
 const sounds = (rec) => rec.tones.map(SOUND_OF).filter(Boolean);
 
 // drone states (x east, y north, z AMSL, velocity m/s, heading deg)
@@ -159,6 +161,56 @@ test('broken saved settings fall back to safe defaults', () => {
   const { S, demHeight } = fakeScene();
   const w = createWarner({ S, demHeight, el: null });
   eq([w.cfg.mode, w.cfg.muted, w.cfg.screen], ['mixed', [], 'full']);
+});
+
+// --- battery (live telemetry)
+const pack6 = (o = {}) => createBatteryWatch({ cells: 6, capacity: 1300, landPct: 80, low: 3.3, ...o });
+test('battery: cells from the first voltage (Betaflight rule) when no pack is chosen', () => {
+  for (const [v, n] of [[25.2, 6], [22.0, 6], [16.8, 4], [12.6, 3], [18.0, 5]]) {
+    const w = createBatteryWatch(); w.update({ voltage: v, current: 0.5, mah: 0 }, 0); eq(w.cells, n);
+  }
+});
+test('battery: half pack once, then land at 80 % with the mAh, repeated every 30 s', () => {
+  const w = pack6(), said = [];
+  for (let t = 0, mah = 0; t <= 400000; t += 1000, mah += 3) {
+    const ev = w.update({ voltage: 6 * 3.8, current: 20, mah }, t);
+    if (ev) said.push([Math.round(t / 1000), ev.text]);
+  }
+  eq(said[0], [217, 'Half pack']);
+  eq(said[1], [347, 'Land now, 1041 milliamp hours']);
+  eq(said[2], [377, 'Land now']);
+  eq(said.filter(([, x]) => x === 'Half pack').length, 1);
+});
+test('battery: a short sag is not low; 2 s under the level is, repeated every 20 s', () => {
+  const w = pack6();
+  ok(w.update({ voltage: 6 * 3.25, current: 60, mah: 100 }, 0) === null, 'first moment');
+  ok(w.update({ voltage: 6 * 3.6, current: 10, mah: 100 }, 1500) === null, 'recovered');
+  ok(w.update({ voltage: 6 * 3.25, current: 60, mah: 110 }, 3000) === null, 'new dip');
+  eq(w.update({ voltage: 6 * 3.25, current: 60, mah: 120 }, 5100)?.text, 'Battery low, land');
+  ok(w.update({ voltage: 6 * 3.25, current: 60, mah: 130 }, 10000) === null, 'not again so soon');
+  eq(w.update({ voltage: 6 * 3.25, current: 60, mah: 140 }, 25200)?.kind, 'low');
+});
+test('battery: critical when the resting voltage is under 3.4 V/cell', () => {
+  const w = pack6({ irCell: 5 });
+  ok(w.update({ voltage: 6 * 3.35, current: 2, mah: null }, 0) === null, 'needs 1 s');
+  const ev = w.update({ voltage: 6 * 3.35, current: 2, mah: 900 }, 1200);
+  eq([ev?.kind, ev?.text], ['critical', 'Battery critical, land now']);
+});
+test('battery: no capacity -> no mAh warnings; off -> nothing; no voltage -> nothing', () => {
+  const w = createBatteryWatch({ cells: 6 });
+  ok(w.update({ voltage: 22, current: 10, mah: 5000 }, 0) === null, 'no capacity');
+  ok(pack6({ on: false }).update({ voltage: 18, current: 10, mah: 1200 }, 0) === null, 'off');
+  ok(pack6().update({ voltage: null, current: 10, mah: 1200 }, 0) === null, 'no voltage');
+});
+test('battery: the warner speaks it after its sound; muted group stays silent', (rec) => {
+  const { S, demHeight } = fakeScene();
+  const w = createWarner({ S, demHeight, el: null });
+  w.bat.set({ cells: 6, capacity: 1300 });
+  w.battery({ voltage: 22.8, current: 15, mah: 700 }, 0);
+  eq(sounds(rec), ['battery']);
+  rec.tones.length = 0; w.setMuted('battery', true);
+  ok(w.battery({ voltage: 22.8, current: 15, mah: 1100 }, 50000)?.kind === 'land', 'still reported');
+  eq(sounds(rec), []);
 });
 
 // --- radio range, file names, info box

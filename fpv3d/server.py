@@ -21,6 +21,9 @@ GET  /api/jobs/<id>?since=N     progress of a background build (log lines + prog
 POST /api/jobs/<id>/cancel      stop a running build
 POST /api/zones {scene}         download the current drone no-fly zones for one scene
 POST /api/pilot {scene,lat,lon} move the pilot point (live flight: takeoff point) and rebuild
+GET  /api/battery/packs · /api/battery/flight?id=   battery: packs with health and advice, one flight's series
+POST /api/battery/pack {id?, name, cells, capacity, retired, note} · assign {flights, pack} · charger {flight, mah}
+     · delete-pack {id} (this PC only)
 GET  /api/share · /api/ca.crt   phone sharing: addresses + PIN (this PC only) · the private CA for https
 
 Listens on 127.0.0.1 only (this computer), unless started with --lan (launcher [phone]): then other devices on
@@ -347,6 +350,15 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     self.send_header("Content-Length", str(len(body)))
                     self.end_headers()
                     return self.wfile.write(body)
+                if u.path == "/api/battery/packs":
+                    from . import battery
+                    return self._json(battery.overview())
+                if u.path == "/api/battery/flight":
+                    from . import battery
+                    try:
+                        return self._json(battery.load_flight(q.get("id", "")))
+                    except (OSError, ValueError):
+                        return self._json(dict(error="no battery data for this flight"), 404)
                 if u.path == "/api/state":
                     from .trash import list_deleted
                     from . import mode
@@ -559,6 +571,20 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                             else:
                                 out["warning"] = "saved the CSV, but adding it to the scene failed: " + (r.stderr or r.stdout)[-300:]
                     return self._json(out)
+                if u.path.startswith("/api/battery/"):    # packs: create / change, which pack flew, charger check
+                    from . import battery
+                    act = u.path.rsplit("/", 1)[1]
+                    if act == "pack":
+                        return self._json(dict(ok=True, pack=battery.save_pack(b)))
+                    if act == "assign":
+                        battery.assign(b["flights"], b.get("pack"))
+                        return self._json(dict(ok=True))
+                    if act == "charger":
+                        battery.set_charged(b["flight"], b.get("mah"))
+                        return self._json(dict(ok=True))
+                    if act == "delete-pack":
+                        battery.delete_pack(b["id"])
+                        return self._json(dict(ok=True))
                 if u.path == "/api/client-error":   # the pages report their own errors (theme.js) to logs/errors.txt
                     now = time.time()
                     CLIENT_ERRORS[:] = [t for t in CLIENT_ERRORS if now - t < 60]
@@ -668,7 +694,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
     return Handler
 
 
-LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename")
+LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename", "/api/battery/delete-pack")
 CLIENT_ERRORS: list = []        # times of the pages' error reports in the last minute
 MAX_BODY = 20_000_000           # largest request body: a long training flight's CSV fits
 _CSP: dict = {}                 # (newest page time) -> header

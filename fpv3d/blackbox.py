@@ -220,7 +220,13 @@ def flights_in(path: Path):
             names = p.field_names
             need = ["time", "GPS_numSat", "GPS_coord[0]", "GPS_coord[1]", "GPS_altitude", "GPS_speed", "GPS_ground_course"]
             if not all(k in names for k in need):
-                log(f"log {idx}: no GPS in this log (is GPS logging on in Betaflight's Blackbox tab?)")
+                bat = _battery(path, idx, None)
+                if bat:
+                    flights.append(dict(index=idx, rows=None, battery=bat, when=_log_time(p.headers),
+                                        seconds=bat["t"][-1] - bat["t"][0]))
+                    log(f"log {idx}: no GPS (battery data only)")
+                else:
+                    log(f"log {idx}: no GPS in this log (is GPS logging on in Betaflight's Blackbox tab?)")
                 continue
             ix = [names.index(k) for k in need]
             raw, last, t0 = [], None, None
@@ -242,13 +248,30 @@ def flights_in(path: Path):
             log(f"log {idx}: could not be read ({ex.__class__.__name__}: {ex})")
             continue
         if len(raw) < 3:
-            log(f"log {idx}: too few GPS positions ({len(raw)}): skipped")
+            bat = _battery(path, idx, None)
+            if bat:
+                flights.append(dict(index=idx, rows=None, battery=bat, when=_log_time(p.headers),
+                                    seconds=bat["t"][-1] - bat["t"][0]))
+                log(f"log {idx}: too few GPS positions ({len(raw)}): battery data only")
+            else:
+                log(f"log {idx}: too few GPS positions ({len(raw)}): skipped")
             continue
         s = _alt_scale(p.headers, [r[3] for r in raw])
         rows = [(round(r[0], 3), r[1], r[2], round(r[3] * s, 1), r[4], round(r[5], 2), round(r[6], 1)) for r in raw]
         flights.append(dict(index=idx, rows=rows, start=(rows[0][1], rows[0][2]), seconds=rows[-1][0],
-                            when=_log_time(p.headers)))
+                            when=_log_time(p.headers), battery=_battery(path, idx, t0)))
     return flights
+
+
+def _battery(path, idx, t0_us):
+    """The log's battery series (voltage, current, throttle), on the same clock as its GPS track; None if absent."""
+    try:
+        from orangebox import Parser
+        from .battery import from_blackbox
+        return from_blackbox(Parser.load(str(path), idx), t0_us)
+    except Exception as ex:                      # noqa: BLE001 - the flight still counts without it
+        log(f"log {idx}: battery data not readable ({ex.__class__.__name__})")
+        return None
 
 
 def write_csv(rows, out: Path):
@@ -281,6 +304,13 @@ def nearest_location(lat, lon, scenes_dir=None):
         if inside and (best is None or dist < best[0]):
             best = (dist, l)
     return best[1] if best else None
+
+
+def _remember(seen, seen_file, fp):
+    seen.add(fp)
+    seen_file.parent.mkdir(parents=True, exist_ok=True)
+    with open(seen_file, "a", encoding="utf-8") as sf:
+        sf.write(fp + "\n")
 
 
 # ---------------------------------------------------------------- the whole thing
@@ -338,10 +368,25 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
         except Exception as ex:
             log(f"{f.name}: not a readable blackbox ({ex.__class__.__name__}: {ex})")
             continue
-        log(f"{f.name}: {len(fl)} flight(s) with GPS")
+        log(f"{f.name}: {sum(1 for x in fl if x['rows'])} flight(s) with GPS")
         folder = Path(f).parent
         for x in fl:
             mins = x["seconds"] / 60
+            if not x["rows"]:                            # battery only: kept for the packs page
+                bat = x["battery"]
+                fp = "bat:" + _fingerprint(list(zip(bat["t"][::50], bat["v"][::50])))
+                when = x["when"].strftime("%Y-%m-%d_%H%M") if x["when"] else stamp
+                craft = re.sub(r"[^\w-]+", "_", bat.get("meta", {}).get("craft") or Path(f).stem) or "log"
+                fid = f"{craft}_bat_{when}_{x['index']:02d}"
+                if fp in seen:
+                    log(f"flight {x['index']}: battery only, already added before: skipped")
+                    continue
+                from .battery import describe, save_flight, summary
+                save_flight(fid, bat, when=x["when"].strftime("%Y-%m-%d %H:%M") if x["when"] else None)
+                _remember(seen, seen_file, fp)
+                log(f"flight {x['index']}: {mins:.1f} min, no GPS: battery kept ({describe(summary(bat))})")
+                log(f"BATTERY {fid}")
+                continue
             fp = _fingerprint(x["rows"])
             if fp in seen:
                 log(f"flight {x['index']}: {mins:.1f} min, already added before: skipped")
@@ -354,6 +399,10 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
             when = x["when"].strftime("%Y-%m-%d_%H%M") if x["when"] else f"{stamp}_{x['index']:02d}"
             out = folder / f"{loc['name'] if loc else Path(f).stem}_bb_{when}.csv"
             write_csv(x["rows"], out)
+            if x.get("battery"):                          # saved first: adding the flight links it to the 3D track
+                from .battery import save_flight
+                save_flight(out.stem, x["battery"], when=x["when"].strftime("%Y-%m-%d %H:%M") if x["when"] else None)
+                log(f"BATTERY {out.stem}")
             if not loc:
                 log(f"flight {x['index']}: {mins:.1f} min, no location contains its take-off point "
                     f"({x['start'][0]:.5f}, {x['start'][1]:.5f}): kept as {out.name}")
@@ -371,10 +420,7 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
                 log(f"flight {x['index']}: could not be added to {loc['name']}: {ex.__class__.__name__}: {ex}")
                 continue
             added += 1
-            seen.add(fp)
-            seen_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(seen_file, "a", encoding="utf-8") as sf:
-                sf.write(fp + "\n")
+            _remember(seen, seen_file, fp)
             log(f"flight {x['index']}: {mins:.1f} min → added to {loc['name']} ({out.stem})")
             log(f"ADDED {loc['name']} {out.stem}")
     log(f"done: {added} flight(s) added" + ("" if file else " · you can unplug the drone now"))

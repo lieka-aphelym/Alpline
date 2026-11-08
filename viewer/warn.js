@@ -9,6 +9,7 @@
 //   blind    no line of sight right now                     -> double beeps + "No line of sight, climb 40" / "..., turn right"
 //   link     real LQ low (live telemetry only)              -> "Signal weak" / "Signal weak, turn back"
 //   lost     telemetry stopped                              -> one long tone + "Signal lost"
+//   battery  from the radio's battery telemetry (batwarn.js): half pack, land at 80 %, cells low / critical
 //   back to ok                                              -> "Clear"
 // Repeats only say the action ("Climb 30", "Turn left now"). Directions are relative to the direction of flight:
 // bear left/right (up to 45 deg), turn left/right (up to 120 deg), turn back. The spotter's screen also shows a clock dial.
@@ -23,6 +24,8 @@
 // in mixed mode every 4th one is the spoken word "Climb".
 // Modes: 'mixed' (default: voice says the sentence once when the situation changes, then only the sound repeats),
 //        'sounds' (never speaks), 'voice' (sentences + the old plain beeps).
+import { createBatteryWatch } from './batwarn.js';
+
 const RANK = { ok: 0, link: 1, outside: 1.5, caution: 2, urgent: 3, blind: 4, lost: 5 };
 const COLORS = { ok: '#1f6f4a', link: '#9a6b00', outside: '#3d4654', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };
 
@@ -35,7 +38,9 @@ export function createWarner({ S, demHeight, el, ceil: ceilFn = null }) {
   delete cfg.voice; delete cfg.beeps;                       // settings of the older version
   if (!Array.isArray(cfg.muted)) cfg.muted = [];
   if (!['full', 'compact', 'off'].includes(cfg.screen)) cfg.screen = 'full';   // warning box on screen            // sound groups switched off (see GROUP)
-  const save = () => { try { localStorage.setItem('fpv3d:warn', JSON.stringify(cfg)); } catch { /* ignore */ } };
+  const save = () => { try { localStorage.setItem('fpv3d:warn', JSON.stringify({ ...cfg, bat: BW.cfg })); } catch { /* ignore */ } };
+  const BW = createBatteryWatch(cfg.bat || {});             // battery warnings (live telemetry): batwarn.js
+  delete cfg.bat;
   let last = { level: 'ok' }, lastSpoke = 0, lastText = '', lastKind = '', active = false;
 
   // ------------------------------------------------------------ model
@@ -141,9 +146,10 @@ export function createWarner({ S, demHeight, el, ceil: ceilFn = null }) {
     weak: (t) => { tone(330, 0.55, t, 0.28, { type: 'sine', trem: 9 }); return 0.65; },
     lost: (t) => { tone(420, 1.2, t, 0.3); return 1.25; },
     clear: (t) => { tone(880, 0.1, t, 0.2, { type: 'sine' }); tone(1320, 0.16, t + 0.12, 0.2, { type: 'sine' }); return 0.3; },
+    battery: (t) => { tone(1046, 0.1, t, 0.22, { type: 'triangle' }); tone(784, 0.1, t + 0.14, 0.22, { type: 'triangle' }); tone(523, 0.2, t + 0.28, 0.22, { type: 'triangle' }); return 0.55; },
   };
   // sounds can be switched off by group in the panel; a warning whose sounds are all off stays silent (no voice either)
-  const GROUP = { climb: 'climb', climb2: 'climb', left: 'turns', right: 'turns', back: 'back', blind: 'blind', weak: 'weak', lost: 'lost', clear: 'clear' };
+  const GROUP = { climb: 'climb', climb2: 'climb', left: 'turns', right: 'turns', back: 'back', blind: 'blind', weak: 'weak', lost: 'lost', clear: 'clear', battery: 'battery' };
   const muted = (n) => cfg.muted.includes(GROUP[n]);
   const audible = (names) => names.filter((n) => !muted(n));
   function play(names, force = false) { audio(); let t = 0; for (const n of force ? names : audible(names)) t += SOUNDS[n]?.(t) ?? 0; }
@@ -252,6 +258,16 @@ export function createWarner({ S, demHeight, el, ceil: ceilFn = null }) {
       return r;
     },
     tick(now) { if (active) soundLoop(now); },
+    /** battery telemetry b = { voltage, current, mah }: speaks / plays a battery warning when one is due; returns it */
+    battery(b, now = performance.now()) {
+      const ev = BW.update(b, now);
+      if (!ev || cfg.mode === 'off' || muted('battery')) return ev;
+      if (cfg.mode === 'sounds') { play(ev.level === 'critical' ? ['battery', 'battery'] : ['battery']); return ev; }
+      play(['battery']);
+      setTimeout(() => say(ev.text, ev.level === 'critical'), 600);
+      return ev;
+    },
+    bat: BW,
     lost(info) {
       last = { level: 'lost', text: info || 'Telemetry stopped', action: 'Last position marked on the map', detail: info || 'no telemetry for 1.5 s' };
       if (cfg.mode !== 'off' && !muted('lost')) { if ('speechSynthesis' in window) speechSynthesis.cancel(); play(['lost']); }
@@ -277,7 +293,7 @@ export function createWarner({ S, demHeight, el, ceil: ceilFn = null }) {
     },
     /** what is switched off, so a live flight never starts silent without saying so */
     silentSummary() {
-      const names = { climb: 'climb', turns: 'left / right', back: 'turn back', blind: 'no sight', weak: 'signal weak', lost: 'signal lost', clear: 'clear' };
+      const names = { climb: 'climb', turns: 'left / right', back: 'turn back', blind: 'no sight', weak: 'signal weak', lost: 'signal lost', clear: 'clear', battery: 'battery' };
       const out = [];
       if (cfg.mode === 'off') out.push('all warning sounds and voice are off');
       else {

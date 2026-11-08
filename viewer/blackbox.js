@@ -1,13 +1,14 @@
 // Flights tab: [download from the drone]. Starts `fpv3d blackbox` on the server (POST /api/blackbox) and shows its
 // progress lines; flights added to this location are loaded right away, others get a link to their location.
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+import { esc } from './esc.js';
+import { askPacks } from './battery.js';
 
 export function initBlackbox({ S, $, onAdded }) {
   const btn = $('bbGet'), box = $('bbLog');
   if (!btn) return;
   const show = (lines, status) => {
     box.classList.remove('hidden');
-    box.innerHTML = lines.filter((l) => !l.startsWith('ADDED ')).map((l) => {
+    box.innerHTML = lines.filter((l) => !l.startsWith('ADDED ') && !l.startsWith('BATTERY ')).map((l) => {
       const cls = /→ added|^done: [1-9]/.test(l) ? 'ok' : /^(No |The |error|Traceback)|could not|failed/i.test(l) ? 'bad' : '';
       return `<div class="${cls}">${esc(l)}</div>`;
     }).join('') + (status === 'running' ? '<div class="muted">…</div>' : '');
@@ -34,6 +35,8 @@ export function initBlackbox({ S, $, onAdded }) {
         box.insertAdjacentHTML('beforeend', `<div>open ${other.map((n) => `<a href="?scene=${encodeURIComponent(n)}">${esc(n)}</a>`).join(', ')} to see the other flights</div>`);
       }
       if (here.length) await onAdded(`tracks/${here.at(-1)[1]}.json`);
+      const bats = (k.lines || []).filter((l) => l.startsWith('BATTERY ')).map((l) => l.slice(8).trim());
+      if (bats.length) await askPacks(box, bats);
     } catch (e) {
       show([`could not start: ${e.message}`], 'failed');
     } finally { btn.disabled = false; window.alpBusy?.(false); }

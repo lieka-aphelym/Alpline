@@ -22,7 +22,9 @@ def svb(v: int) -> bytes:
     return uvb(((v << 1) ^ (v >> 31)) & 0xFFFFFFFF)       # zigzag, as Betaflight writes it
 
 
-def header(firmware="4.5.1"):
+def header(firmware="4.5.1", battery=False, gps=True):
+    extra = ",vbatLatest,amperageLatest,rcCommand[3]" if battery else ""
+    k = 3 if battery else 0
     lines = [
         "Product:Blackbox flight data recorder by Nicholas Sherlock",
         "Data version:2",
@@ -30,12 +32,15 @@ def header(firmware="4.5.1"):
         "P interval:1/1",
         f"Firmware revision:Betaflight {firmware} (77d01ba3b) STM32F7X2",
         "Board information:FLWO FLYWOOF722PRO",
-        "Field I name:loopIteration,time",
-        "Field I signed:0,0",
-        "Field I predictor:0,0",
-        "Field I encoding:1,1",
-        "Field P predictor:6,2",
-        "Field P encoding:9,0",
+        "Craft name:testquad",
+        "vbatcellvoltage:330,350,430",
+        "currentSensor:0,170",
+        f"Field I name:loopIteration,time{extra}",
+        "Field I signed:0,0" + ",0" * k,
+        "Field I predictor:0,0" + ",0" * k,
+        "Field I encoding:1,1" + ",1" * k,
+        "Field P predictor:6,2" + ",0" * k,
+        "Field P encoding:9,0" + ",1" * k,
         "Field G name:time,GPS_numSat,GPS_coord[0],GPS_coord[1],GPS_altitude,GPS_speed,GPS_ground_course",
         "Field G signed:0,0,1,1,0,0,0",
         "Field G predictor:10,0,7,7,0,0,0",
@@ -45,20 +50,33 @@ def header(firmware="4.5.1"):
         "Field H predictor:0,0",
         "Field H encoding:0,0",
     ]
+    if not gps:
+        lines = [l for l in lines if not l.startswith(("Field G", "Field H"))]
     return "".join(f"H {l}\n" for l in lines).encode("ascii")
 
 
-def flight(lat0, lon0, alt_m, seconds=30, gps_hz=10, main_hz=50, alt_unit=0.1, firmware="4.5.1"):
-    """One log: a circle of 60 m radius around (lat0, lon0) climbing 40 m."""
-    out = bytearray(header(firmware))
+def pack_state(s, seconds, cells, r_cell, cap_mah, used):
+    """A 6S-like pack under a freestyle-ish load: (pack volts, amps, throttle 0..1, mAh used after this step)."""
+    thr = 0.25 + 0.08 * math.sin(s / 3) + (0.6 if (s % 7) < 0.6 else 0) if 1 < s < seconds - 1 else 0.03
+    amps = 1.0 + 95 * thr ** 1.7
+    soc = max(0.0, 0.98 - used / cap_mah)
+    rest = 3.55 + 0.65 * soc                                     # simple straight rest curve per cell
+    return cells * (rest - amps * r_cell), amps, min(thr, 1.0)
+
+
+def flight(lat0, lon0, alt_m, seconds=30, gps_hz=10, main_hz=50, alt_unit=0.1, firmware="4.5.1", battery=None, gps=True):
+    """One log: a circle of 60 m radius around (lat0, lon0) climbing 40 m.
+    battery: dict(cells, r_cell (ohm), cap_mah, glitch=False) adds vbatLatest / amperageLatest / throttle."""
+    out = bytearray(header(firmware, bool(battery), gps))
+    used = 0.0
     home = (round(lat0 * 1e7), round(lon0 * 1e7))
     it, t_us = 0, 0
     step = 1_000_000 // main_hz
     per_gps = main_hz // gps_hz
     while t_us <= seconds * 1_000_000:
-        if it == 1:                                              # home after the first main frame, as Betaflight
+        if it == 1 and gps:                                      # home after the first main frame, as Betaflight
             out += b"H" + svb(home[0]) + svb(home[1])
-        if it % per_gps == 0 and it:
+        if it % per_gps == 0 and it and gps:
             s = t_us / 1e6
             a = s / seconds * 2 * math.pi
             lat = lat0 + 60 * math.sin(a) / 111_320
@@ -69,6 +87,12 @@ def flight(lat0, lon0, alt_m, seconds=30, gps_hz=10, main_hz=50, alt_unit=0.1, f
             out += (b"G" + uvb(t_us) + uvb(14) + svb(round(lat * 1e7) - home[0]) + svb(round(lon * 1e7) - home[1])
                     + uvb(round(alt / alt_unit)) + uvb(round(spd * 100)) + uvb(round(crs * 10)))
         out += b"I" + uvb(it) + uvb(t_us)
+        if battery:
+            v, a_, th = pack_state(t_us / 1e6, seconds, battery["cells"], battery["r_cell"], battery["cap_mah"], used)
+            used += a_ / main_hz / 3.6
+            if battery.get("glitch") and it % 97 == 50:            # the spikes real logs have
+                v, a_ = v + 9, a_ + 150
+            out += uvb(round(v * 100)) + uvb(round(a_ * 100)) + uvb(1000 + round(th * 1000))
         it += 1
         t_us += step
     out += b"E" + bytes([255]) + b"End of log\x00"

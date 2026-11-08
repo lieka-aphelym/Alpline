@@ -58,7 +58,7 @@ def main():
             time.sleep(0.25)
     out = ROOT / "logs" / "checks"; out.mkdir(parents=True, exist_ok=True)
     pages = [("checks", "/viewer/test/index.html", None), ("map", "/viewer/map.html", "#map .leaflet-pane"),
-             ("share", "/viewer/share.html", None)]
+             ("share", "/viewer/share.html", None), ("packs", "/viewer/packs.html", "#flights")]
     if scene:
         pages += [("viewer", f"/viewer/?scene={scene}", "LOADED"),
                   ("viewer lite", f"/viewer/?scene={scene}&mode=lite", "LOADED")]

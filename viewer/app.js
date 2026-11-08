@@ -20,6 +20,7 @@ import { initBlackbox } from './blackbox.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 import { createDroneMarker } from './marker.js';
 import { esc } from './esc.js';
+import { initBattery } from './battery.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
 
 const $ = (id) => document.getElementById(id);
@@ -435,6 +436,10 @@ function colorModes() {
   modes.push({ id: 'speed', label: 'Speed', lo: 0, hi: null, unit: 'km/h' });
   modes.push({ id: 'accel', label: 'Acceleration', lo: 0, hi: null, unit: 'g', dec: 1 });
   if (S.zones) modes.push({ id: 'zones', label: 'No-fly zones' });
+  if (S.track?.cell_v) {
+    modes.push({ id: 'cellv', label: 'Battery: cell voltage', lo: 3.3, hi: 4.2, unit: 'V', dec: 2 });
+    if (S.track.amps?.some((a) => a > 0.5)) modes.push({ id: 'amps', label: 'Battery: current', lo: 0, hi: null, unit: 'A' });
+  }
   for (const k of Object.keys(S.track?.telemetry || {})) modes.push({ id: 'tel:' + k, label: `Log: ${k}`, unit: '' });
   return modes;
 }
@@ -446,6 +451,8 @@ function seriesFor(mode) {
   if (mode === 'speed') return tr.speed;
   if (mode === 'accel') return tr.accG;
   if (mode.startsWith('tel:')) return tr.telemetry[mode.slice(4)];
+  if (mode === 'cellv') return tr.cell_v;
+  if (mode === 'amps') return tr.amps;
   return null;
 }
 
@@ -475,12 +482,12 @@ function trackColors() {
   for (let i = 0; i < n; i++) {
     const v = s[i];
     if (v == null) c.set(0x888888);
-    else if (mode === 'speed' || mode === 'accel') c.setHSL(0.62 - 0.62 * Math.min(Math.max((v - lo) / (hi - lo), 0), 1), 0.85, 0.55);
+    else if (mode === 'speed' || mode === 'accel' || mode === 'amps') c.setHSL(0.62 - 0.62 * Math.min(Math.max((v - lo) / (hi - lo), 0), 1), 0.85, 0.55);
     else rampColor((v - lo) / (hi - lo), c);
     c.toArray(cols, i * 3);
   }
   leg.className = 'gradient';
-  leg.style.background = (mode === 'speed' || mode === 'accel')
+  leg.style.background = (mode === 'speed' || mode === 'accel' || mode === 'amps')
     ? 'linear-gradient(90deg, hsl(223,85%,55%), hsl(112,85%,55%), hsl(0,85%,55%))'
     : `linear-gradient(90deg, ${RAMP.map(([p, k]) => `${k} ${p * 100}%`).join(',')})`;
   const dp = m.dec ?? 0;
@@ -581,6 +588,7 @@ function updateDrone() {
   $('scrub').value = Math.round((S.time / tr.t[tr.n - 1]) * 1000);
   $('clock').textContent = `${fmtTime(S.time)} / ${fmtTime(tr.t[tr.n - 1])}`;
   HUD.render(st);
+  S.bat?.tick();
   placeGhost();
 }
 
@@ -850,7 +858,11 @@ function initUI() {
   $('play').onclick = togglePlay;
   $('scrub').oninput = () => { if (!S.track) return; S.time = ($('scrub').value / 1000) * S.track.t[S.track.n - 1]; updateDrone(); V.seekToLog(S.time); };
   $('speed').onchange = () => V.setRate(+$('speed').value);
+  S.bat = initBattery({ S, $, seek: (t) => { S.time = t; updateDrone(); V.seekToLog(t); S.requestRender?.(200); },
+    onChange: () => { if (S.track) refreshColorModes(); } });
+  $('panel').addEventListener('tabchange', (e) => S.bat?.tabChanged(e.detail));
   S.tabs = initTabs($('panel'), { storageKey: 'fpv3d:tab4', fallback: 'map' });
+  S.bat.tabChanged(S.tabs.current);
   if (params.get('tab')) S.tabs.show(params.get('tab'), { keepOpen: true });   // e.g. ?tab=fly from the launcher
   $('panel').querySelector('h1').onclick = () => S.tabs.toggle();
   // keys 1..6 jump to a panel tab
@@ -1064,6 +1076,8 @@ function applyZones() {
 const flightKey = () => `fpv3d:flight:${S.meta?.name}`;
 function rememberFlight(file) { try { localStorage.setItem(flightKey(), file); } catch { /* private mode */ } }
 function rememberedFlight() {
+  const asked = params.get('track');                    // ?track=NAME (links from the packs page)
+  if (asked) { const t = S.meta.tracks.find((x) => x.name === asked); if (t) return t.file; }
   let f = null; try { f = localStorage.getItem(flightKey()); } catch { /* private mode */ }
   if (f === '') return '';
   return S.meta.tracks.some((t) => t.file === f) ? f : S.meta.tracks[0]?.file || '';
@@ -1080,6 +1094,7 @@ function clearTrack() {
   $('timeline').classList.add('hidden');
   $('hud').innerHTML = '';
   $('trackInfo').innerHTML = S.meta.tracks.length ? `No flight shown. Pick one above to replay it (${S.meta.tracks.length} saved).` : $('trackInfo').innerHTML;
+  S.bat?.trackChanged(null);
   if (S.cmp) { buildCompareObjects(); renderCompare(); }
   S.prof?.redraw();
   S.requestRender?.(300);
@@ -1097,9 +1112,7 @@ async function loadTrack(file) {
   const tm = S.meta.tracks.find((t) => t.file === file);
   $('trackInfo').innerHTML = tm ? `<b>${fmtTime(tm.duration_s)}</b> of flight, up to <b>${fmtDist(tm.max_dist_m)}</b> away and <b>${tm.max_agl_m} m</b> above the ground. `
     + `Hidden by terrain ${tm.no_los_pct}% of the time.` : '';
-  const sel = $('colorMode'), prev = sel.value;
-  sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join('');
-  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  refreshColorModes(false);
   if (!S.drone) buildDrone();
   S.time = 0;
   buildTrackObjects();
@@ -1107,6 +1120,14 @@ async function loadTrack(file) {
   V.trackChanged();
   S.prof?.redraw();
   if (S.cmp) { buildCompareObjects(); renderCompare(); }
+  S.bat?.trackChanged(tm);
+}
+
+function refreshColorModes(rebuild = true) {
+  const sel = $('colorMode'), prev = sel.value;
+  sel.innerHTML = colorModes().map((mm) => `<option value="${mm.id}">${mm.label}</option>`).join('');
+  if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  if (rebuild && S.track && sel.value !== prev) buildTrackObjects();
 }
 
 // ------------------------------------------------------------------ boot

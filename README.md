@@ -48,7 +48,8 @@ the left and a header that stays the same on every page:
   kept in `cache/launcher/` and shows offline; *[update map]* downloads the map again (latest zones) and the detailed
   tiles about 10 km around each location, so the map is sharp at the field without internet (new locations get theirs
   automatically when online).
-- **drone:** finds a Betaflight drone and the radio on USB by itself (a dot on the rail icon). *[download blackbox]*
+- **drone:** finds a Betaflight drone and the radio on USB by itself (a dot on the rail icon). After a download it asks
+  which battery pack you flew; *[battery packs]* opens the packs page (see *Battery analysis* below). *[download blackbox]*
   copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
   selected location on the fly tab.
 - **phone:** share on your network, the address and PIN, *[qr code]*, *[check access]* (details below).
@@ -234,6 +235,41 @@ python -m fpv3d restore                    # list what can be restored
 python -m fpv3d restore teysachaux
 python -m fpv3d deleted --purge            # empty deleted/ for good (--older-than 30 = only old ones)
 ```
+
+## Battery analysis
+
+Betaflight logs the pack's voltage and current in the blackbox (about 50 times a second); radio logs carry RxBt / Curr
+(once a second). Alpline reads them when a blackbox is downloaded or a log is added, also from logs without GPS (those
+show only on the packs page). Glitches (a voltage or current spike far from its neighbours) are filtered out.
+
+- **[battery] tab in the 3D viewer**, for the flight being replayed: mAh and Wh used, peak and average current (and C),
+  the lowest cell voltage under load and how long it stayed under 3.5 V, the cell voltage at take-off and at landing
+  (resting: without the sag), the worst sag and the pack's **internal resistance**. *Sag vs current* shows each
+  moment's voltage drop against its current: the slope is the resistance. The pack that flew it is picked here
+  (or *+ new pack*: name, cells, capacity), with landing advice for that pack. A **chart under the playback bar**
+  follows the replay (cell voltage under load, resting estimate dashed, current, throttle); click it to jump there.
+  *[flights] → Colour the path by → Battery: cell voltage / current* colours the 3D path.
+- **Packs page** (*[all packs and their health]*, or the launcher's drone page): every pack with its resistance now
+  and its trend over its flights, sag at 100 A, mAh per minute at your flying and when to land (80 % of the capacity,
+  in mAh and minutes), and flags: *ageing* (resistance up by 40 % since its first flights), *weaker than your other
+  packs* of the same type, flights with cells under 3.5 V for more than 5 s. Below: every flight with battery data
+  (pick its pack, open it in 3D, see its discharge), the ones without a pack first with *[without a pack]*.
+- **Charger check:** type what your charger put back in after a flight. Alpline compares it with the mAh the drone
+  logged: within 5 % the current sensor is right; otherwise it gives the Betaflight command
+  (`set ibata_scale = …`, then `save`).
+- **Live flight warnings** (*[fly] → Live flight → Warnings*): pick the pack you fly, the share to land at (80 %) and
+  the low level (3.3 V/cell). From the radio's telemetry the voice says *Half pack*, *Land now, 1040 milliamp hours*,
+  *Battery low, land* (cells under the low level for 2 s) and *Battery critical, land now* (resting under 3.4 V/cell),
+  after a three-note sound (mute it with the *battery* box). The tile shows the cell voltage and the share used. The
+  saved live flight is linked to that pack. Replaying a log with battery data uses its real battery.
+
+The resistance is the slope of voltage against current over the flight (V = rest(mAh) − R·I, least squares with the
+outliers dropped). It needs some punch-outs (at least ~8 A of spread) and is only reported when believable (1 to
+60 mΩ per cell). A good fresh pack is usually 2 to 6 mΩ per cell; cold packs and nearly empty packs read higher.
+Limits: the flight controller measures the whole pack, so a single weak cell only shows as more sag; there is no
+temperature; mAh are only as good as the current sensor's calibration (use the charger check). The packs and which
+pack flew what are kept in `battery/packs.json`, each flight's series in `battery/flights/` (both in backups; the
+files page can clear them).
 
 ## Your files: clean-up, start fresh, backup
 
@@ -469,6 +505,11 @@ skips it once. Settings for all of these are in `pyproject.toml`.
   (10 wrong tries: one minute locked) and can't delete or rename. Names from files and the internet (OpenStreetMap
   buildings, zones, locations, flights, serial ports) are shown as text, never run as code; a security policy lets
   only Alpline's own scripts run and forbids other sites from showing Alpline in a frame; requests are limited to 20 MB.
+- **Battery** (`test_battery.py`): the analysis finds the resistance a simulated pack was given (2, 4.5 and 9 mΩ per
+  cell), mAh within 2 %, glitches like the real ones (32 V, 184 A) don't change the result, cells by Betaflight's rule,
+  radio-log columns, logs without a current sensor or too short; a blackbox with a GPS flight and a battery-only one
+  (both kept, the GPS one linked to its 3D track and path colours, kept by a rebuild, not added twice); packs, flags,
+  landing advice, the charger check's Betaflight scale; the battery API (the phone can't delete packs).
 - **Your files** (`test_files.py`): safe saving keeps the old file when writing fails, the error log stays small,
   clean-up deletes only the ticked kinds (never the program), backup → start fresh → restore gives everything back,
   unsafe zip entries are refused, nothing is deleted while building, a build stops when the disk is too full.
@@ -481,8 +522,8 @@ skips it once. Settings for all of these are in `pyproject.toml`.
   compared with `tests/snapshots/signal.json`. When a change is meant to move them: `UPDATE_SNAPSHOTS=1 python -m pytest tests/test_snapshots.py`.
 - **Launcher** (`test_launcher.py`): USB detection (drone, radio, busy, unplugged during a download), map groups and
   zoom levels, and the real window at its smallest size: panels inside and apart, long texts never resize it.
-- **Warnings:** 26 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
-- **Browser:** opens the checks page, the map, the share page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
+- **Warnings:** 32 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
+- **Browser:** opens the checks page, the map, the share page, the packs page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
 
 Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. `drone.js` draws the drone icon (live link indicator, training box, build card, share page, empty pages). Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`. The logo animation (spin-up when a page opens, spinning while something loads or builds) is in `theme.css`; the launcher plays frames made from it by `tools/render_logo_frames.py` (run it again after changing the logo).
 

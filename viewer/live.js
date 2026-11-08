@@ -189,6 +189,26 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   $('warnLook').value = W.cfg.lookahead; $('warnLookOut').textContent = `${W.cfg.lookahead} s`;
   $('warnLook').oninput = () => { W.cfg.lookahead = +$('warnLook').value; $('warnLookOut').textContent = `${W.cfg.lookahead} s`; W.save(); };
   $('warnTest').onclick = () => W.test();
+  // battery warnings: the pack (cells, capacity, its measured resistance), the share to land at, the low level
+  const BC = W.bat.cfg;
+  $('batWarnOn').checked = BC.on; $('batWarnPct').value = BC.landPct; $('batWarnLow').value = BC.low; $('batWarnHalf').checked = BC.half;
+  async function loadPacks() {
+    try {
+      const o = await (await fetch('/api/battery/packs')).json();
+      st.packs = o.packs.filter((p) => !p.retired);
+      $('batWarnPack').innerHTML = '<option value="">cells from the voltage, no capacity</option>'
+        + st.packs.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · ${p.cells}S ${p.capacity} mAh</option>`).join('');
+      if (st.packs.some((p) => p.id === BC.pack)) $('batWarnPack').value = BC.pack;
+    } catch { /* no server data: the warnings still work from the voltage */ }
+  }
+  const batApply = () => {
+    const p = st.packs?.find((x) => x.id === $('batWarnPack').value);
+    W.bat.set({ on: $('batWarnOn').checked, landPct: +$('batWarnPct').value || 80, low: +$('batWarnLow').value || 3.3, half: $('batWarnHalf').checked,
+      pack: p?.id || null, cells: p?.cells || 0, capacity: p?.capacity || 0, irCell: p?.ir_now || 0 });
+    W.save(); summaries();
+  };
+  ['batWarnOn', 'batWarnPack', 'batWarnPct', 'batWarnLow', 'batWarnHalf'].forEach((id) => $(id).addEventListener('change', batApply));
+  loadPacks();
   $('liveCalib').onchange = () => { st.manual = $('liveCalib').value === '' ? null : +$('liveCalib').value; };
   summaries();
   showPilot();
@@ -211,6 +231,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err';
       D.loop(null); D.off(true); linkTxt('not connected'); hero('off'); $('liveStatus').textContent = 'pick the radio and connect'; return;
     }
+    W.bat.reset(); batApply();
     Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null,
       fixes: [], pilotLocked: false, rel: false, relBase: null, calibs: [] });
     if (!st.pilotManual) st.pilot = null;
@@ -270,6 +291,10 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       const j = await r.json();
       $('liveMsg').textContent = j.file ? `Saved as a flight log: ${j.track}` : j.warning || `Stopped (${j.gps_count} GPS points${j.gps_count < 10 ? ', too few to save' : ''}).`;
       $('liveMsg').className = `small ${j.warning ? 'err' : 'ok'}`;
+      if (j.file && W.bat.cfg.pack && j.track) {           // the saved flight flew this pack
+        setTimeout(() => fetch('/api/battery/assign', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ flights: [j.track], pack: W.bat.cfg.pack }) }).catch(() => {}), 1500);
+      }
       if (j.file) onSaved?.(j.file);
     } catch { /* server gone */ }
   }
@@ -289,6 +314,8 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       st.armedShown = true; D.play('arm', () => D.loop('ping')); D.loop('ping'); linkTxt('link'); hero('ok');
     }
     j.samples.forEach((s, i) => ingest(s, i === j.samples.length - 1));   // warnings only for the newest point
+    const bs = [...j.samples].reverse().find((s) => s.voltage != null);
+    if (bs) battery(bs);
     if (j.samples.length) st.seq = j.samples.at(-1).seq;
     st.gpsEvery = j.gps_every; st.frameEvery = j.frame_every;
     status(j);
@@ -299,6 +326,18 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (st.lost && j.frame_age != null && j.frame_age < 1) { st.lost = false; $('liveLost').classList.add('hidden'); $('liveTiles').classList.remove('dim'); D.off(false); hero('ok'); }
     if (st.lost) $('liveLostAge').textContent = j.frame_age != null ? `· ${Math.round(j.frame_age)} s` : '';
     if (j.status === 'ended' && !st.endedShown) { st.endedShown = true; $('liveMsg').textContent = 'Replay finished.'; }
+  }
+
+  function battery(s) {
+    const ev = W.battery({ voltage: s.voltage, current: s.current, mah: s.mah });
+    const b = W.bat.status;
+    if (b) {
+      $('lvBatt').innerHTML = `${b.cell.toFixed(2)}<small> V</small>`;
+      $('lvBattSub').textContent = s.mah != null ? `per cell · ${b.used != null ? `${Math.round(b.used * 100)} %` : `${Math.round(s.mah)} mAh`}` : 'per cell';
+      $('lvBattSub').title = `${s.voltage.toFixed(1)} V pack, ${b.cells}S` + (s.mah != null ? ` · ${Math.round(s.mah)} mAh used` : '');
+      $('lvBatt').parentElement.classList.toggle('batLow', b.cell < W.bat.cfg.low || (b.used ?? 0) >= W.bat.cfg.landPct / 100);
+    }
+    if (ev && ev.level !== 'info') $('liveMsg').textContent = ev.text;
   }
 
   function ingest(s, newest = true) {
@@ -421,7 +460,6 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     $('lvHeight').innerHTML = u(Math.round(c.agl), 'm');
     $('lvDist').innerHTML = d >= 1000 ? u((d / 1000).toFixed(2), 'km') : u(Math.round(d), 'm');
     $('lvSpeed').innerHTML = u(Math.round(s.speed_kmh || 0), 'km/h');
-    $('lvBatt').innerHTML = s.voltage != null ? u(s.voltage.toFixed(1), 'V') : '–';
     $('lvClimb').innerHTML = u(`${c.vz >= 0 ? '+' : ''}${c.vz.toFixed(1)}`, 'm/s');
     $('liveCalibInfo').textContent = st.manual != null ? `manual correction ${st.manual} m`
       : st.calib != null ? `GPS altitude corrected by ${st.calib >= 0 ? '+' : ''}${st.calib.toFixed(1)} m (measured on the ground)`

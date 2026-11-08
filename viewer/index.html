@@ -28,6 +28,7 @@
     <button data-tab="signal" title="Signal: where do I lose the drone, radio range"><span>[signal]</span></button>
     <button data-tab="flights" title="Flights: your logs, comparison, video"><span>[flights]</span></button>
     <button data-tab="fly" title="Fly: training flight, live flight with the radio + warnings"><span>[fly]</span></button>
+    <button data-tab="battery" title="Battery: voltage, current and pack health for this flight"><span>[battery]</span></button>
     <button class="railCollapse" title="Hide / show the panel (or click the active tab)"></button>
   </nav>
   <div id="pbody">
@@ -174,6 +175,31 @@
     </details>
   </section>
 
+  <section id="batSection" data-tab="battery">
+    <h2>Battery</h2>
+    <p id="batSummary" class="summary"></p>
+    <div id="batBody" class="hidden">
+      <div class="pickrow"><select id="batPack" title="The pack that flew this flight: its health and landing advice follow it"></select></div>
+      <div id="batNew" class="renbox hidden">
+        <div class="row"><input id="batNewName" spellcheck="false" placeholder="pack 1" maxlength="40"></div>
+        <div class="row"><select id="batNewCells"><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select> cells ·
+          <input id="batNewCap" type="number" min="100" max="30000" step="50" value="1300" style="width:80px"> mAh</div>
+        <div class="row"><button id="batNewOk" class="primary">Add the pack</button><button id="batNewCancel">Cancel</button></div>
+      </div>
+      <div id="batMsg" class="small bad"></div>
+      <div id="batTiles" class="batTiles"></div>
+      <label class="row small"><input type="checkbox" id="batStripOn" checked> chart under the playback bar (click it to jump)</label>
+      <h3 class="batH">Sag vs current</h3>
+      <canvas id="batSag" class="batCanvas"></canvas>
+      <details class="help"><summary>What this shows</summary><p class="muted small">Each dot: how far the cell voltage
+        dropped below its resting value at that current. A healthy pack drops little; the slope of the line is the pack's
+        internal resistance. It rises as a pack ages, and it is higher when the pack is cold or nearly empty (orange dots:
+        the last 300 mAh). Resistance needs some punch-outs in the flight to be measured.</p></details>
+      <p id="batAdvice" class="small"></p>
+      <a class="navlink" href="packs.html" title="Every pack: health over time, flights, charger check">[all packs and their health]</a>
+    </div>
+  </section>
+
   <section id="simSection" data-tab="fly">
     <h2>Training flight</h2>
     <p class="summary">Practise over this terrain before the real flight, with your radio (plugged in by USB, joystick mode) or the keyboard. The signal is simulated with the same model.</p>
@@ -259,7 +285,7 @@
     </div>
     <div id="liveTiles" class="lvTiles hidden">
       <div><b id="lvHeight">–</b><span>height</span></div><div><b id="lvDist">–</b><span>distance</span></div><div><b id="lvSpeed">–</b><span>speed</span></div>
-      <div><b id="lvBatt">–</b><span>battery</span></div><div><b id="lvClimb">–</b><span>climb</span></div><div><b id="lvTime">–</b><span>flight time</span></div>
+      <div><b id="lvBatt">–</b><span id="lvBattSub">battery</span></div><div><b id="lvClimb">–</b><span>climb</span></div><div><b id="lvTime">–</b><span>flight time</span></div>
     </div>
     <div id="lvPilot" class="lvPilot"><div id="lvPilotTxt" class="small"></div>
       <div class="row btns"><button id="lvPilotMe" title="Use this device's GPS (the phone at the field)">[my position]</button><button id="lvPilotPick" title="Then click the ground where you stand">[pick on the map]</button><button id="lvPilotLoc">[location's point]</button></div>
@@ -283,6 +309,17 @@
       <label><input type="checkbox" data-g="weak" checked> signal weak</label><span><button data-s="weak">[play]</button></span>
       <label><input type="checkbox" data-g="lost" checked> signal lost</label><span><button data-s="lost">[play]</button></span>
       <label><input type="checkbox" data-g="clear" checked> clear</label><span><button data-s="clear">[play]</button></span>
+      <label><input type="checkbox" data-g="battery" checked> battery</label><span><button data-s="battery">[play]</button></span>
+    </div>
+    <div class="batWarn">
+      <label class="row"><input type="checkbox" id="batWarnOn" checked> Battery warnings (from the radio's telemetry)</label>
+      <label class="row">Pack <select id="batWarnPack"><option value="">cells from the voltage, no capacity</option></select></label>
+      <label class="row small">Land at <input id="batWarnPct" type="number" min="50" max="95" step="5" value="80" style="width:56px"> % of the pack ·
+        low under <input id="batWarnLow" type="number" min="3.0" max="3.6" step="0.05" value="3.3" style="width:62px"> V/cell</label>
+      <label class="row small"><input type="checkbox" id="batWarnHalf" checked> say "half pack"</label>
+      <div class="small muted">Says "Half pack", "Land now" when the share is used (needs the pack's capacity and a current sensor),
+        "Battery low, land" when the cells stay under the low level for 2 s, "Battery critical" below 3.4 V resting.
+        The flight is saved with this pack.</div>
     </div>
     <label class="row">On screen <select id="warnScreen">
       <option value="full">Full box</option>
@@ -373,6 +410,8 @@
     <option value="0.5">0.5×</option><option value="1" selected>1×</option>
     <option value="2">2×</option><option value="5">5×</option><option value="10">10×</option>
   </select>
+  <span id="batAt" class="batAt"></span>
+  <canvas id="batStrip" class="hidden" title="Click to jump there"></canvas>
 </footer>
 
 <div id="loading">

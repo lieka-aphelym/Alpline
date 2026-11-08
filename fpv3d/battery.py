@@ -1,0 +1,476 @@
+"""Battery analysis: the pack's voltage and current during a flight, what they say about the flight, and about the
+pack itself as it ages.
+
+Sources:
+  * Betaflight blackbox: vbatLatest + amperageLatest (about 50 readings a second), throttle and motor outputs
+  * radio telemetry logs (EdgeTX, Alpline's live recordings): RxBt / Curr / Capa, about once a second
+
+Per flight (summary()):
+  mAh and Wh used, average / peak current (and C with the pack's capacity), the lowest cell voltage under load and
+  how long it stayed under 3.5 V, the cell voltage at take-off and the resting voltage at landing (the voltage
+  without the sag), the worst sag, and the pack's internal resistance:
+      under load the voltage drops by current x resistance. Over a flight the voltage is
+          V = rest(charge) - R * I
+      rest(charge) is a smooth curve of the mAh used (a cubic is plenty over one flight), R is found by least
+      squares on 0.1 s averages, with the outliers dropped. It needs some punch-outs: with steady current
+      (or less than ~8 A of spread) R is not reported.
+The flights and the packs (name, cells, capacity) are kept in battery/packs.json in your Alpline folder; the
+series of each flight in battery/flights/<flight>.json.
+"""
+from __future__ import annotations
+
+import json
+import re
+import threading
+import time
+from pathlib import Path
+
+import numpy as np
+
+from .paths import DATA
+from .safefile import write_atomic
+
+BIN_S = 0.1                       # analysis resolution
+LOW_CELL = 3.5                    # "under load" warning level per cell (V)
+LANDING_PCT = 80                  # land when this share of the capacity is used (the usual LiPo advice)
+_LOCK = threading.Lock()
+
+
+def store_dir(root: Path | None = None) -> Path:
+    root = Path(root) if root else DATA      # (looked up at call time: the tests point it elsewhere)
+    return root / "battery"
+
+
+def flight_file(fid: str, root: Path | None = None) -> Path:
+    root = Path(root) if root else DATA
+    return store_dir(root) / "flights" / f"{fid}.json"
+
+
+FID_RE = re.compile(r"^[\w.-]{1,120}$")
+
+
+# ------------------------------------------------------------------------------------------------------ reading
+def cells_from_voltage(v_start: float, max_cell: float = 4.30) -> int:
+    """Betaflight's own rule: the pack's cell count from its voltage when plugged in."""
+    if not v_start or v_start <= 0:
+        return 0
+    return int(min(8, v_start / max_cell + 1))
+
+
+def clean(t, v, i):
+    """Drop the glitches (a voltage far from its neighbours, an absurd current) and average into 0.1 s bins.
+    Returns t, v, i as numpy arrays (bins with no good sample are left out)."""
+    t, v, i = (np.asarray(a, float) for a in (t, v, i))
+    ok = np.isfinite(t) & np.isfinite(v) & (v > 1)
+    t, v, i = t[ok], v[ok], np.nan_to_num(i[ok], nan=0.0)
+    if len(t) < 5:
+        return t, v, i
+    order = np.argsort(t, kind="stable")
+    t, v, i = t[order], v[order], i[order]
+    # rolling median over ~1 s (on the sample index: rates differ between sources)
+    rate = max(1.0, (len(t) - 1) / max(t[-1] - t[0], 1e-3))
+    k = int(min(max(3, rate), 201)) | 1
+    pad = k // 2
+    vp = np.pad(v, pad, mode="edge")
+    med = np.median(np.lib.stride_tricks.sliding_window_view(vp, k), axis=1)
+    good = np.abs(v - med) <= np.maximum(0.6, 0.06 * med)
+    ip = np.abs(i[good])
+    if len(ip) > 20:
+        cap = max(np.percentile(ip, 99.5) * 2.5, 30.0)
+        good &= (i > -3) & (i < cap)
+    t, v, i = t[good], v[good], np.clip(i[good], 0, None)
+    if len(t) < 2:
+        return t, v, i
+    b = np.floor((t - t[0]) / BIN_S).astype(int)
+    n = np.bincount(b)
+    keep = n > 0
+    tb = (np.bincount(b, t)[keep] / n[keep])
+    return tb, np.bincount(b, v)[keep] / n[keep], np.bincount(b, i)[keep] / n[keep]
+
+
+def series(t, v, i, thr=None, cells=0, source="", meta=None, t0=0.0):
+    """A flight's battery series (0.1 s), with the cell count when known (else from the voltage)."""
+    tb, vb, ib = clean(t, v, i)
+    if len(tb) < 10:
+        return None
+    th = None
+    if thr is not None:
+        tt = np.asarray(t, float); th_raw = np.asarray(thr, float)
+        ok = np.isfinite(tt) & np.isfinite(th_raw)
+        if ok.sum() > 1:
+            th = np.interp(tb, tt[ok], th_raw[ok])
+    n0 = max(1, int(np.ceil(1.0 / BIN_S)))
+    cells = cells or cells_from_voltage(float(np.median(vb[:n0])))
+    r = lambda a, d: [round(float(x), d) for x in a]  # noqa: E731
+    out = dict(version=1, source=source, cells=cells, t=r(tb - t0, 2), v=r(vb, 3), i=r(ib, 2), meta=meta or {})
+    if th is not None:
+        out["thr"] = r(np.clip(th, 0, 1), 3)
+    return out
+
+
+def from_blackbox(parser, t0_us=None):
+    """Battery series from an orangebox Parser (one log). t0_us: the time that is 0 in the flight's track (the first
+    GPS fix), so the battery and the 3D replay share the same clock. None when the log has no voltage."""
+    names = parser.field_names
+    if "vbatLatest" not in names:
+        return None
+    it, iv = names.index("time"), names.index("vbatLatest")
+    ia = names.index("amperageLatest") if "amperageLatest" in names else None
+    ith = names.index("rcCommand[3]") if "rcCommand[3]" in names else None
+    T, V, I, TH = [], [], [], []
+    for fr in parser.frames():
+        d = fr.data
+        try:
+            tt, vv = d[it], d[iv]
+        except IndexError:
+            continue
+        if tt in ("", None) or vv in ("", None):
+            continue
+        T.append(tt); V.append(vv / 100)
+        I.append((d[ia] / 100) if ia is not None and ia < len(d) and d[ia] not in ("", None) else 0.0)
+        TH.append(((d[ith] - 1000) / 1000) if ith is not None and ith < len(d) and d[ith] not in ("", None) else np.nan)
+    if len(T) < 20:
+        return None
+    h = parser.headers
+    T = np.asarray(T, float) / 1e6
+    zero = (t0_us / 1e6) if t0_us is not None else T[0]
+    maxc = (h.get("vbatcellvoltage") or [330, 350, 430])
+    maxc = maxc[-1] / 100 if isinstance(maxc, (list, tuple)) and maxc else 4.3
+    v0 = float(np.median(np.asarray(V[: max(5, len(V) // 200)], float)))
+    sensor = h.get("currentSensor")
+    meta = dict(craft=str(h.get("Craft name", "") or ""), firmware=str(h.get("Firmware revision", "") or ""),
+                current_sensor=list(sensor) if isinstance(sensor, (list, tuple)) else None,
+                has_current=ia is not None and any(x > 0.5 for x in I),
+                warn_cell=(h.get("vbatcellvoltage") or [330, 350, 430])[1] / 100
+                if isinstance(h.get("vbatcellvoltage"), (list, tuple)) else 3.5)
+    return series(T, V, I, TH, cells_from_voltage(v0, maxc), "blackbox", meta, t0=zero)
+
+
+VOLT_KEYS = re.compile(r"^(rxbt|vbat|voltage|bat_?v|batt?_?volt)", re.I)
+CURR_KEYS = re.compile(r"^(curr|current|amperage|amps?)(_|$)", re.I)
+
+
+def from_telemetry(t, telemetry: dict):
+    """Battery series from a radio log's telemetry columns (RxBt / Curr), or None."""
+    vk = next((k for k in telemetry if VOLT_KEYS.match(k)), None)
+    if not vk:
+        return None
+    ck = next((k for k in telemetry if CURR_KEYS.match(k)), None)
+    v = np.asarray(telemetry[vk], float)
+    if np.isfinite(v).sum() < 10 or np.nanmax(v) < 3:
+        return None
+    i = np.asarray(telemetry[ck], float) if ck else np.zeros_like(v)
+    return series(t, v, i, None, 0, "telemetry", dict(columns=[vk, ck], has_current=bool(ck and np.nanmax(i) > 0.5)))
+
+
+# ----------------------------------------------------------------------------------------------------- analysis
+def internal_resistance(t, v, i, mah, cells=1):
+    """Pack resistance (ohm) from V = rest(mAh) - R I, robust least squares on 0.5 s averages.
+    None without enough load changes, or when the result is not believable (1 to 60 mΩ per cell)."""
+    t, v, i, mah = (np.asarray(a, float) for a in (t, v, i, mah))
+    if len(t) < 30:
+        return None
+    b = np.floor((t - t[0]) / 0.5).astype(int)
+    n = np.bincount(b)
+    k = n > 0
+    v, i, mah = (np.bincount(b, a)[k] / n[k] for a in (v, i, mah))
+    if len(v) < 12 or np.percentile(i, 95) - np.percentile(i, 5) < 8:
+        return None
+    x = (mah - mah.min()) / max(np.ptp(mah), 1.0)
+    A = np.column_stack([np.ones_like(x), x, x ** 2, x ** 3, -i])
+    keep = np.ones(len(v), bool)
+    for _ in range(4):
+        coef, *_ = np.linalg.lstsq(A[keep], v[keep], rcond=None)
+        res = v - A @ coef
+        s = np.std(res[keep]) or 1e-6
+        nk = np.abs(res) < 3 * s
+        if (nk == keep).all() or nk.sum() < 12:
+            break
+        keep = nk
+    R = float(coef[-1])
+    return R if 0.001 * cells <= R <= 0.060 * cells else None
+
+
+def summary(s: dict, capacity=None, cells=None):
+    """What a flight's series says. capacity (mAh) and cells come from the pack when it is known."""
+    t, v, i = (np.asarray(s[k], float) for k in ("t", "v", "i"))
+    cells = int(cells or s.get("cells") or 0) or cells_from_voltage(float(v[0]))
+    dt = np.diff(t, prepend=t[0])
+    dt = np.clip(dt, 0, 1.0)                                         # a gap in the log is not time on the pack
+    mah = np.cumsum(i * dt) / 3.6
+    wh = float(np.sum(v * i * dt) / 3600)
+    has_i = bool(s.get("meta", {}).get("has_current", np.nanmax(i) > 0.5))
+    R = internal_resistance(t, v, i, mah, cells) if has_i else None
+    cell = v / cells
+    n0 = max(1, min(len(v), int(1 / BIN_S)))
+    rest_end = float((v[-n0:] + i[-n0:] * (R or 0)).mean() / cells)
+    sag = (R * i / cells) if R else None
+    out = dict(
+        cells=cells, seconds=round(float(t[-1] - t[0]), 1), has_current=has_i,
+        mah=round(float(mah[-1]), 0) if has_i else None, wh=round(wh, 2) if has_i else None,
+        avg_a=round(float(np.average(i, weights=np.maximum(dt, 1e-3))), 1) if has_i else None,
+        peak_a=round(float(np.max(i)), 1) if has_i else None,
+        min_cell=round(float(cell.min()), 3), min_cell_t=round(float(t[int(np.argmin(cell))]), 1),
+        below_low_s=round(float(np.sum(dt[cell < LOW_CELL])), 1),
+        start_cell=round(float(cell[:n0].mean()), 3), end_rest_cell=round(rest_end, 3),
+        ir_pack_mohm=round(R * 1000, 1) if R else None, ir_cell_mohm=round(R * 1000 / cells, 2) if R else None,
+        worst_sag_cell=round(float(sag.max()), 3) if sag is not None else None,
+        sag100_cell=round(R * 100 / cells, 3) if R else None,
+    )
+    if capacity and has_i:
+        out["capacity"] = capacity
+        out["used_pct"] = round(100 * float(mah[-1]) / capacity, 0)
+        out["peak_c"] = round(float(np.max(i)) / (capacity / 1000), 1)
+        land = LANDING_PCT / 100 * capacity
+        k = int(np.searchsorted(mah, land))
+        out["landing_mah"] = round(land)
+        out["landing_t"] = round(float(t[k]), 1) if k < len(t) else None
+    return out
+
+
+def resample(s: dict, t_track):
+    """Cell voltage and current at the track's sample times (for colouring the 3D path)."""
+    t, v, i = (np.asarray(s[k], float) for k in ("t", "v", "i"))
+    tt = np.asarray(t_track, float)
+    inside = (tt >= t[0]) & (tt <= t[-1])
+    cv = np.where(inside, np.interp(tt, t, v / max(1, s.get("cells") or 1)), np.nan)
+    ia = np.where(inside, np.interp(tt, t, i), np.nan)
+    r = lambda a, d: [None if not np.isfinite(x) else round(float(x), d) for x in a]  # noqa: E731
+    return dict(cell_v=r(cv, 3), amps=r(ia, 1))
+
+
+# ------------------------------------------------------------------------------------------- packs and flights
+def _load(root: Path | None = None) -> dict:
+    root = Path(root) if root else DATA
+    f = store_dir(root) / "packs.json"
+    try:
+        d = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        d = {}
+    d.setdefault("packs", []); d.setdefault("flights", {}); d.setdefault("last_pack", None)
+    return d
+
+
+def _save(d: dict, root: Path | None = None):
+    root = Path(root) if root else DATA
+    store_dir(root).mkdir(parents=True, exist_ok=True)
+    write_atomic(store_dir(root) / "packs.json", json.dumps(d, indent=1))
+
+
+def save_flight(fid: str, s: dict, when=None, scene=None, track=None, root: Path | None = None) -> str:
+    """Store a flight's series and register it (keeps its pack and charger entry when it was there already)."""
+    root = Path(root) if root else DATA
+    fid = re.sub(r"[^\w.-]+", "_", fid)[:120]
+    f = flight_file(fid, root)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(f, json.dumps(s, separators=(",", ":")))
+    with _LOCK:
+        d = _load(root)
+        fl = d["flights"].get(fid, {})
+        fl.update(file=f"flights/{fid}.json", when=when or fl.get("when") or time.strftime("%Y-%m-%d %H:%M"),
+                  cells=s.get("cells"), source=s.get("source"), craft=s.get("meta", {}).get("craft", ""))
+        if scene:
+            fl["scene"] = scene
+        if track:
+            fl["track"] = track
+        fl.setdefault("pack", None)
+        fl["summary"] = summary(s, **_pack_args(d, fl.get("pack")))
+        d["flights"][fid] = fl
+        _save(d, root)
+    return fid
+
+
+def link_track(fid: str, scene: str, track: str, root: Path | None = None):
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        if fid in d["flights"]:
+            d["flights"][fid].update(scene=scene, track=track)
+            _save(d, root)
+
+
+def _pack_args(d, pid):
+    p = next((p for p in d["packs"] if p["id"] == pid), None)
+    return dict(capacity=p.get("capacity"), cells=p.get("cells")) if p else {}
+
+
+def load_flight(fid: str, root: Path | None = None):
+    root = Path(root) if root else DATA
+    if not FID_RE.match(fid or ""):
+        raise ValueError("bad flight name")
+    s = json.loads(flight_file(fid, root).read_text(encoding="utf-8"))
+    d = _load(root)
+    fl = d["flights"].get(fid, {})
+    s["summary"] = summary(s, **_pack_args(d, fl.get("pack")))
+    s["pack"] = fl.get("pack")
+    s["id"] = fid
+    s["charged_mah"] = fl.get("charged_mah")
+    return s
+
+
+def save_pack(p: dict, root: Path | None = None) -> dict:
+    """Create (no id) or change a pack: name, cells, capacity (mAh), retired, note."""
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        name = str(p.get("name") or "").strip()[:40]
+        cells = int(p.get("cells") or 0)
+        cap = int(float(p.get("capacity") or 0))
+        if not name or not (1 <= cells <= 8) or not (100 <= cap <= 30000):
+            raise ValueError("a pack needs a name, 1 to 8 cells and a capacity of 100 to 30000 mAh")
+        cur = next((x for x in d["packs"] if x["id"] == p.get("id")), None) if p.get("id") else None
+        if cur is None:
+            n = 1 + max([int(x["id"][1:]) for x in d["packs"] if re.match(r"^p\d+$", x["id"])] or [0])
+            cur = dict(id=f"p{n}", since=time.strftime("%Y-%m-%d"))
+            d["packs"].append(cur)
+        cur.update(name=name, cells=cells, capacity=cap, retired=bool(p.get("retired", False)),
+                   note=str(p.get("note") or "")[:200])
+        _resummarize(d, root, pack=cur["id"])
+        _save(d, root)
+        return cur
+
+
+def delete_pack(pid: str, root: Path | None = None):
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        d["packs"] = [p for p in d["packs"] if p["id"] != pid]
+        for fl in d["flights"].values():
+            if fl.get("pack") == pid:
+                fl["pack"] = None
+        if d.get("last_pack") == pid:
+            d["last_pack"] = None
+        _save(d, root)
+
+
+def assign(fids, pid, root: Path | None = None):
+    """Say which pack flew these flights (None: unknown)."""
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        if pid is not None and not any(p["id"] == pid for p in d["packs"]):
+            raise ValueError("unknown pack")
+        for fid in fids if isinstance(fids, (list, tuple)) else [fids]:
+            if fid not in d["flights"]:
+                raise ValueError(f"unknown flight {fid}")
+            d["flights"][fid]["pack"] = pid
+        if pid:
+            d["last_pack"] = pid
+        _resummarize(d, root, flights=fids if isinstance(fids, (list, tuple)) else [fids])
+        _save(d, root)
+
+
+def set_charged(fid: str, mah, root: Path | None = None):
+    """What the charger put back in after this flight (mAh), for the current-sensor check. None clears it."""
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        if fid not in d["flights"]:
+            raise ValueError("unknown flight")
+        d["flights"][fid]["charged_mah"] = None if mah in (None, "") else max(0, int(float(mah)))
+        _save(d, root)
+
+
+def _resummarize(d, root, pack=None, flights=None):
+    for fid, fl in d["flights"].items():
+        if (pack and fl.get("pack") == pack) or (flights and fid in flights):
+            try:
+                s = json.loads(flight_file(fid, root).read_text(encoding="utf-8"))
+                fl["summary"] = summary(s, **_pack_args(d, fl.get("pack")))
+            except (OSError, ValueError):
+                pass
+
+
+def forget_missing(root: Path | None = None):
+    """Flights whose series file is gone (cleaned up) leave the list."""
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        gone = [k for k in d["flights"] if not flight_file(k, root).exists()]
+        for k in gone:
+            del d["flights"][k]
+        if gone:
+            _save(d, root)
+
+
+# --------------------------------------------------------------------------------------------- health, advice
+def _median(a):
+    return float(np.median(a)) if len(a) else None
+
+
+def overview(root: Path | None = None) -> dict:
+    """Everything the packs page shows: packs with health, landing advice and their flights; the charger check."""
+    root = Path(root) if root else DATA
+    forget_missing(root)
+    d = _load(root)
+    flights = [dict(id=k, **v) for k, v in d["flights"].items()]
+    flights.sort(key=lambda f: f.get("when") or "")
+    packs = []
+    for p in d["packs"]:
+        mine = [f for f in flights if f.get("pack") == p["id"]]
+        irs = [f["summary"]["ir_cell_mohm"] for f in mine if f["summary"].get("ir_cell_mohm")]
+        trend = [dict(when=f["when"], ir=f["summary"]["ir_cell_mohm"]) for f in mine if f["summary"].get("ir_cell_mohm")]
+        k = max(1, min(3, len(irs) // 3))                    # first and latest flights, without overlap
+        first, now = _median(irs[:k]), _median(irs[-k:])
+        long_ = [f for f in mine if (f["summary"].get("seconds") or 0) >= 60 and f["summary"].get("mah")]
+        rate = (sum(f["summary"]["mah"] for f in long_) / sum(f["summary"]["seconds"] for f in long_) * 60) if long_ else None
+        land_mah = round(p["capacity"] * LANDING_PCT / 100)
+        packs.append(dict(p, flights=len(mine), ir_now=round(now, 2) if now else None, ir_first=round(first, 2) if first else None,
+                          trend=trend, sag100=_median([f["summary"]["sag100_cell"] for f in mine if f["summary"].get("sag100_cell")]),
+                          mah_per_min=round(rate) if rate else None, landing_mah=land_mah,
+                          landing_min=round(land_mah / rate, 1) if rate else None, flags=[]))
+    # flags: rising fast, or clearly worse than similar packs
+    for p in packs:
+        if p["ir_now"] and p["ir_first"] and len(p["trend"]) >= 4 and p["ir_now"] > 1.4 * p["ir_first"]:
+            p["flags"].append(f"ageing: resistance {p['ir_now']:.1f} mΩ, +{100 * (p['ir_now'] / p['ir_first'] - 1):.0f} % since its first flights")
+        sib = [q["ir_now"] for q in packs if q is not p and q["ir_now"] and q["cells"] == p["cells"]
+               and abs(q["capacity"] - p["capacity"]) <= 0.25 * p["capacity"] and not q.get("retired")]
+        if p["ir_now"] and len(sib) >= 1 and p["ir_now"] > 1.35 * _median(sib):
+            p["flags"].append(f"weaker than your other {p['cells']}S {p['capacity']} packs ({p['ir_now']:.1f} vs {_median(sib):.1f} mΩ)")
+        low = [f for f in flights if f.get("pack") == p["id"] and (f["summary"].get("below_low_s") or 0) > 5]
+        if low:
+            p["flags"].append(f"{len(low)} flight(s) with cells under {LOW_CELL} V for more than 5 s")
+    return dict(packs=packs, flights=flights, last_pack=d.get("last_pack"), charger=charger_check(flights, root),
+                landing_pct=LANDING_PCT, low_cell=LOW_CELL)
+
+
+def charger_check(flights, root: Path | None = None):
+    """Logged mAh vs what the charger put back in: is the current sensor right? With the Betaflight scale to set."""
+    root = Path(root) if root else DATA
+    rows = [f for f in flights if f.get("charged_mah") and (f["summary"].get("mah") or 0) > 50]
+    if not rows:
+        return None
+    logged = sum(f["summary"]["mah"] for f in rows)
+    charged = sum(f["charged_mah"] for f in rows)
+    ratio = logged / charged
+    out = dict(flights=len(rows), logged=round(logged), charged=round(charged), ratio=round(ratio, 3), ok=0.95 <= ratio <= 1.05)
+    scales = []
+    for f in rows:
+        try:
+            s = json.loads(flight_file(f["id"], root).read_text(encoding="utf-8"))
+            cs = s.get("meta", {}).get("current_sensor")
+            if cs and cs[1]:
+                scales.append(int(cs[1]))
+        except (OSError, ValueError):
+            pass
+    if scales:
+        old = max(set(scales), key=scales.count)
+        out["scale_now"] = old
+        out["scale_new"] = int(round(old * ratio))
+    return out
+
+
+def fmt_mmss(s):
+    s = max(0, int(round(s)))
+    return f"{s // 60}:{s % 60:02d}"
+
+
+def describe(sm: dict) -> str:
+    """One sentence for a flight (log lines, launcher)."""
+    if not sm:
+        return ""
+    parts = [f"{sm['mah']:.0f} mAh" if sm.get("mah") is not None else "no current sensor",
+             f"lowest {sm['min_cell']:.2f} V/cell"]
+    if sm.get("ir_cell_mohm"):
+        parts.append(f"{sm['ir_cell_mohm']:.1f} mΩ/cell")
+    return " · ".join(parts)

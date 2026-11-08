@@ -321,6 +321,31 @@ def process_track(cfg: LocationConfig, terrain: Terrain, pilot, track: logmod.Tr
     return data, summary
 
 
+def _attach_battery(cfg, p, tr, data, summ):
+    """The flight's battery (blackbox: saved when it was downloaded; radio logs: from RxBt / Curr): cell voltage and
+    current along the track (path colours) and the flight's id for the viewer's battery tab."""
+    if "_sim_" in tr.name:                               # training flights: the battery is simulated
+        return
+    from . import battery
+    try:
+        fid = Path(p).stem
+        f = battery.flight_file(fid)
+        if f.exists():
+            s = json.loads(f.read_text(encoding="utf-8"))
+            battery.link_track(fid, cfg.name, summ["name"])
+        else:
+            s = battery.from_telemetry(tr.t, tr.telemetry)
+            if not s:
+                return
+            when = tr.start_time or time.strftime("%Y-%m-%d %H:%M", time.localtime(Path(p).stat().st_mtime))
+            fid = battery.save_flight(fid, s, when=when, scene=cfg.name, track=summ["name"])
+        data.update(battery.resample(s, tr.t), bat_cells=s.get("cells"))
+        summ["battery"] = fid
+        log(f"[battery] {summ['name']}: {battery.describe(battery.summary(s))}")
+    except Exception as ex:                              # noqa: BLE001 - the track is fine without it
+        log(f"[battery] {tr.name}: not read ({ex.__class__.__name__}: {ex})")
+
+
 def add_tracks(cfg, terrain, pilot, out: Path, log_paths, meta_tracks, overrides=None):
     """Process logs into tracks. `log_paths` items are paths or (path, log_option_overrides)."""
     (out / "tracks").mkdir(exist_ok=True)
@@ -337,6 +362,7 @@ def add_tracks(cfg, terrain, pilot, out: Path, log_paths, meta_tracks, overrides
             tr.name = ov["track_name"]
         data, summ = process_track(cfg, terrain, pilot, tr, dict(cfg.log_options, **ov_proc))
         summ["source"] = str(Path(p).resolve())           # remembered so rebuilds keep this track
+        _attach_battery(cfg, p, tr, data, summ)
         if ov:
             summ["log_options"] = ov
         write_atomic((out / summ["file"]), json.dumps(data, separators=(",", ":")))

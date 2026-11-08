@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 os.environ["ALPLINE_NO_WINDOW_TEST"] = "1"
-ORDER = ["basic", "server", "security", "robust", "journeys", "files", "snapshots", "performance", "sim", "launcher"]
+ORDER = ["basic", "server", "security", "robust", "journeys", "files", "battery", "snapshots", "performance", "sim", "launcher"]
 
 
 def main():

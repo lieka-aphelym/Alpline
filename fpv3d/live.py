@@ -172,6 +172,8 @@ class LiveLink:
             n, T = d["n"], d["t"]
             start_t = T[0] or 0
             prev = None
+            cv, amps, cells = d.get("cell_v"), d.get("amps"), d.get("bat_cells") or 0   # the flight's real battery
+            mah, last_t = 0.0, None
             for i in range(n):
                 if self.stop_ev.is_set():
                     break
@@ -193,7 +195,14 @@ class LiveLink:
                 buf = crsf.gps_frame(lat, lon, spd, hdg, d["z"][i], 14) + crsf.vario_frame(vs)
                 if lq > 0:                         # no link statistics while the link is "lost"
                     buf = crsf.link_frame(-60 - max(0, 30 - m), lq) + buf     # margin 30 dB -> -60 dBm
-                buf += crsf.battery_frame(16.4 - 0.002 * i, 12, i // 2, max(0, 100 - i // 50)) + crsf.mode_frame("ANGL")
+                if cv and cells and cv[i] is not None:
+                    a_ = (amps[i] or 0.0) if amps else 0.0
+                    mah += a_ * min(1.0, (T[i] or 0) - (last_t if last_t is not None else (T[i] or 0))) / 3.6
+                    last_t = T[i] or 0
+                    buf += crsf.battery_frame(cv[i] * cells, a_, mah, 0)
+                else:
+                    buf += crsf.battery_frame(16.4 - 0.002 * i, 12, i // 2, max(0, 100 - i // 50))
+                buf += crsf.mode_frame("ANGL")
                 self._handle(p.feed(buf), w, t0)
                 with self.lock:
                     self.state.update(frames=p.frames, bad=p.bad)

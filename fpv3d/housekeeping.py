@@ -29,6 +29,8 @@ KINDS = {
     "cache": ("Downloaded maps", "swisstopo tiles", "swisstopo tiles kept to build faster; downloaded again when needed"),
     "locations": ("Locations", "location files (+ their scenes)",
                   "your location files with their radio setup (their 3D scenes go too)"),
+    "packs": ("Battery packs", "names, capacity, health history",
+              "your packs (name, cells, capacity), which pack flew which flight, charger entries"),
     "deleted": ("Deleted items", "kept to restore them", "locations you deleted, kept so you could restore them"),
     "applogs": ("App logs", "error and server logs", "error and server logs, check screenshots"),
     "settings": ("Launcher settings", "back to the defaults",
@@ -50,6 +52,11 @@ def _files(kind: str, root: Path):
                 if f.is_file() and rel[0] not in ("sim", "checks") and not (len(rel) == 1 and rel[0] in APP_LOG_FILES):
                     yield f
         yield from _track_files(root, training=False)
+        if (root / "battery" / "flights").exists():
+            yield from (f for f in (root / "battery" / "flights").glob("*.json"))
+    elif kind == "packs":
+        if (root / "battery" / "packs.json").is_file():
+            yield root / "battery" / "packs.json"
     elif kind == "training":
         if (logs / "sim").exists():
             yield from (f for f in (logs / "sim").rglob("*") if f.is_file())
@@ -146,11 +153,14 @@ def clear(kinds, root: Path = DATA) -> dict:
         _drop_tracks(root, training=False)
     if "training" in kinds and "scenes" not in kinds:
         _drop_tracks(root, training=True)
-    if "flights" in kinds and logs.exists():
+    if "flights" in kinds:
         for f in list(_files("flights", root)):
-            if logs in f.parents:
+            if logs in f.parents or f.parent == root / "battery" / "flights":
                 f.unlink(missing_ok=True)
-        _prune_empty(logs, keep=("sim", "checks"))
+        if logs.exists():
+            _prune_empty(logs, keep=("sim", "checks"))
+    if "packs" in kinds:
+        (root / "battery" / "packs.json").unlink(missing_ok=True)
     if "training" in kinds:
         shutil.rmtree(logs / "sim", ignore_errors=True)
     for k in ("scenes", "cache", "deleted"):
@@ -188,7 +198,7 @@ def _prune_empty(d: Path, keep=()):
 # ----------------------------------------------------------------------------------------------------------- backup
 
 def backup_kinds(include_scenes=False, include_cache=False):
-    ks = ["locations", "flights", "training", "settings"]
+    ks = ["locations", "flights", "training", "packs", "settings"]
     return ks + (["scenes"] if include_scenes else []) + (["cache"] if include_cache else [])
 
 
@@ -243,7 +253,7 @@ def _safe_target(root: Path, name: str) -> Path | None:
     if not name or name.endswith("/") or "\\" in name or ":" in name or name.startswith("/"):
         return None
     parts = Path(name).parts
-    if ".." in parts or parts[0] not in ("locations", "logs", "scenes", "cache", "deleted", "launcher.json"):
+    if ".." in parts or parts[0] not in ("locations", "logs", "scenes", "cache", "deleted", "battery", "launcher.json"):
         return None
     target = (root / name).resolve()
     try:

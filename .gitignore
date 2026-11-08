@@ -11,6 +11,7 @@ logs/
 .idea/
 launcher.json
 backups/
+battery/
 # app build (build_app.bat)
 build/
 dist/
