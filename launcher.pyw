@@ -27,6 +27,7 @@ from tkinter import ttk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fpv3d import paths  # noqa: E402  (standard library only)
+from fpv3d.safefile import write_atomic
 
 APP = paths.APP                                      # the program: viewer pages, logo frames, icon
 ROOT = paths.DATA                                    # your files: launcher.json, logs, scenes, cache, locations
@@ -264,7 +265,7 @@ PAGES = (("map", "map", "Your locations on the map of Switzerland"),
          ("drone", "drone", "Drone and radio on USB: download the blackbox, start a live flight"),
          ("phone", "phone", "Open Alpline on your phone (same Wi-Fi or the phone's hotspot)"),
          ("checks", "checks", "Run Alpline's own tests on this computer"),
-         ("disk", "disk", "Disk space and clean-up"),
+         ("disk", "files", "Your files: sizes, clean-up / start fresh, backup and restore"),
          ("settings", "settings", "Full / Lite, where pages open, desktop shortcut, your files"))
 
 
@@ -490,7 +491,7 @@ class Launcher:
 
     def save(self):
         try:
-            SETTINGS.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
+            write_atomic(SETTINGS, json.dumps(self.cfg, indent=2))
         except OSError:
             pass
 
@@ -894,6 +895,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         """A message for a few seconds over the bottom right corner (errors stay longer; click to close)."""
         col = {"info": ACC, "ok": "#3ddc84", "bad": "#ff6b6b"}.get(kind, ACC)
         self.toast.configure(text=text, fg=col, highlightbackground=col)
+        self.toast.bind("<Button-1>", lambda e: self.toast.place_forget())      # (an error notice opens its file instead)
         self.toast.place(relx=1, rely=0, x=-S(16), y=S(66), anchor="ne")      # top right of the page: free on every page
         self.toast.lift()
         if self._toast_job:
@@ -1211,9 +1213,10 @@ $r | ConvertTo-Json -Depth 4 -Compress
     # ------------------------------------------------------------ checks page
     CHECK_GROUPS = (("basic", "Basics", "coordinates, flight logs, radio maths, telemetry, blackbox, map tiles"),
                     ("server", "Server", "pages load, bad requests refused, one build at a time, cache, https"),
-                    ("security", "Security", "other websites blocked, private files hidden, phone PIN"),
+                    ("security", "Security", "other websites blocked, names shown as text, private files hidden, phone PIN"),
                     ("robust", "Robustness", "damaged logs, blackbox files, radio data and location files"),
                     ("journeys", "Journeys", "build, add a log, rename, delete, restore, blackbox, cache clean-up"),
+                    ("files", "Your files", "safe saving, error log, clean-up, backup and restore, disk space"),
                     ("snapshots", "Signal model", "line of sight and range give the same results as before"),
                     ("performance", "Speed-ups", "compact terrain and compression give the same data"),
                     ("sim", "Training flight", "flight model: hover, battery, top speed, propwash, walls"),
@@ -1377,41 +1380,207 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.say("report copied: paste it in a message")
 
     # ------------------------------------------------------------ disk page
-    DISK_ITEMS = [("cache", "download cache (map tiles)", "Tiles from swisstopo. Lets you build offline; tiles no location uses can be removed."),
-                  ("scenes", "built locations", "What the 3D viewer shows. Rebuilt from the cache if deleted."),
-                  ("deleted", "deleted locations", "Kept so you can restore them. Emptying is permanent."),
-                  ("logs", "flight logs", "Your recorded, downloaded and training flights.")]
-
     def build_disk_page(self, parent):
-        col = self.page_frame(parent, "DISK SPACE")
-        self.disk_labels = {}
-        for key, name, tip in self.DISK_ITEMS:
-            r = tk.Frame(col, bg=BG); r.pack(fill="x", pady=S(2))
-            tk.Label(r, text=name, font=SANS, fg=FG, bg=BG, width=28, anchor="w").pack(side="left")
-            self.disk_labels[key] = tk.Label(r, text="…", font=MONO, fg=FG, bg=BG, anchor="e", width=12)
-            self.disk_labels[key].pack(side="left")
-            Tip(self.disk_labels[key], tip)
-        self.disk_total = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
-        self.disk_total.pack(fill="x", pady=(S(6), 0))
-        btns = tk.Frame(col, bg=BG); btns.pack(fill="x", pady=(S(12), 0))
-        b1 = self.button(btns, "[clean unused tiles]", self.disk_prune); b1.pack(side="left", padx=(0, S(6)))
-        Tip(b1, "Deletes downloaded tiles that none of your location files uses. Your locations still build offline.")
-        b2 = self.button(btns, "[empty deleted]", lambda: self.disk_run(["deleted", "--purge"],
-                         confirm="Permanently delete the locations in the 'deleted' folder? They can no longer be restored."))
-        b2.pack(side="left")
+        from fpv3d.housekeeping import KINDS
+        col = self.page_frame(parent, "YOUR FILES",
+                              "What Alpline keeps on this computer. Tick what to delete: a backup zip is made first "
+                              "unless you untick it. Ticking everything starts fresh, like a new install.")
+        self.disk_free = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.disk_free.pack(fill="x", pady=(0, S(8)))
+        grid = tk.Frame(col, bg=BG); grid.pack(fill="x")
+        grid.columnconfigure(1, weight=1)
+        self.disk_vars, self.disk_labels = {}, {}
+        for i, (key, (label, short, desc)) in enumerate(KINDS.items()):
+            v = tk.BooleanVar(value=False)
+            cb = self.check(grid, label, v, command=lambda k=key: self.disk_ticked(k), width=18)
+            cb.grid(row=i, column=0, sticky="w", pady=S(1))
+            d = FitLabel(grid, font=SANS, fg=FG2, bg=BG); d.set(short); d.grid(row=i, column=1, sticky="ew", padx=(S(4), S(8)))
+            Tip(cb, desc); Tip(d, desc)
+            self.disk_labels[key] = tk.Label(grid, text="…", font=MONO, fg=FG, bg=BG, anchor="e", width=9)
+            self.disk_labels[key].grid(row=i, column=2, sticky="e")
+            self.disk_vars[key] = v
+        sel = tk.Frame(col, bg=BG); sel.pack(fill="x", pady=(S(6), 0))
+        self.button(sel, "[all: start fresh]", lambda: self.disk_select(True), small=True).pack(side="left")
+        self.button(sel, "[none]", lambda: self.disk_select(False), small=True).pack(side="left", padx=(S(6), 0))
+        self.disk_sel_total = tk.Label(sel, text="", font=MONO, fg=FG2, bg=BG, anchor="e")
+        self.disk_sel_total.pack(side="right")
+        act = tk.Frame(col, bg=BG); act.pack(fill="x", pady=(S(10), 0))
+        self.disk_backup_first = tk.BooleanVar(value=True)
+        self.check(act, "make a backup first", self.disk_backup_first).pack(side="left")
+        self.disk_del_btn = self.button(act, "[delete selected]", self.disk_clear)
+        self.disk_del_btn.configure(fg="#ff6b6b")
+        self.disk_del_btn.pack(side="right")
+        b1 = self.button(act, "[clean unused tiles]", self.disk_prune, small=True); b1.pack(side="right", padx=(0, S(8)))
+        Tip(b1, "Deletes only the downloaded tiles that none of your location files uses. Your locations still build offline.")
+        tk.Frame(col, bg=BG, height=S(14)).pack(fill="x")
+        self.section("BACKUP", col)
+        br = tk.Frame(col, bg=BG); br.pack(fill="x")
+        self.button(br, "[make a backup…]", self.disk_backup, primary=True).pack(side="left")
+        self.button(br, "[restore a backup…]", self.disk_restore).pack(side="left", padx=(S(8), 0))
+        self.disk_inc_scenes = tk.BooleanVar(value=False)
+        self.disk_inc_cb = self.check(col, "include the built 3D scenes (bigger; no rebuild needed after restoring)", self.disk_inc_scenes)
+        self.disk_inc_cb.pack(fill="x", pady=(S(6), 0))
+        tk.Label(col, text="A backup holds your locations, flights, training flights and settings: keep it safe, or use it "
+                           "to move everything to another PC. Restoring never deletes anything; files you already have are kept.",
+                 font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(640)).pack(fill="x", pady=(S(4), 0))
         self.disk_out = FitLabel(col, font=SANS, fg=FG2, bg=BG)
         self.disk_out.pack(fill="x", pady=(S(10), 0))
+        self.disk_sizes = {}
+
+    def check(self, parent, text, var, command=None, width=0):
+        return tk.Checkbutton(parent, text=text, variable=var, command=command, font=SANS, fg=FG, bg=BG, selectcolor=BG2,
+                              activebackground=BG, activeforeground=FG, anchor="w", width=width, bd=0,
+                              highlightthickness=0, cursor="hand2", padx=0)
+
+    def disk_ticked(self, key):
+        if key == "locations" and self.disk_vars["locations"].get():
+            self.disk_vars["scenes"].set(True)             # a scene without its location file can't be rebuilt or opened
+        if key == "scenes" and not self.disk_vars["scenes"].get() and self.disk_vars["locations"].get():
+            self.disk_vars["locations"].set(False)
+        self.disk_show_selection()
+
+    def disk_select(self, on):
+        for v in self.disk_vars.values():
+            v.set(on)
+        self.disk_show_selection()
+
+    def disk_show_selection(self):
+        from fpv3d.housekeeping import human
+        ks = [k for k, v in self.disk_vars.items() if v.get()]
+        tot = sum(self.disk_sizes.get(k, 0) for k in ks)
+        self.disk_sel_total.configure(text=f"selected: {human(tot)}" if ks else "")
 
     def measure_disk(self):
+        from fpv3d.housekeeping import free_bytes, human, sizes
+
         def work():
-            res = {k: self.folder_size(ROOT / k) for k, *_ in self.DISK_ITEMS}
+            res, free = sizes(ROOT), free_bytes(ROOT)
             def show():
-                for k, (b, _n) in res.items():
-                    self.disk_labels[k].configure(text=f"{b / 1e9:.2f} GB" if b >= 1e9 else f"{b / 1e6:.0f} MB")
-                tot = sum(b for b, _ in res.values())
-                self.disk_total.set(f"total {tot / 1e9:.1f} GB" if tot >= 1e9 else f"total {tot / 1e6:.0f} MB")
+                self.disk_sizes = res
+                for k, b in res.items():
+                    self.disk_labels[k].configure(text=human(b))
+                used = sum(res.values())
+                self.disk_free.set(f"Alpline uses {human(used)}" + (f" · {human(free)} free on the disk" if free is not None else ""))
+                self.disk_inc_cb.configure(text=f"include the built 3D scenes ({human(res.get('scenes', 0))}; no rebuild needed after restoring)")
+                self.disk_show_selection()
             self.root.after(0, show)
         threading.Thread(target=work, daemon=True).start()
+
+    def disk_job(self, text, fn, done):
+        """Run fn() in the background with the logo busy; done(result or exception) back in the window."""
+        self.disk_out.set(text)
+        self.logo.busy(True)
+
+        def work():
+            try:
+                r = fn()
+            except Exception as ex:                    # noqa: BLE001 - shown to you, and logged
+                from fpv3d.errorlog import record_exception
+                record_exception("launcher files page", ex)
+                r = ex
+            self.root.after(0, lambda: (self.logo.busy(False), done(r), self.measure_disk()))
+        threading.Thread(target=work, daemon=True).start()
+
+    def backup_name(self):
+        return f"alpline_backup_{time.strftime('%Y-%m-%d_%H%M')}.zip"
+
+    def disk_backup(self):
+        from tkinter import filedialog
+        from fpv3d import housekeeping as hk
+        (ROOT / "backups").mkdir(exist_ok=True)
+        dest = filedialog.asksaveasfilename(parent=self.root, title="Save the backup", initialdir=str(ROOT / "backups"),
+                                            initialfile=self.backup_name(), defaultextension=".zip",
+                                            filetypes=[("Alpline backup", "*.zip")])
+        if not dest:
+            return
+        kinds = hk.backup_kinds(include_scenes=self.disk_inc_scenes.get())
+        self.disk_job("making the backup…", lambda: hk.backup(Path(dest), kinds, ROOT),
+                      lambda r: self.disk_out.set(f"could not make the backup: {r}") if isinstance(r, Exception)
+                      else (self.disk_out.set(f"backup saved: {dest} ({r['files']} files, {hk.human(r['bytes'])})"),
+                            self.say("backup saved", "ok")))
+
+    def disk_restore(self):
+        from tkinter import filedialog, messagebox
+        from fpv3d import housekeeping as hk
+        src = filedialog.askopenfilename(parent=self.root, title="Restore a backup", initialdir=str(ROOT / "backups"),
+                                         filetypes=[("Alpline backup", "*.zip")])
+        if not src:
+            return
+        try:
+            info = hk.read_backup(Path(src))
+        except ValueError as ex:
+            self.say(str(ex), "bad")
+            return
+        labels = ", ".join(hk.KINDS[k][0].lower() for k in info.get("kinds", []) if k in hk.KINDS)
+        ans = messagebox.askyesnocancel(
+            "Alpline: restore",
+            f"Backup from {info.get('made', '?')}: {labels} ({len(info['names'])} files).\n\n"
+            "Replace the files you already have with the ones in the backup?\n"
+            "Yes: replace them · No: keep yours, add only what's missing", parent=self.root)
+        if ans is None:
+            return
+        def done(r):
+            if isinstance(r, Exception):
+                self.disk_out.set(f"could not restore: {r}")
+                return
+            self.disk_out.set(f"restored {r['restored']} files" + (f", kept {r['kept']} you already had" if r["kept"] else "")
+                              + (f", refused {r['refused']} unsafe entries" if r["refused"] else "")
+                              + ". Locations without their 3D scene: build them from the map page.")
+            self.say("backup restored", "ok")
+            self.after_files_changed()
+        self.disk_job("restoring…", lambda: hk.restore(Path(src), ROOT, replace=bool(ans)), done)
+
+    def disk_clear(self):
+        from tkinter import messagebox
+        from fpv3d import housekeeping as hk
+        ks = [k for k, v in self.disk_vars.items() if v.get()]
+        if not ks:
+            self.say("tick what to delete first")
+            return
+        if "locations" in ks and "scenes" not in ks:
+            ks.append("scenes")
+        everything = set(ks) == set(hk.KINDS)
+        names = "\n".join(f"  · {hk.KINDS[k][0]} ({hk.human(self.disk_sizes.get(k, 0))})" for k in hk.KINDS if k in ks)
+        backup = self.disk_backup_first.get()
+        if not messagebox.askyesno(
+                "Alpline: start fresh" if everything else "Alpline: delete",
+                ("Start fresh: delete ALL your Alpline files?\n\n" if everything else "Delete these files?\n\n") + names
+                + ("\n\nA backup zip is saved first in the 'backups' folder." if backup
+                   else "\n\nNo backup: this cannot be undone."), icon="warning", parent=self.root):
+            return
+        if self.server_alive() and {"scenes", "locations", "settings"} & set(ks):
+            self.stop()                                   # nothing open on files that are about to go
+        dest = ROOT / "backups" / self.backup_name()
+
+        def fn():
+            out = {}
+            if backup:
+                inc = [k for k in ks if k in ("locations", "flights", "training", "settings", "scenes")]
+                out["backup"] = hk.backup(dest, inc or hk.backup_kinds(), ROOT) if inc else None
+            out["freed"] = hk.clear(ks, ROOT)
+            return out
+
+        def done(r):
+            if isinstance(r, Exception):
+                self.disk_out.set(f"nothing deleted: {r}" if isinstance(r, RuntimeError) else f"stopped: {r}")
+                self.say(str(r)[:140], "bad")
+                return
+            freed = sum(r["freed"].values())
+            self.disk_out.set(f"freed {hk.human(freed)}" + (f" · backup: backups/{dest.name}" if r.get("backup") else ""))
+            self.say(f"freed {hk.human(freed)}", "ok")
+            self.disk_select(False)
+            if "settings" in ks:
+                self.cfg = load_settings()
+                self.set_mode(self.cfg.get("mode", "full"), save=False)
+                self.set_open_in(self.cfg.get("open_in", "window"), save=False)
+            self.after_files_changed()
+        self.disk_job("making the backup…" if backup else "deleting…", fn, done)
+
+    def after_files_changed(self):
+        """Locations, scenes or flights changed on disk: refresh what the window shows."""
+        self.check_offline(quiet=True)
+        if self.map.selected and not any(l["name"] == self.map.selected for l in self.map.locs):
+            self.select(None)
 
     def disk_run(self, args, confirm=None, after=None):
         from tkinter import messagebox
@@ -2443,6 +2612,44 @@ def sharp_on_windows():
             pass
 
 
+def catch_errors(root, app):
+    """The launcher has no console window: an error in a button, a timer or a background task would vanish. Each one
+    goes to logs/errors.txt and shows a short notice (click it to open the file)."""
+    import threading
+    from fpv3d.errorlog import record_exception
+    last = {"t": 0.0}
+
+    def report(ex):
+        f = record_exception("launcher", ex)
+        def notice():
+            if time.time() - last["t"] < 3:                    # a burst of the same failure: one notice
+                return
+            last["t"] = time.time()
+            try:
+                app.say(f"Something went wrong: {type(ex).__name__}: {str(ex)[:120]}\nDetails saved in logs/errors.txt", "bad")
+                app.toast.bind("<Button-1>", lambda e: (app.toast.place_forget(), open_file(f)))
+            except Exception:                                  # noqa: BLE001 - the window may be closing
+                pass
+        try:
+            root.after(0, notice)
+        except Exception:                                      # noqa: BLE001
+            pass
+
+    root.report_callback_exception = lambda typ, ex, tb: report(ex)
+    sys.excepthook = lambda typ, ex, tb: report(ex)
+    threading.excepthook = lambda a: report(a.exc_value) if a.exc_type is not SystemExit else None
+
+
+def open_file(f):
+    try:
+        if os.name == "nt":
+            os.startfile(str(f))                               # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open", str(f)])
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
 def first_start_folder(root) -> bool:
     """Installed app, very first start: where should your files go? True = continue, False = restart needed / quit."""
     from tkinter import filedialog, messagebox
@@ -2477,5 +2684,6 @@ if __name__ == "__main__":
     paths.ensure_data()
     UI = max(1.0, root.winfo_fpixels("1i") / 96)            # 1.25, 1.5 ... on scaled displays
     root.tk.call("tk", "scaling", UI * 96 / 72)              # fonts in points follow the same factor
-    Launcher(root)
+    app = Launcher(root)
+    catch_errors(root, app)
     root.mainloop()

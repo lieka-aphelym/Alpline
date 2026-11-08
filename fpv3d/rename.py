@@ -15,6 +15,7 @@ import unicodedata
 from pathlib import Path
 
 from .locations import LOC_DIR, NAME_RE, ROOT
+from .safefile import write_atomic
 
 LOGS = ROOT / "logs"
 TRACK_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,60}$", re.I)
@@ -68,7 +69,7 @@ def _set_yaml_key(path: Path, key: str, value: str, quote: bool):
     txt, n = re.subn(rf"(?m)^{key}:.*$", f"{key}: {v}", txt, count=1)
     if not n:
         txt = f"{key}: {v}\n" + txt
-    path.write_text(txt, encoding="utf-8")
+    write_atomic(path, txt)
 
 
 def _read_meta(scene_dir: Path):
@@ -77,7 +78,7 @@ def _read_meta(scene_dir: Path):
 
 
 def _write_meta(scene_dir: Path, meta):
-    (scene_dir / "scene.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    write_atomic((scene_dir / "scene.json"), json.dumps(meta, indent=1))
 
 
 def _update_index(scenes_dir: Path):
@@ -87,7 +88,7 @@ def _update_index(scenes_dir: Path):
         m = _read_meta(d) if d.is_dir() else None
         if m:
             scenes.append(dict(name=m["name"], title=m.get("title", m["name"]), tracks=len(m.get("tracks", []))))
-    (scenes_dir / "index.json").write_text(json.dumps(scenes, indent=1), encoding="utf-8")
+    write_atomic((scenes_dir / "index.json"), json.dumps(scenes, indent=1))
 
 
 def _inside(p: Path, root: Path) -> bool:
@@ -194,7 +195,7 @@ def rename_track(scene: str, old: str, new: str, scenes_dir: Path, log=print):
             raise FileExistsError(f"{dst.relative_to(ROOT)} already exists")
         sp.rename(dst)
         if listed and loc is not None:             # keep `logs:` of the location file valid
-            loc.write_text(loc.read_text(encoding="utf-8").replace(sp.name, dst.name), encoding="utf-8")
+            write_atomic(loc, loc.read_text(encoding="utf-8").replace(sp.name, dst.name))
         log(f"log file: {sp.relative_to(ROOT)} -> {dst.name}")
         if src:   # keep the path style of the stored source (it may have been written on another OS)
             base = re.split(r"[\\/]", src)[-1]
@@ -212,7 +213,7 @@ def rename_track(scene: str, old: str, new: str, scenes_dir: Path, log=print):
         d = json.loads(f_old.read_text(encoding="utf-8"))
         d["name"] = new
         f_old.rename(f_new)            # move first (no delete needed), then update its content
-        f_new.write_text(json.dumps(d, separators=(",", ":")), encoding="utf-8")
+        write_atomic(f_new, json.dumps(d, separators=(",", ":")))
     t["name"], t["file"] = new, f"tracks/{new}.json"
     if not t.get("log_options"):
         t.pop("log_options", None)

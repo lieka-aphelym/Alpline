@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from .geo import Grid, wgs84_to_lv95
+from .safefile import write_atomic
 
 # public Overpass servers, tried in turn (they limit how many queries one computer may run in a row)
 OVERPASS_URLS = [os.environ["FPV3D_OVERPASS_URL"]] if os.environ.get("FPV3D_OVERPASS_URL") else [
@@ -55,7 +56,7 @@ def fetch_osm(grid: Grid, cache: Path, refresh=False) -> dict:
             return json.loads(f.read_text(encoding="utf-8"))
         raise
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(data), encoding="utf-8")
+    write_atomic(f, json.dumps(data))
     return data
 
 
@@ -206,7 +207,7 @@ def write_scene_buildings(out_dir: Path, grid: Grid, dtm: np.ndarray, dsm, cache
     except Exception as ex:
         log(f"[buildings] unavailable ({ex}) - scene built without them; retry with: python -m fpv3d buildings")
         return dict(count=0, error=str(ex)[:300], when=time.strftime("%Y-%m-%d %H:%M"))
-    (out_dir / "buildings.json").write_text(json.dumps(dict(items=items), separators=(",", ":")), encoding="utf-8")
+    write_atomic((out_dir / "buildings.json"), json.dumps(dict(items=items), separators=(",", ":")))
     log(f"[buildings] {len(items)} from OpenStreetMap, {n_dsm} with heights measured on swissSURFACE3D "
         f"({time.time() - t0:.1f}s)")
     return dict(file="buildings.json", count=len(items), heights_from_dsm=n_dsm, source="OpenStreetMap + swisstopo")

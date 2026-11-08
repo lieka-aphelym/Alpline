@@ -20,10 +20,11 @@
 <h1>ALPLINE</h1>
 <p><b>Can't reach the computer.</b></p>
 <p>Alpline runs on your computer: start it there (launcher → phone sharing on), keep the phone on the same Wi-Fi or the laptop on the phone's hotspot, then try again.</p>
-<button onclick="location.href='/viewer/?app=1'">[try again]</button>
+<button id="again">[try again]</button>
 <script type="module">
   import { mountDrone } from './drone.js';
   mountDrone(document.getElementById('d'), { size: 110 }).loop('hover');
+  document.getElementById('again').addEventListener('click', () => { location.href = '/viewer/?app=1'; });
 </script>
 </body>
 </html>

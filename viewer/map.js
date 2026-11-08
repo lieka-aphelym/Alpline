@@ -6,6 +6,7 @@ import { createBuildProgress } from './buildprog.js';
 import { stripTiles, contextTiles, stripShapes, routeLength, stripArea, boxCells } from './corridor.js';
 import { LITE } from './env.js';
 import { mountDrone } from './drone.js';
+import { esc } from './esc.js';
 const $ = (id) => document.getElementById(id);
 const TILE = 1000;
 
@@ -103,33 +104,33 @@ function drawCache(inv) {
 function drawLocations(locs) {
   groups.locs.clearLayers();
   const ul = $('locList'); ul.innerHTML = '';
-  $('fRadio').innerHTML = '<option value="">defaults</option>' + locs.filter((l) => !l.error).map((l) => `<option value="${l.name}">${l.title}</option>`).join('');
+  $('fRadio').innerHTML = '<option value="">defaults</option>' + locs.filter((l) => !l.error).map((l) => `<option value="${esc(l.name)}">${esc(l.title)}</option>`).join('');
   if (!locs.length) {                      // empty: a hovering drone and how to make the first location
     ul.innerHTML = '<li class="droneEmpty"><span id="noLocDrone"></span><span class="small">No locations yet. Click the map where you fly, then <b>Save &amp; build</b>.</span></li>';
     mountDrone($('noLocDrone'), { size: 44 }).loop('hover');
   }
   for (const l of locs) {
     const li = document.createElement('li');
-    if (l.error) { li.innerHTML = `<span class="t">[error] ${l.file}</span><span class="badge">error</span>`; li.title = l.error; ul.appendChild(li); continue; }
+    if (l.error) { li.innerHTML = `<span class="t">[error] ${esc(l.file)}</span><span class="badge">error</span>`; li.title = l.error; ul.appendChild(li); continue; }
     const [ce, cn] = l.center_lv95, h = l.half_size_m;
     let poly;
     if (l.corridor) {
       const pts = l.corridor.points.map((q) => toLV95(...q));
       poly = L.featureGroup([L.polyline(l.corridor.points, { color: '#4fc3f7', weight: 2.5, dashArray: l.built ? null : '6 4' }),
         ...stripShapes(pts, l.corridor.width_m, 16).map((s) => L.polygon(s.map((q) => toWGS(...q)), { stroke: false, fillColor: '#4fc3f7', fillOpacity: 0.07 }))]);
-      poly.bindTooltip(`<b>${l.title}</b><br>route ${(l.corridor.length_m / 1000).toFixed(1)} km · ${2 * l.corridor.width_m} m wide · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
+      poly.bindTooltip(`<b>${esc(l.title)}</b><br>route ${(l.corridor.length_m / 1000).toFixed(1)} km · ${2 * l.corridor.width_m} m wide · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
     } else {
       poly = L.polygon(lv95Rect(ce - h, cn - h, ce + h, cn + h), { color: '#4fc3f7', weight: 2, fill: false, dashArray: l.built ? null : '6 4' })
-        .bindTooltip(`<b>${l.title}</b><br>${(2 * h / 1000).toFixed(1)} km · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
+        .bindTooltip(`<b>${esc(l.title)}</b><br>${(2 * h / 1000).toFixed(1)} km · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
     }
     poly.addTo(groups.locs);
     const pin = L.marker(l.pilot, { icon: L.divIcon({ className: 'tag tagloc', html: '[p]', iconSize: [26, 16], iconAnchor: [13, 21] }) })
-      .bindTooltip(`${l.title} - pilot${l.pilot_from_log ? ' (from first log)' : ''}`, { className: 'tip' }).addTo(groups.locs);
+      .bindTooltip(`${esc(l.title)} - pilot${l.pilot_from_log ? ' (from first log)' : ''}`, { className: 'tip' }).addTo(groups.locs);
     const pick = (fromMap) => { map.fitBounds(poly.getBounds(), { padding: [40, 40] }); loadIntoForm(l); if (fromMap === true) tabs.show('new', { keepOpen: true }); };
     // while drawing a route, a click on an existing location adds a point instead of opening it
     poly.on('click', (e) => { L.DomEvent.stop(e); if (drawingRoute()) onMapClick(e); else pick(true); });
     pin.on('click', (e) => { if (drawingRoute()) onMapClick(e); else pick(true); });
-    li.innerHTML = `<span class="t">${l.title}</span>
+    li.innerHTML = `<span class="t">${esc(l.title)}</span>
       <span class="badge ${l.built ? 'ok' : ''}">${l.built ? 'built' : 'not built'}</span>
       ${l.built ? `<a href="index.html?scene=${encodeURIComponent(l.name)}">[3d]</a>` : ''}`;
     li.querySelector('.t').onclick = pick;
@@ -182,7 +183,7 @@ function locMsg(html, cls = '') { $('locMsg').innerHTML = html; $('locMsg').clas
 function openDelete(li, l) {
   document.querySelectorAll('.loclist .renbox').forEach((b) => b.remove());
   const box = document.createElement('div'); box.className = 'renbox delbox';
-  box.innerHTML = `<div class="small">Delete <b>${l.title}</b>? Its location file${l.built ? ', 3D scene' : ''} and training flights
+  box.innerHTML = `<div class="small">Delete <b>${esc(l.title)}</b>? Its location file${l.built ? ', 3D scene' : ''} and training flights
     move to the <code>deleted/</code> folder; you can restore them. Cached terrain and your own logs are kept.</div>
     <div class="row"><button class="danger go">Delete</button><button class="no">Cancel</button><span class="small m"></span></div>`;
   li.after(box);
@@ -195,7 +196,7 @@ function openDelete(li, l) {
       const j = await r.json();
       if (!r.ok || j.error) throw new Error(j.error || r.status);
       box.remove();
-      locMsg(`Deleted “${l.title}”. <a href="#" id="undoDel">Undo</a>`, 'ok');
+      locMsg(`Deleted “${esc(l.title)}”. <a href="#" id="undoDel">Undo</a>`, 'ok');
       $('undoDel').onclick = (e) => { e.preventDefault(); restore(j.folder); };
       refresh();
     } catch (e) { m.textContent = e.message; m.className = 'small err'; }
@@ -206,7 +207,7 @@ async function restore(folder) {
     const r = await fetch('/api/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder }) });
     const j = await r.json();
     if (!r.ok || j.error) throw new Error(j.error || r.status);
-    locMsg(`Restored “${j.title}”.`, 'ok');
+    locMsg(`Restored “${esc(j.title)}”.`, 'ok');
     refresh();
   } catch (e) { locMsg(e.message, 'err'); }
 }
@@ -215,7 +216,7 @@ function drawBin(rows) {
   $('binList').innerHTML = '';
   for (const d of rows) {
     const li = document.createElement('li');
-    li.innerHTML = `<span class="t">${d.title || d.name}</span><span class="badge">${(d.deleted || '').slice(5)}</span>`;
+    li.innerHTML = `<span class="t">${esc(d.title || d.name)}</span><span class="badge">${(d.deleted || '').slice(5)}</span>`;
     const b = document.createElement('button'); b.className = 'iconbtn'; b.textContent = '[restore]'; b.title = 'Restore';
     b.onclick = () => restore(d.folder);
     li.appendChild(b); $('binList').appendChild(li);
@@ -471,7 +472,7 @@ async function build(name) {
       if (j.status === 'cancelled') { msg('Build cancelled. The location file is kept; build it again any time.', 'err'); refresh(); break; }
       if (j.status === 'done') {
         msg('', 'ok');
-        $('msg').innerHTML = `Built. <a href="index.html?scene=${encodeURIComponent(name)}" style="color:var(--accent)">Open “${name}” in 3D</a>`;
+        $('msg').innerHTML = `Built. <a href="index.html?scene=${encodeURIComponent(name)}" style="color:var(--accent)">Open “${esc(name)}” in 3D</a>`;
       } else msg('Build failed - open “Technical details” above.', 'err');
       refresh(); break;
     }

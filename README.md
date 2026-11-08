@@ -56,8 +56,9 @@ the left and a header that stays the same on every page:
   touched), with a line per group (security, robustness, journeys…), what went wrong for a failure, and *[copy
   report]* to paste the results in a message. A red dot on the icon means the last check found a problem. From the
   source folder only (the installed app has no tests).
-- **disk:** space used and clean-up. **settings:** Full / Lite, where pages open (Alpline window or your browser),
-  desktop shortcut, your files folder, version.
+- **files:** how much space each kind of file takes, with free space on the disk (see *Your files: clean-up, start
+  fresh, backup* below). **settings:** Full / Lite, where pages open (Alpline window or your browser), desktop
+  shortcut, your files folder, version.
 
 The window can be resized (the map grows, everything else keeps its size) and remembers its size and page. Long names
 are cut with "…" (hover for the whole text). Messages appear for a few seconds at the top right. Keys: **Ctrl+F**
@@ -233,6 +234,29 @@ python -m fpv3d restore                    # list what can be restored
 python -m fpv3d restore teysachaux
 python -m fpv3d deleted --purge            # empty deleted/ for good (--older-than 30 = only old ones)
 ```
+
+## Your files: clean-up, start fresh, backup
+
+The launcher's **files** page lists what Alpline keeps, with the size of each: flight logs, training flights, built 3D
+scenes, downloaded maps, locations, deleted items, app logs and launcher settings. Tick what to delete and click
+*[delete selected]*; *[all: start fresh]* ticks everything (like a new install). Ticking locations also ticks their
+scenes. **A backup zip is saved first** in the `backups` folder unless you untick *make a backup first*. Nothing else
+in the folder is touched (when Alpline runs from its source folder, the program files sit next to your data), and
+nothing is deleted while a location is building. *[clean unused tiles]* deletes only the downloaded tiles that none of
+your locations uses.
+
+*[make a backup…]* saves your locations, flights, training flights and settings in one zip (tick *include the built
+3D scenes* to skip rebuilding after restoring). Use it to keep your files safe or to move to another PC.
+*[restore a backup…]* unpacks one. It asks whether to replace files you already have or only add what's missing, and
+never deletes anything. Without the scenes, each location shows *not built*; build it and its flights come back.
+A restore only writes Alpline's own kinds of files inside Alpline's folder: entries pointing anywhere else (`../`,
+`C:\`, program files) are refused.
+
+**Problems are written down.** When something fails (a launcher button, a page, the server), you get a short notice
+and the details go to `logs/errors.txt` (click the launcher's notice to open it). The pages report their errors there
+too, including the phone, which has no developer tools. Send that file along when you report a problem.
+Settings, location files and scene files are saved through a temporary file, so a crash or power cut in the middle
+never leaves a half-written file. A build stops right away with a clear message when the disk is too full for it.
 
 ## Routes (corridor locations)
 
@@ -442,7 +466,12 @@ skips it once. Settings for all of these are in `pyproject.toml`.
 - **Security** (`test_security.py`): other web pages open in your browser can't use Alpline (requests must be JSON from
   Alpline's own address; a website's own name pointing at 127.0.0.1 is refused), only the pages and scenes are served
   (never locations, logs, settings or code), names with `..` or `/` are refused, the phone needs the PIN everywhere
-  (10 wrong tries: one minute locked) and can't delete or rename.
+  (10 wrong tries: one minute locked) and can't delete or rename. Names from files and the internet (OpenStreetMap
+  buildings, zones, locations, flights, serial ports) are shown as text, never run as code; a security policy lets
+  only Alpline's own scripts run and forbids other sites from showing Alpline in a frame; requests are limited to 20 MB.
+- **Your files** (`test_files.py`): safe saving keeps the old file when writing fails, the error log stays small,
+  clean-up deletes only the ticked kinds (never the program), backup → start fresh → restore gives everything back,
+  unsafe zip entries are refused, nothing is deleted while building, a build stops when the disk is too full.
 - **Robustness** (`test_robust.py`): hundreds of damaged inputs (cut, flipped bytes, junk) for the radio telemetry,
   flight logs, blackbox files and location files: a clear error or a result, never a crash or a hang.
 - **Journeys** (`test_journeys.py`): the real commands in a fresh data folder against the fake swisstopo service:

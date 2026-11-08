@@ -10,6 +10,7 @@ logs/
 # editor
 .idea/
 launcher.json
+backups/
 # app build (build_app.bat)
 build/
 dist/

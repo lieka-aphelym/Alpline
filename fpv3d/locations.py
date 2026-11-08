@@ -11,6 +11,7 @@ from typing import Optional
 import yaml
 
 from .paths import DATA
+from .safefile import write_atomic
 
 ROOT = DATA          # your files (locations, scenes, cache, logs); the program itself is paths.APP
 LOC_DIR = ROOT / "locations"
@@ -159,7 +160,7 @@ def write_location(name: str, title: str, center, pilot=None, half_size_m=2500, 
         text = text.replace(f"center: {{lat: {center[0]:.6f}, lon: {center[1]:.6f}}}\n"
                             f"half_size_m: {half_size_m:g}          # map extends this far from the centre in each direction\n",
                             block, 1)
-    out.write_text(text, encoding="utf-8")
+    write_atomic(out, text)
     return out
 
 
@@ -214,7 +215,7 @@ def patch_links(path: Path, updates: list) -> list:
     block = yaml.safe_dump({"links": links}, sort_keys=False, allow_unicode=True)
     m = _re.search(r"^links:.*?(?=^[A-Za-z_][\w-]*:|\Z)", text, flags=_re.M | _re.S)
     new = text[:m.start()] + block + ("\n" if m.end() < len(text) else "") + text[m.end():] if m else text.rstrip() + "\n\n" + block
-    path.write_text(new, encoding="utf-8")
+    write_atomic(path, new)
     return changed
 
 
@@ -233,4 +234,4 @@ def set_pilot(path: Path, lat: float, lon: float) -> None:
         lines[start + 1:end] = [f"  lat: {lat:.6f}", f"  lon: {lon:.6f}"] + block
         if re.match(r"^pilot:\s*\{", lines[start]):      # inline form "pilot: {lat: .., lon: ..}"
             lines[start] = "pilot:"
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_atomic(path, "\n".join(lines) + "\n")

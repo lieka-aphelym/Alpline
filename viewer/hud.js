@@ -1,3 +1,4 @@
+import { esc } from './esc.js';
 // fpv3d viewer: the info box over the 3D view during a replay: status, distance / height / speed, one signal line
 // per radio link (margin bar + link quality from the log), the drone zone and the details under [more].
 // clean names for common telemetry columns (EdgeTX, simulator)
@@ -30,14 +31,14 @@ export function createHud({ S, $, fmtDist }) {
       const m = arr[i], lq = lqFor(tr, i, name);
       const col = m == null ? '#8b96a8' : m < 0 ? '#ff2d55' : m < 10 ? '#ffb000' : '#3ddc84';
       const w = m == null ? 0 : Math.max(3, Math.min(100, (m / 40) * 100));
-      return `<div class="sig"><div class="h"><span>${name}</span><span><b style="color:${col}">${m == null ? '–' : `${m.toFixed(0)} dB`}</b>`
+      return `<div class="sig"><div class="h"><span>${esc(name)}</span><span><b style="color:${col}">${m == null ? '–' : `${m.toFixed(0)} dB`}</b>`
         + `${lq != null ? `<span class="muted"> · LQ ${lq}</span>` : ''}</span></div><i class="bar"><i style="width:${w}%;background:${col}"></i></i></div>`;
     }).join('');
     // drone zone: only when inside one
     let zone = '';
     if (S.zones && tr.zoneSev && tr.zoneIdx[i] >= 0) {
       const zs = S.zones.zones[tr.zoneIdx[i]];
-      zone = `<div class="zone" style="border-color:${zs.info.color};color:${zs.info.color}">${zs.info.label} · <span>${zs.name}</span></div>`;
+      zone = `<div class="zone" style="border-color:${zs.info.color};color:${zs.info.color}">${zs.info.label} · <span>${esc(zs.name)}</span></div>`;
     }
     // details (collapsed by default)
     const more = [];

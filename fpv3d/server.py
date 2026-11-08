@@ -7,6 +7,7 @@ POST /api/locations             create a location file           body: see write
 POST /api/links                 save radio link settings to the location file + rebuild  body: {"scene", "links": [...]}
 POST /api/refresh-all           update every scene in the background  body: {"mode": "all"|"zones"|"buildings", "missing": false}
 POST /api/build                 build a scene in the background  body: {"name": "...", "resolution": 5}
+POST /api/client-error          a page's error, added to logs/errors.txt  body: {"page", "message", "stack"}
 POST /api/simtrack              save a simulator training flight as a track  body: {"scene", "name", "csv"}
 GET  /api/live/ports | /api/live/state?since=N        live telemetry (radio USB serial)
 POST /api/live/start {scene, source: serial|replay, port | track, speed} · /api/live/stop {save}
@@ -36,7 +37,9 @@ Safety (tests/test_security.py):
 """
 from __future__ import annotations
 
+import base64
 import gzip
+import hashlib
 import hmac
 import html
 import http.server
@@ -55,11 +58,13 @@ from pathlib import Path
 
 import numpy as np
 
+from .errorlog import record, record_exception
 from .geo import wgs84_to_lv95
 from .locations import ROOT, list_locations, write_location
 from .paths import APP, cli_cmd
 from .netinfo import lan_addresses  # shared with the launcher
 from .tilecache import TILE, TileCache
+from .safefile import write_atomic
 
 UA = {"User-Agent": "fpv3d/0.1 (local FPV planning tool)"}
 JOBS: dict = {}
@@ -166,7 +171,7 @@ def save_sim_track(scenes_dir: Path, cache_dir: Path, b: dict):
         stem += time.strftime("%S")
         out = out.with_name(f"{stem}.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(b.get("csv", ""), encoding="utf-8")
+    write_atomic(out, b.get("csv", ""))
     r = subprocess.run(cli_cmd() + ["--scenes", str(scenes_dir), "--cache", str(cache_dir),
                         "add-log", str(loc.relative_to(ROOT)), str(out.relative_to(ROOT)),
                         "--altitude-mode", "amsl", "--altitude-offset", "0", "--altitude-scale", "1"],
@@ -198,6 +203,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             self.send_header("Cache-Control", "no-store, must-revalidate")   # always serve fresh files
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")            # the PIN link never leaks to other sites
+            self.send_header("Content-Security-Policy", csp())            # only our own scripts run, never inside a frame
+            self.send_header("X-Frame-Options", "DENY")
             super().end_headers()
 
         def _refuse(self, status, msg):
@@ -264,8 +271,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             self.wfile.write(data)
 
         def _body(self):
-            n = int(self.headers.get("Content-Length") or 0)
-            return json.loads(self.rfile.read(n) or b"{}")
+            return json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")   # size checked in do_POST
 
         # ---------------------------------------------------------------- GET
         def _gate(self, u) -> bool:
@@ -470,8 +476,13 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return self._refuse(403, "requests from other web pages are not allowed")
             if self._gate(u):
                 return
-            if int(self.headers.get("Content-Length") or 0) > 20_000_000:       # 20 MB: a training flight CSV fits
-                return self._json(dict(error="request too large"), 413)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = -1
+            if n < 0 or n > MAX_BODY:
+                self.close_connection = True                    # the unread body must not be taken as the next request
+                return self._json(dict(error="request too large" if n > 0 else "bad Content-Length"), 413 if n > 0 else 400)
             # shared on the network (phone): other devices may look, fly and build, but not delete or rename
             if u.path in LOCAL_ONLY and not self._local():
                 return self._json(dict(error="Deleting and renaming only work on the computer running Alpline."), 403)
@@ -548,6 +559,15 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                             else:
                                 out["warning"] = "saved the CSV, but adding it to the scene failed: " + (r.stderr or r.stdout)[-300:]
                     return self._json(out)
+                if u.path == "/api/client-error":   # the pages report their own errors (theme.js) to logs/errors.txt
+                    now = time.time()
+                    CLIENT_ERRORS[:] = [t for t in CLIENT_ERRORS if now - t < 60]
+                    if len(CLIENT_ERRORS) >= 30:                 # a page stuck in a loop must not fill the disk
+                        return self._json(dict(ok=False, error="too many reports"), 429)
+                    CLIENT_ERRORS.append(now)
+                    who = "viewer" if self._local() else "phone"
+                    record(f"{who} {str(b.get('page', ''))[:80]}", str(b.get("message", ""))[:500], str(b.get("stack", ""))[:4000])
+                    return self._json(dict(ok=True))
                 if u.path == "/api/simtrack":
                     return self._json(*save_sim_track(scenes_dir, cache_dir, b))
                 if u.path == "/api/links":
@@ -641,6 +661,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             except (KeyError, ValueError) as ex:
                 return self._json(dict(error=str(ex)), 400)
             except Exception as ex:
+                record_exception(f"server {u.path}", ex)
                 return self._json(dict(error=str(ex)), 500)
             self._json(dict(error="not found"), 404)
 
@@ -648,6 +669,29 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
 
 
 LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename")
+CLIENT_ERRORS: list = []        # times of the pages' error reports in the last minute
+MAX_BODY = 20_000_000           # largest request body: a long training flight's CSV fits
+_CSP: dict = {}                 # (newest page time) -> header
+
+
+def csp() -> str:
+    """Content-Security-Policy: scripts only from this server (plus the few inline blocks of our own pages, by hash),
+    map tiles from swisstopo / OpenStreetMap, never inside another site's frame. Recomputed when a page changes."""
+    pages = sorted((APP / "viewer").rglob("*.html"))
+    key = max((f.stat().st_mtime_ns for f in pages), default=0)
+    if key not in _CSP:
+        hashes = set()
+        for f in pages:
+            for m in re.finditer(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", f.read_text(encoding="utf-8"), re.S):
+                hashes.add("'sha256-" + base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode() + "'")
+        tiles = "https://wmts.geo.admin.ch https://tile.openstreetmap.org"
+        _CSP.clear()
+        _CSP[key] = "; ".join([
+            "default-src 'self'", "script-src 'self' " + " ".join(sorted(hashes)),
+            "style-src 'self' 'unsafe-inline'", f"img-src 'self' data: blob: {tiles}", "media-src 'self' blob:",
+            "connect-src 'self'", "worker-src 'self'", "font-src 'self' data:", "object-src 'none'",
+            "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'"])
+    return _CSP[key]
 GZIP_TYPES = (".json", ".bin", ".f32", ".js", ".css", ".html", ".svg", ".geojson", ".webmanifest")   # not png/jpg: already packed
 GZ_CACHE: dict = {}             # (file, mtime, size) -> compressed bytes, for the phone
 GZ_LOCK = threading.Lock()

@@ -24,6 +24,7 @@ from . import geozones, progress, radio, swisstopo
 from .config import VALID_RES, LocationConfig
 from .geo import Grid, lv95_to_wgs84, wgs84_to_lv95
 from .los import Terrain, los_ceilings, path_clearance
+from .safefile import write_atomic
 
 
 def log(msg):
@@ -235,7 +236,7 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
                    scale=0.1, inf=65535, dtype="uint16", loss_offsets_db=offsets, agl_grid=True,
                    link=link.name)
         memo["shadow3d"] = dict(key=key, meta=vol)
-        memo_path.write_text(json.dumps(memo), encoding="utf-8")
+        write_atomic(memo_path, json.dumps(memo))
         log(f"[3d] blind-spot volumes {lgrid.cols}x{lgrid.rows} ({time.time() - t0:.1f}s)")
 
     def ceilings():
@@ -270,7 +271,7 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
         stats = dict(blocked=float(blocked.mean()), fresnel=float(fresnel_bad.mean()), lost=float((lost & blocked).mean()))
         layers.append(dict(agl=float(agl), file=name, **stats))
         memo[name] = dict(key=key, layer=layers[-1])
-        memo_path.write_text(json.dumps(memo), encoding="utf-8")
+        write_atomic(memo_path, json.dumps(memo))
         log(f"[los] {agl:>5} m AGL: no-LOS {stats['blocked']:.0%}, Fresnel {stats['fresnel']:.0%}, "
             f"shadow+loss {stats['lost']:.0%}  ({time.time() - t0:.1f}s)")
         progress.emit("pct", throttle=0.3, phase="los", pct=90 + round(10 * len(layers) / len(cfg.analysis.los_agl_m)),
@@ -338,7 +339,7 @@ def add_tracks(cfg, terrain, pilot, out: Path, log_paths, meta_tracks, overrides
         summ["source"] = str(Path(p).resolve())           # remembered so rebuilds keep this track
         if ov:
             summ["log_options"] = ov
-        (out / summ["file"]).write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
+        write_atomic((out / summ["file"]), json.dumps(data, separators=(",", ":")))
         by_name[summ["name"]] = summ
     return list(by_name.values())
 
@@ -357,10 +358,13 @@ def _summary_from_json(out: Path, f: Path, fresnel_clearance: float):
 def previous_tracks(cfg, out: Path, log_paths):
     """Tracks added earlier (add-log, simulator) that a rebuild must keep.
     Returns (items to re-process, summaries to keep as they are)."""
-    try:
-        old = json.loads((out / "scene.json").read_text(encoding="utf-8")).get("tracks", [])
-    except (OSError, ValueError):
-        old = []
+    old = []
+    for f in ("scene.json", "flights.json"):          # flights.json: the flights list from a backup without the scene
+        try:
+            old = json.loads((out / f).read_text(encoding="utf-8")).get("tracks", [])
+            break
+        except (OSError, ValueError):
+            pass
     wanted = {Path(p).stem for p in log_paths}
     redo, keep, seen = [], [], set(wanted)
     root = Path(__file__).resolve().parent.parent
@@ -395,6 +399,26 @@ def previous_tracks(cfg, out: Path, log_paths):
 
 # ---------------------------------------------------------------- top level
 
+class NoSpace(RuntimeError):
+    pass
+
+
+def check_disk(est: dict, scenes_dir: Path, cache: Path):
+    """Stop before a build that can't fit on the disk (instead of failing half way): the scene, the downloaded
+    tiles (about as big again, more for the surface model) and room for temporary files."""
+    from .housekeeping import free_bytes, human
+    need = (est["scene_mb"] * 3 + 300) * 1e6
+    known = [f for f in (free_bytes(scenes_dir), free_bytes(cache)) if f is not None]
+    if not known:
+        return
+    free = min(known)
+    if free < need:
+        raise NoSpace(f"not enough disk space: this build needs about {human(need)}, only {human(free)} free. "
+                      "Free some space (launcher → files: downloaded maps, old scenes) or build a smaller area.")
+    if free < 2 * need:
+        log(f"[size] WARNING: only {human(free)} free on the disk (this build needs about {human(need)}).")
+
+
 def build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), skip_ortho=False,
           reuse_terrain=False, refresh=False):
     """Build (or rebuild) a scene; refused while another process builds the same location."""
@@ -406,6 +430,10 @@ def build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), ski
     if ram and est["ram_gb"] > 0.7 * ram:
         log("[size] WARNING: that is close to this PC's memory: the build may fail or make the PC very slow. "
             "Use a coarser terrain detail or a smaller area.")
+    try:
+        check_disk(est, scenes_dir, cache)
+    except NoSpace as ex:
+        raise SystemExit(str(ex)) from None
     try:
         with scene_lock(scenes_dir, cfg.name):
             return _build(cfg, scenes_dir, cache, extra_logs, skip_ortho, reuse_terrain, refresh)
@@ -465,7 +493,7 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
     )
     for l in meta["links"]:
         log(f"[radio] {l['name']}: free-space range ~ {l['range_m'] / 1000:.2f} km")
-    (out / "scene.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
     update_index(scenes_dir)
     progress.emit("phase", id="done", label="Done")
     log(f"[done] scene written to {out}")
@@ -478,7 +506,7 @@ def add_logs(cfg: LocationConfig, scenes_dir: Path, log_paths, overrides=None):
     terrain = Terrain(dem, grid)
     pilot = meta["pilot"]
     meta["tracks"] = add_tracks(cfg, terrain, pilot, out, log_paths, meta.get("tracks", []), overrides)
-    (out / "scene.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
     update_index(scenes_dir)
 
 
@@ -488,7 +516,7 @@ def refresh_buildings(cfg: LocationConfig, scenes_dir: Path, cache: Path, refres
     meta, grid, dem = load_terrain(out)
     extras = build_extras(cfg, out, cache, grid, dem, refresh)
     meta.update(extras)
-    (out / "scene.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
     b = extras.get("buildings")
     return b
 
@@ -498,7 +526,7 @@ def refresh_zones(cfg: LocationConfig, scenes_dir: Path, cache: Path, refresh=Tr
     out = scenes_dir / cfg.name
     meta, grid, _ = load_terrain(out)
     meta["geozones"] = geozones.write_scene_zones(out, grid, cache, refresh)
-    (out / "scene.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
 
 
 def update_index(scenes_dir: Path):
@@ -508,4 +536,4 @@ def update_index(scenes_dir: Path):
         if f.exists():
             m = json.loads(f.read_text(encoding="utf-8"))
             scenes.append(dict(name=m["name"], title=m.get("title", m["name"]), tracks=len(m.get("tracks", []))))
-    (scenes_dir / "index.json").write_text(json.dumps(scenes, indent=1), encoding="utf-8")
+    write_atomic((scenes_dir / "index.json"), json.dumps(scenes, indent=1))

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { createWarner } from './warn.js';
 import { mountDrone } from './drone.js';
 import { createDroneMarker } from './marker.js';
+import { esc } from './esc.js';
 
 const $ = (id) => document.getElementById(id);
 function toLV95(lat, lon) {
@@ -142,13 +143,13 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   async function fillPorts() {
     try {
       const r = await (await fetch('/api/live/ports')).json();
-      $('livePort').innerHTML = r.ports.length ? r.ports.map((p) => `<option value="${p.device}">${p.device} · ${p.description}${p.likely ? ' (radio?)' : ''}</option>`).join('')
+      $('livePort').innerHTML = r.ports.length ? r.ports.map((p) => `<option value="${esc(p.device)}">${esc(p.device)} · ${esc(p.description)}${p.likely ? ' (radio?)' : ''}</option>`).join('')
         : '<option value="">no serial port found</option>';
       $('livePortMsg').textContent = r.error || (r.ports.length ? '' : 'Plug the radio in USB and choose "USB Serial (VCP)" on the radio, then [refresh].');
     } catch { $('livePortMsg').textContent = 'needs the fpv3d server (python -m fpv3d serve)'; }
   }
   function fillTracks() {
-    $('liveTrack').innerHTML = (S.meta.tracks || []).map((t) => `<option value="${t.file}">${t.name}</option>`).join('') || '<option value="">(no flight logs in this scene)</option>';
+    $('liveTrack').innerHTML = (S.meta.tracks || []).map((t) => `<option value="${esc(t.file)}">${esc(t.name)}</option>`).join('') || '<option value="">(no flight logs in this scene)</option>';
   }
   srcSel.onchange = () => {
     $('liveSerialRow').classList.toggle('hidden', srcSel.value !== 'serial');

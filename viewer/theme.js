@@ -21,6 +21,43 @@
   if ('serviceWorker' in navigator && window.isSecureContext) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('/viewer/sw.js', { scope: '/viewer/' }).catch(function () {}); });
   }
+  // errors: a small notice on the page (also on the phone, where there are no developer tools) and an entry in
+  // logs/errors.txt on the computer, instead of failing silently
+  var seen = {}, bar = null, reports = 0;
+  function oops(msg, stack) {
+    msg = String(msg || 'unknown error').slice(0, 300);
+    if (/ResizeObserver loop|^Script error\.?$/.test(msg) || /extension:\/\//.test(stack || '')) return;
+    if (seen[msg]) return; seen[msg] = 1;
+    if (reports++ < 10) {
+      try {
+        fetch('/api/client-error', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page: location.pathname + location.search, message: msg, stack: String(stack || '').slice(0, 4000) }) }).catch(function () {});
+      } catch (e) { /* offline */ }
+    }
+    if (!document.body) { window.addEventListener('DOMContentLoaded', function () { show(msg); }); return; }
+    show(msg);
+  }
+  function show(msg) {
+    if (!bar) {
+      bar = document.createElement('div'); bar.className = 'alpOops'; bar.setAttribute('role', 'alert');
+      var t = document.createElement('span'), r = document.createElement('button'), x = document.createElement('button');
+      r.type = x.type = 'button'; r.textContent = '[reload]'; x.textContent = '×'; x.title = 'Close';
+      r.addEventListener('click', function () { location.reload(); });
+      x.addEventListener('click', function () { bar.remove(); bar = null; });
+      bar.append(t, r, x); document.body.appendChild(bar);
+    }
+    bar.firstChild.textContent = 'Something went wrong: ' + msg + ' · details saved on the computer in logs/errors.txt';
+  }
+  window.addEventListener('error', function (e) {
+    if (e.target && e.target !== window) return;                    // a missing image or tile: not a program error
+    oops(e.message, e.error && e.error.stack);
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason || {};
+    if (r.name === 'AbortError') return;
+    oops(r.message || r, r.stack);
+  });
+  window.alpOops = oops;
   window.ALPLINE.app = matchMedia('(display-mode: standalone)').matches || /[?&]app=1/.test(location.search);
   if (window.ALPLINE.app) root.dataset.app = '1';
   // the logo is busy (steady spin, branches pulse) while something loads or builds: alpBusy(true) ... alpBusy(false)

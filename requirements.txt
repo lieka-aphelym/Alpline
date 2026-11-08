@@ -2,7 +2,7 @@
 # Upgrade on purpose: change a number, `pip install -r requirements.txt`, run `python tests/test_basic.py`.
 numpy==2.5.3
 rasterio==1.5.2
-Pillow==12.3.0
+Pillow==13.0.0
 PyYAML==6.0.3
 pyserial==3.5   # optional: live telemetry from the radio, blackbox download
 orangebox==0.4.0   # optional: reads Betaflight blackbox logs (0.5.0 does not install with pip)

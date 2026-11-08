@@ -23,6 +23,16 @@ def free_port():
         return s.getsockname()[1]
 
 
+def wait_until(pg, js, seconds):
+    """Like wait_for_function, but evaluated from outside: the pages' security policy forbids running strings as code."""
+    import time
+    end = time.time() + seconds
+    while not pg.evaluate(js):
+        if time.time() > end:
+            raise TimeoutError(f"waited {seconds} s for: {js}")
+        pg.wait_for_timeout(250)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", help="location to open (default: the first one that is built)")
@@ -68,8 +78,8 @@ def main():
                 try:
                     pg.goto(base + path, wait_until="load", timeout=30000)
                     if ready == "LOADED":                # the viewer removes #loading when the scene is up (error: it stays, red)
-                        pg.wait_for_function("!document.getElementById('loading') || "
-                                             "document.getElementById('loading').classList.contains('err')", timeout=90000)
+                        wait_until(pg, "!document.getElementById('loading') || "
+                                   "document.getElementById('loading').classList.contains('err')", 90)
                         if pg.evaluate("!!document.getElementById('loading')"):
                             errors.append("viewer: " + pg.inner_text("#loading"))
                     elif ready:
@@ -86,10 +96,12 @@ def main():
                         pg.screenshot(path=str(out / "training_flight.png"))
                         pg.keyboard.press("Escape")
                     if name == "checks":
-                        pg.wait_for_function("document.title.includes('passed') || document.title.includes('FAILED')", timeout=30000)
+                        wait_until(pg, "document.title.includes('passed') || document.title.includes('FAILED')", 30)
                         if "FAILED" in pg.title():
                             errors.append(pg.title())
                     pg.wait_for_timeout(1500)
+                    if pg.evaluate("!!document.querySelector('.alpOops')"):       # the page's own error notice
+                        errors.append("error notice on the page: " + pg.inner_text(".alpOops"))
                     pg.screenshot(path=str(out / f"{name.replace(' ', '_')}.png"))
                 except Exception as ex:                    # noqa: BLE001
                     errors.append(f"{ex.__class__.__name__}: {str(ex).splitlines()[0]}")

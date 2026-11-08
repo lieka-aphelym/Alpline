@@ -19,6 +19,7 @@ import { initLive } from './live.js';
 import { initBlackbox } from './blackbox.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 import { createDroneMarker } from './marker.js';
+import { esc } from './esc.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
 
 const $ = (id) => document.getElementById(id);
@@ -728,8 +729,8 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (bh) {
     const b = bh.item, p = S.meta.pilot;
     const cx = b.p.reduce((s, q) => s + q[0], 0) / b.p.length, cy = b.p.reduce((s, q) => s + q[1], 0) / b.p.length;
-    pk.innerHTML = `<b>${b.name || 'Building'}</b> · ${(b.t - b.b).toFixed(1)} m high<br>roof ${b.t.toFixed(0)} m · ${fmtDist(Math.hypot(cx - p.x, cy - p.y, b.t - p.z))} from pilot`
-      + `<br><span class="muted">${b.k !== 'yes' ? `${b.k} · ` : ''}height ${b.src === 'dsm' ? 'measured (swissSURFACE3D)' : 'estimated (OSM tags)'}</span>`;
+    pk.innerHTML = `<b>${esc(b.name || 'Building')}</b> · ${(b.t - b.b).toFixed(1)} m high<br>roof ${b.t.toFixed(0)} m · ${fmtDist(Math.hypot(cx - p.x, cy - p.y, b.t - p.z))} from pilot`
+      + `<br><span class="muted">${b.k !== 'yes' ? `${esc(b.k)} · ` : ''}height ${b.src === 'dsm' ? 'measured (swissSURFACE3D)' : 'estimated (OSM tags)'}</span>`;
     pk.style.left = `${e.clientX + 14}px`; pk.style.top = `${e.clientY + 10}px`;
     pk.classList.remove('hidden');
     return;
@@ -741,7 +742,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const d = Math.hypot(h.x - p.x, h.y - p.y, h.h - p.z);
   const zh = S.zones ? S.zones.zonesAt(h.x, h.y) : [];
   pk.innerHTML = `<b>${h.h.toFixed(0)} m</b> · ${fmtDist(d)} from pilot<br><span class="muted">LV95 ${(g.min_e + h.x).toFixed(0)} / ${(g.min_n + h.y).toFixed(0)}</span>` +
-    zh.map(({ zone: z }) => `<br><b style="color:${z.info.color}">${z.info.label}</b> · ${z.name}<br><span class="muted">${fmtLimits(z)}</span>`).join('');
+    zh.map(({ zone: z }) => `<br><b style="color:${z.info.color}">${z.info.label}</b> · ${esc(z.name)}<br><span class="muted">${fmtLimits(z)}</span>`).join('');
   pk.style.left = `${e.clientX + 14}px`; pk.style.top = `${e.clientY + 10}px`;
   pk.classList.remove('hidden');
 });
@@ -771,7 +772,7 @@ function initGroundUi() {
   const bm = m.buildings;
   const why = S.bld ? '' : bm?.disabled ? '3D buildings are off for this location (set <code>buildings: true</code> under <code>terrain:</code> in its file, then refresh it).'
     : !bm ? 'No 3D buildings in this scene yet (built before buildings existed).'
-    : bm.error ? `No 3D buildings: the OpenStreetMap download failed (${bm.when || ''}): ${bm.error}`
+    : bm.error ? `No 3D buildings: the OpenStreetMap download failed (${esc(bm.when || '')}): ${esc(bm.error)}`
       : bm.count === 0 ? 'No buildings in this area on OpenStreetMap.' : '';
   $('bldMissing').classList.toggle('hidden', !why);
   if (why) $('bldMissing').innerHTML = `${why}${bm && bm.count === 0 && !bm.error ? '' : '<br>Fix: <code>python -m fpv3d buildings</code> or Map → [saved] → Buildings.'}`;
@@ -811,7 +812,7 @@ function initUI() {
   $('volOpacity').oninput = applyShadowMode;
   $('losOpacity').oninput = () => { S.terrainMat.uniforms.uLosOpacity.value = +$('losOpacity').value; };
   $('linkList').innerHTML = m.links.map((l, i) => `<label class="link"><input type="checkbox" data-i="${i}" ${i === m.primary_link ? 'checked' : ''}>
-      <span class="sw" style="background:${l.color}"></span>${l.name}<span class="r" id="lnkRange${i}">${fmtDist(l.range_m)}</span></label>`).join('');
+      <span class="sw" style="background:${l.color}"></span>${esc(l.name)}<span class="r" id="lnkRange${i}">${fmtDist(l.range_m)}</span></label>`).join('');
   LINKS.init();
   $('linkList').querySelectorAll('input[data-i]').forEach((cb) => cb.onchange = () => {
     S.spheres[+cb.dataset.i].visible = cb.checked; updateRangeUniforms();
@@ -954,7 +955,7 @@ function renderCompare() {
   const el = $('cmpTable');
   if (!S.track || !S.cmp) { el.innerHTML = ''; return; }
   const a = trackStats(S.track), b = trackStats(S.cmp);
-  el.innerHTML = `<table class="cmp"><tr><th></th><th>${S.track.name}</th><th style="color:#e6e6e6">${S.cmp.name}</th></tr>` +
+  el.innerHTML = `<table class="cmp"><tr><th></th><th>${esc(S.track.name)}</th><th style="color:#e6e6e6">${esc(S.cmp.name)}</th></tr>` +
     Object.keys(a).map((k) => `<tr><td>${k}</td><td>${a[k]}</td><td>${b[k]}</td></tr>`).join('') + '</table>' +
     '<p class="muted small">White dashed line + ghost = compared flight (ghost at the same elapsed time).</p>';
 }
@@ -990,14 +991,14 @@ async function loadCompare(file) {
 function fillTrackPickers(selectFile) {
   const tr = S.meta.tracks;
   const label = (t) => t.name;
-  $('trackPick').innerHTML = tr.length ? '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('') : '<option value="">(no flight yet)</option>';
+  $('trackPick').innerHTML = tr.length ? '<option value="">(none)</option>' + tr.map((t) => `<option value="${esc(t.file)}">${esc(label(t))}</option>`).join('') : '<option value="">(no flight yet)</option>';
   if (!tr.length) {                         // empty: a hovering drone and how to get a first flight
     $('trackInfo').innerHTML = '<span class="droneEmpty"><span id="noFlightDrone"></span><span>No flight yet. Add a log (<code>python -m fpv3d add-log</code>), fly a training flight or record one live (both in <b>[fly]</b>).</span></span>';
     mountDrone($('noFlightDrone'), { size: 44 }).loop('hover');
   }
   $('trackPick').value = selectFile || (S.track ? S.trackFile || '' : '');
   const cur = $('cmpPick').value;
-  $('cmpPick').innerHTML = '<option value="">(none)</option>' + tr.map((t) => `<option value="${t.file}">${label(t)}</option>`).join('');
+  $('cmpPick').innerHTML = '<option value="">(none)</option>' + tr.map((t) => `<option value="${esc(t.file)}">${esc(label(t))}</option>`).join('');
   if ([...$('cmpPick').options].some((o) => o.value === cur)) $('cmpPick').value = cur;
 }
 
@@ -1031,7 +1032,7 @@ function fillZoneUi() {
   $('zonesSource').textContent = `FOCA geographical UAS zones, data from ${z.meta.fetched}.`;
   const list = z.zones.filter((zn) => z.state.showInactive || isActive(zn)).sort((a, b) => b.info.sev - a.info.sev);
   $('zoneList').innerHTML = list.length ? list.map((zn) => `<li data-i="${zn.idx}">
-      <i style="background:${zn.info.color}"></i><span class="t">${zn.name}</span>
+      <i style="background:${zn.info.color}"></i><span class="t">${esc(zn.name)}</span>
       <span class="muted">${zn.info.label}${isActive(zn) ? '' : ' · not active now'}</span></li>`).join('')
     : '<li class="muted">No zone in this map area (per FOCA data).</li>';
   $('zoneList').querySelectorAll('li[data-i]').forEach((li) => li.onclick = () => showZone(z.zones[+li.dataset.i]));
@@ -1042,7 +1043,7 @@ function showZone(zn) {
   const c = toWorld(cx, cy, demHeight(Math.min(Math.max(cx, 0), S.W), Math.min(Math.max(cy, 0), S.H)));
   if (CAM.usesOrbit()) { controls.target.copy(c); camera.position.copy(c).add(new THREE.Vector3(-span * 0.6, span * 0.8, span * 0.9)); }
   const when = zn.permanent ? 'permanent' : `${zn.start ? zn.start.slice(0, 16).replace('T', ' ') : '…'} → ${zn.end ? zn.end.slice(0, 16).replace('T', ' ') : '…'}`;
-  $('zoneDetail').innerHTML = `<b style="color:${zn.info.color}">${zn.info.label}</b> · ${zn.name}<br>
+  $('zoneDetail').innerHTML = `<b style="color:${zn.info.color}">${zn.info.label}</b> · ${esc(zn.name)}<br>
     <span class="muted">Height:</span> ${fmtLimits(zn)}<br><span class="muted">Valid:</span> ${when}${isActive(zn) ? '' : ' <b>(not active now)</b>'}<br>
     ${zn.conditions ? `<span class="muted">Rule:</span> ${zn.conditions}<br>` : ''}${zn.message ? `${zn.message}<br>` : ''}
     ${zn.authority ? `<span class="muted">Authority:</span> ${zn.authority}<br>` : ''}${zn.url ? `<a href="${zn.url}" target="_blank" rel="noopener">More information / permits</a>` : ''}`;
@@ -1181,7 +1182,7 @@ async function boot() {
   try { list = await getJSON(SCENES + 'index.json'); } catch { /* none yet */ }
   if (!list.length) throw new Error('No scenes found.\nBuild one first:  python -m fpv3d build locations/moleson.yaml');
   const name = params.get('scene') || list[0].name;
-  $('scenePick').innerHTML = list.map((s) => `<option value="${s.name}" ${s.name === name ? 'selected' : ''}>${s.title}</option>`).join('');
+  $('scenePick').innerHTML = list.map((s) => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.title)}</option>`).join('');
   $('scenePick').onchange = () => { location.search = `?scene=${encodeURIComponent($('scenePick').value)}`; };
   await loadScene(name);
 }

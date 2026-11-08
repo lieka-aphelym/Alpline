@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from test_server import _TMP, _handler, req  # noqa: E402
 from fpv3d import server  # noqa: E402
 
+ROOT = Path(__file__).resolve().parent.parent
+
 PHONE = {}
 
 
@@ -155,6 +157,65 @@ def test_safety_headers():
     _, _, h = req("GET", "/viewer/")
     assert h.get("x-content-type-options") == "nosniff" and h.get("referrer-policy") == "no-referrer"
     assert "access-control-allow-origin" not in h          # no page elsewhere may read the answers
+    csp = h.get("content-security-policy", "")
+    assert "frame-ancestors 'none'" in csp and h.get("x-frame-options") == "DENY"   # no other site can frame the viewer
+    script = next(p for p in csp.split(";") if p.strip().startswith("script-src"))
+    assert "'unsafe-inline'" not in script and "'unsafe-eval'" not in script
+
+
+def test_inline_scripts_are_allowed_by_hash():
+    """Every inline <script> of our pages is in the policy (else the page would break), and no onclick= etc."""
+    import base64
+    import hashlib
+    import re
+    _, _, h = req("GET", "/viewer/")
+    csp = h["content-security-policy"]
+    pages = sorted((ROOT / "viewer").rglob("*.html"))
+    assert pages
+    for f in pages:
+        txt = f.read_text(encoding="utf-8")
+        assert not re.search(r"<[a-z][^>]*\son[a-z]+\s*=", txt, re.I), f"{f.name}: inline event handler"
+        for m in re.finditer(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", txt, re.S):
+            hsh = base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode()
+            assert f"'sha256-{hsh}'" in csp, f"{f.name}: inline script not in the policy"
+
+
+def test_request_size_is_limited():
+    for length, want in (("-1", 400), ("abc", 400), (str(200_000_000), 413)):
+        st, raw, _ = req("POST", "/api/simtrack", body=b"", headers={"Content-Length": length})
+        assert st == want, (length, st, raw)
+    assert req("GET", "/viewer/")[0] == 200            # the server is still fine afterwards
+
+
+def test_names_are_escaped_in_pages():
+    """Names from files and the internet (OSM buildings, zones, locations, flights, serial ports) are put in the page
+    as text: every innerHTML / tooltip template that shows one goes through esc()."""
+    import re
+    risky = re.compile(r"\$\{(?![^}]*(esc\(|===|!\w))[^}]*\b(name|title|file|description|device|error)\b[^}]*\}")   # not tests
+    bad = []
+    for f in sorted((ROOT / "viewer").glob("*.js")):
+        lines = f.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            if not risky.search(line):
+                continue
+            ctx = " ".join(lines[max(0, i - 3): i + 1])                   # the template may start a few lines up
+            safe_use = re.search(r"textContent|localStorage|fetch\(|encodeURIComponent|CSS\.escape|\.download", line)
+            if re.search(r"innerHTML|bindTooltip|locMsg\(", ctx) and not safe_use:
+                bad.append(f"{f.name}:{i + 1}: {line.strip()[:110]}")
+    assert not bad, "\n".join(bad)
+
+
+def test_esc_in_javascript():
+    import shutil
+    import subprocess
+    node = shutil.which("node")
+    if not node:
+        print("  (Node not installed: skipped)")
+        return
+    js = (f"import {{ esc }} from {json.dumps((ROOT / 'viewer' / 'esc.js').as_uri())};"
+          "process.stdout.write(esc(`<img src=x onerror=\"alert(1)\"> & 'q'`) + '|' + esc(null) + '|' + esc(5));")
+    out = subprocess.run([node, "--input-type=module", "-e", js], capture_output=True, text=True, timeout=30, check=True).stdout
+    assert out == "&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#39;q&#39;||5", out
 
 
 if __name__ == "__main__":

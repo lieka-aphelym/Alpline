@@ -1,3 +1,4 @@
+import { esc } from './esc.js';
 // fpv3d viewer: the radio link editor (transmit power, antennas -> range). Changes apply right away to the range
 // spheres, the rings on the terrain, the signal-loss shadows, the track colours and the warnings; [save] writes
 // them into the location file and rebuilds the shadows. Unsaved edits stay in this browser (localStorage).
@@ -103,14 +104,14 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
     // simple view: one "setup" choice per radio link
     const setups = S.links0.map((l0, i) => {
       const l = { ...l0, ...(ov[l0.name] || {}) }, k = presetKind(l0.freq_mhz), cur = presetIndex(l);
-      return `<label class="row setup"><span><span class="sw" style="background:${l0.color}"></span> ${l0.name.replace(/ \d.*$/, '')}</span>
-        <select data-preset="${l0.name}">${PRESETS[k].map(([lab], j) => `<option value="${j}" ${j === cur ? 'selected' : ''}>${lab}</option>`).join('')}
+      return `<label class="row setup"><span><span class="sw" style="background:${l0.color}"></span> ${esc(l0.name.replace(/ \d.*$/, ''))}</span>
+        <select data-preset="${esc(l0.name)}">${PRESETS[k].map(([lab], j) => `<option value="${j}" ${j === cur ? 'selected' : ''}>${lab}</option>`).join('')}
         <option value="custom" ${cur < 0 ? 'selected' : ''}>Custom (see Advanced)</option></select></label>`;
     }).join('');
     const exact = S.links0.map((l0, i) => {
       const l = { ...l0, ...(ov[l0.name] || {}) }, mw = Math.round(10 ** (l.tx_power_dbm / 10));
       const ant = (v) => (ANT.some(([a]) => a === v) ? v : '');
-      return `<details class="lnk" data-name="${l0.name}"><summary><span class="sw" style="background:${l0.color}"></span> ${l0.name}</summary>
+      return `<details class="lnk" data-name="${esc(l0.name)}"><summary><span class="sw" style="background:${l0.color}"></span> ${esc(l0.name)}</summary>
         <label class="row">TX power <select data-k="mw">${MW.map((w) => `<option value="${w}" ${w === mw ? 'selected' : ''}>${w} mW (${(10 * Math.log10(w)).toFixed(1)} dBm)</option>`).join('')}${MW.includes(mw) ? '' : `<option selected value="${mw}">${mw} mW</option>`}</select></label>
         <label class="row">Drone antenna <select data-k="tx_ant">${opt(ANT, ant(l.tx_gain_dbi))}</select><input type="number" step="0.5" data-k="tx_gain_dbi" value="${l.tx_gain_dbi}"> dBi</label>
         <label class="row">Ground antenna <select data-k="rx_ant">${opt(ANT, ant(l.rx_gain_dbi))}</select><input type="number" step="0.5" data-k="rx_gain_dbi" value="${l.rx_gain_dbi}"> dBi</label>

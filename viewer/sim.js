@@ -1,3 +1,4 @@
+import { esc } from './esc.js';
 // fpv3d — training-flight simulator.
 //
 // Fly over the real swisstopo terrain with your radio (USB joystick mode, read through the
@@ -376,10 +377,10 @@ export function initSim(app) {
     const s = st.sig; if (!s) return;
     const spd = st.vel.length() * 3.6;
     const links = s.links.map((l) => `<div class="ol" style="color:${l.margin < 0 ? '#ff4d4d' : l.margin < 4 ? '#ffb000' : l.color}">
-        ${l.name.replace(/\s*\(.*\)/, '')}: ${bar(l.margin, -3, 15)} ${l.margin >= 0 ? '+' : ''}${l.margin.toFixed(0)} dB
+        ${esc(l.name.replace(/\s*\(.*\)/, ''))}: ${bar(l.margin, -3, 15)} ${l.margin >= 0 ? '+' : ''}${l.margin.toFixed(0)} dB
         ${l.rssi != null ? `· ${l.rssi.toFixed(0)} dBm` : ''} · LQ ${l.lq.toFixed(0)}%</div>`).join('');
     const zh = app.zonesAt ? app.zonesAt(st.pos.x + S.W / 2, -st.pos.z + S.H / 2, st.pos.y + S.hBase).filter((h) => h.inBand && h.zone.info.sev >= 1) : [];
-    const zoneWarn = zh.length ? `<div class="ozone" style="color:${zh[0].zone.info.color}">ZONE: ${zh[0].zone.info.label.toUpperCase()} ZONE · ${zh[0].zone.name}</div>` : '';
+    const zoneWarn = zh.length ? `<div class="ozone" style="color:${zh[0].zone.info.color}">ZONE: ${zh[0].zone.info.label.toUpperCase()} ZONE · ${esc(zh[0].zone.name)}</div>` : '';
     const warn = st.armBlocked ? 'THROTTLE UP — lower it to arm' : st.crashed ? `${st.crashed.toUpperCase()} — press R` :
       st.failsafe === 2 ? 'FAILSAFE — CONTROL LINK LOST' : st.failsafe === 1 ? 'FAILSAFE (stage 1)' :
         st.frozen ? 'VIDEO SIGNAL LOST' : cfg.physics.battery && st.armed && st.charge < 0.12 ? 'BATTERY LOW — LAND' :
