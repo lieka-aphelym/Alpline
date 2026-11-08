@@ -108,6 +108,12 @@ Existing location files keep their own values in both modes; edit them to change
 - **Radio setups instead of dB fields:** *[signal] → Radio range* offers ready-made choices per link (e.g. *25 mW · stock antennas (CH / EU limit)*, *500 mW · patch on the goggles*). The exact numbers are under *Advanced: exact radio values*.
 - **Simpler signal display:** *clear*, *no line of sight* and *signal loss likely* (no separate Fresnel state).
 - **Clean flight info box:** distance, height and speed in large type, one bar per radio link (margin, plus LQ when the log has it), the drone zone only when you're in one; the rest under *[more]*.
+- **The pilot in the view:** close up a small tripod with a patch antenna at the real antenna height (written next to
+  it) that turns toward the drone; further away a round radio badge on a thin mast. A ground disc with a north tick
+  marks the spot, and dashed **distance rings** at 500 m, 1 km and 2 km lie on the terrain around it (*[map] → Advanced*
+  turns them off). In a live flight that uses another pilot position (take-off point, phone GPS, picked on the map),
+  the marker and the rings move there, and the location's own point stays as a faded grey ring with a dashed link and
+  the distance between the two.
 - **The drone in the view:** close up (under ~250 m from the camera) a small 3D quad that leans into turns and climbs, with a ring in the link colour; further away a round Alpline badge with a chevron pointing where it flies. Always a dashed line down to its shadow on the ground with the height above ground, and in replay a fading tail of the last 5 s. Same look in live flight (faded while the position is only estimated), the training flight's chase view (real attitude) and the see-through ghost of *Compare with*.
 - **Dark / light theme:** the *[dark] [light]* switch next to the title, remembered per browser. Dark for indoors, light for sunlight at the field.
 - **Playback bar:** small, and you can drag it anywhere by its grip (double-click the grip to put it back). In *[flights]*, the flight **(none)** hides the path, the drone, the info box and the bar.

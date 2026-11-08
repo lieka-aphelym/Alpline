@@ -19,6 +19,7 @@ import { initLive } from './live.js';
 import { initBlackbox } from './blackbox.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 import { createDroneMarker } from './marker.js';
+import { createPilotMarker, createRangeRings } from './pilotmark.js';
 import { esc } from './esc.js';
 import { initBattery } from './battery.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
@@ -259,6 +260,7 @@ function setExaggeration(e) {
   S.prof?.setExag();
   S.spheres.forEach((s) => { const k = s.userData.k || 1; s.scale.set(k, k * e, k); });
   placePilot();
+  S.live?.setExag?.();
   if (S.track) buildTrackObjects();
   if (S.cmp) buildCompareObjects();
   S.vol?.set({ exag: e });
@@ -268,11 +270,17 @@ function setExaggeration(e) {
 
 // ------------------------------------------------------------------ pilot + spheres
 function buildPilot() {
-  const grp = new THREE.Group();
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 1, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  const head = new THREE.Mesh(new THREE.SphereGeometry(6, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd400 }));
-  grp.add(pole, head); grp.userData = { pole, head };
-  S.pilot = grp; scene3.add(grp);
+  // the pilot: ground station close / radio badge far (pilotmark.js), distance rings on the terrain around it
+  S.pilotMarker = createPilotMarker({ THREE, scene3, camera, viewEl: $('view') });
+  S.pilot = S.pilotMarker.group;
+  S.rings = createRangeRings({ THREE, scene3, camera, viewEl: $('view'), toWorld, groundWorldY: (x, y) => (demHeight(x, y) - S.hBase) * S.exag });
+  let ringsOn = true; try { ringsOn = localStorage.getItem('fpv3d:rings') !== '0'; } catch { /* private mode */ }
+  $('ringsOn').checked = ringsOn; S.rings.setVisible(ringsOn);
+  $('ringsOn').onchange = () => {
+    S.rings.setVisible($('ringsOn').checked);
+    try { localStorage.setItem('fpv3d:rings', $('ringsOn').checked ? '1' : '0'); } catch { /* private mode */ }
+    S.requestRender?.(200);
+  };
 
   S.meta.links.forEach((l, i) => {
     const color = new THREE.Color(l.color);
@@ -297,10 +305,8 @@ function placePilot() {
   if (!S.pilot) return;
   const p = S.meta.pilot;
   const top = toWorld(p.x, p.y, p.z), bottom = toWorld(p.x, p.y, p.ground);
-  const h = Math.max(top.y - bottom.y, 1) + 25;
-  S.pilot.userData.pole.scale.y = h; S.pilot.userData.pole.position.set(0, h / 2, 0);
-  S.pilot.userData.head.position.set(0, h, 0);
-  S.pilot.position.copy(bottom);
+  S.pilotMarker.place(bottom, Math.max(0.3, p.z - p.ground), S.exag);
+  S.rings.setCenter(p.x, p.y);
   S.spheres.forEach((s) => s.position.copy(top));
   S.terrainMat.uniforms.uPilot.value.copy(toReal(p.x, p.y, p.z));
 }
@@ -927,6 +933,7 @@ const SIM = initSim({
   zonesAt: (x, y, z) => (S.zones ? S.zones.zonesAt(x, y, z) : []),
   setClutterVisible: (on) => {   // markers that only get in the way of an FPV view
     for (const o of [S.curtain, S.pilot, S.beam, S.velComb, S.accComb, S.cmpGhost, S.velArrow, S.accArrow]) if (o) o.visible = on && (o !== S.curtain || $('curtainOn').checked) && (!!S.track || o === S.pilot || o === S.cmpGhost);
+    S.rings?.setVisible(on && $('ringsOn').checked);
   },
   onStop: () => { if (S.track) updateDrone(); },
   onSaved: (file) => refreshTracks(file),
@@ -1227,10 +1234,16 @@ renderer.setAnimationLoop(() => {
     updateDrone();
   }
   V.tick();
-  if (S.pilot) { const s = Math.max(1, camera.position.distanceTo(S.pilot.position) / 600); S.pilot.userData.head.scale.setScalar(s); }
+  if (S.pilotMarker) {                              // the antenna turns toward the drone being replayed or flown
+    const sim = document.body.classList.contains('sim-on');
+    S.pilotMarker.update(S.drone?.visible && (S.track || sim) ? S.drone.position : S.live?.dronePos?.() || null);
+    S.rings?.update();
+  }
   updateArrows();
   CAM.update(dt);
-  if (S.drone) S.drone.visible = CAM.mode() !== 'drone' && (!!S.track || document.body.classList.contains('sim-on'));   // don't sit inside the marker
+  const liveOn = document.body.classList.contains('live-on');   // a live flight: its own drone, not the replayed one
+  if (S.drone) S.drone.visible = !liveOn && CAM.mode() !== 'drone' && (!!S.track || document.body.classList.contains('sim-on'));   // don't sit inside the marker
+  if (S.beam && liveOn !== !!S.beamOffForLive) { S.beamOffForLive = liveOn; S.beam.visible = !liveOn && !!S.track; }
   if (S.drone && S.track) replayMarker(now);
   if (S.cmpMarker) placeGhost();
   if (S.curtain) S.curtain.visible = $('curtainOn').checked && CAM.mode() !== 'drone';

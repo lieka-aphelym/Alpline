@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { createWarner } from './warn.js';
 import { mountDrone } from './drone.js';
 import { createDroneMarker } from './marker.js';
+import { createPilotMarker, textSprite } from './pilotmark.js';
 import { esc } from './esc.js';
 
 const $ = (id) => document.getElementById(id);
@@ -69,21 +70,31 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     }
     return Math.max(0, need - g);
   }
-  // the pilot on the 3D map (cyan) when it is not the location's point
-  const pilotMark = new THREE.Group();
-  {
-    const m = new THREE.MeshBasicMaterial({ color: 0x22d3ee });
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 1, 8), m); pole.name = 'pole';
-    const head = new THREE.Mesh(new THREE.OctahedronGeometry(6), m); head.name = 'head';
-    pilotMark.add(pole, head); pilotMark.visible = false; scene3.add(pilotMark);
-  }
+  // the pilot when it is not the location's point (takeoff, phone GPS, picked on the map): the full marker moves
+  // there, the location's own point stays as a faded ring, with a dashed link and the distance between the two
+  const ghostMark = createPilotMarker({ THREE, scene3, camera, viewEl: document.getElementById('view'), faded: true });
+  ghostMark.setVisible(false);
+  const pLink = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+    new THREE.LineDashedMaterial({ color: 0xa9b4c2, dashSize: 4, gapSize: 3, transparent: true, opacity: 0.9, depthWrite: false }));
+  pLink.visible = false; scene3.add(pLink);
+  const pLinkTxt = textSprite(THREE, '', { w: 896, color: '#d6dde6' }); pLinkTxt.visible = false; scene3.add(pLinkTxt);
+  const _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3();
   function showPilot() {
-    const p = pilot(), d0 = Math.hypot(p.x - P0.x, p.y - P0.y);
-    pilotMark.visible = p.source !== 'location';
-    if (pilotMark.visible) {
-      toWorld(p.x, p.y, p.z - ANT, pilotMark.position);
-      const hgt = 25 * S.exag, pole = pilotMark.getObjectByName('pole'), head = pilotMark.getObjectByName('head');
-      pole.scale.y = hgt; pole.position.y = hgt / 2; head.position.y = hgt;
+    const p = pilot(), d0 = Math.hypot(p.x - P0.x, p.y - P0.y), moved = p.source !== 'location';
+    const gnd = (x, y) => demHeight(x, y);
+    if (S.pilotMarker) {
+      const at = moved ? p : P0;
+      S.pilotMarker.place(toWorld(at.x, at.y, gnd(at.x, at.y)), ANT, S.exag);
+      S.rings?.setCenter(at.x, at.y);
+    }
+    ghostMark.setVisible(moved);
+    pLink.visible = pLinkTxt.visible = moved && d0 > 5;
+    if (moved) {
+      ghostMark.place(toWorld(P0.x, P0.y, gnd(P0.x, P0.y)), ANT, S.exag);
+      toWorld(P0.x, P0.y, gnd(P0.x, P0.y) + 1, _p0); toWorld(p.x, p.y, gnd(p.x, p.y) + 1, _p1);
+      pLink.geometry.setFromPoints([_p0, _p1]); pLink.computeLineDistances();
+      pLinkTxt.userData.set(`${fmtDist(d0)} from the location's point`);
+      pLinkTxt.position.copy(_p0).lerp(_p1, 0.5);
     }
     const src = PILOT_SRC[p.source] + (p.source === 'takeoff' ? ` (${p.n} GPS${st.pilotLocked ? ', locked' : ''})` : '');
     $('lvPilotTxt').innerHTML = `Pilot: <b>${src}</b>` + (p.source !== 'location' && d0 > 15
@@ -572,9 +583,18 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     simTick, simStop: () => { if (!st.on) W.stop(); },
     tick(now) {
       W.tick(now);
+      if (ghostMark.visible) {
+        ghostMark.update(null);
+        const ppu = (document.getElementById('view').clientHeight || 800) / (2 * Math.max(camera.position.distanceTo(pLinkTxt.position), 1e-3) * Math.tan(camera.fov * Math.PI / 360));
+        const hs = 30 / ppu; pLinkTxt.scale.set(hs * pLinkTxt.userData.aspect, hs, 1);
+        pLinkTxt.center.set(0.5, -0.6);                       // just above the dashed link
+        pLink.material.dashSize = Math.max(2, camera.position.distanceTo(pLinkTxt.position) / 60); pLink.material.gapSize = pLink.material.dashSize * 0.7;
+      }
       if (MK.visible) { MK.style({ faded: mk.estimated }); MK.update({ vel: mk.vel, acc: null, color: mk.color, css: mk.css, groundY: mk.groundY, agl: mk.agl, now }); }
     },
-    setExag() { if (st.last) placeMarker(st.last.x, st.last.y, st.last.z, st.last.vx, st.last.vy, st.last.vz); },
+    /** where the live drone is drawn (the pilot's antenna turns toward it), or null */
+    dronePos: () => (MK.visible ? drone.position : null),
+    setExag() { showPilot(); if (st.last) placeMarker(st.last.x, st.last.y, st.last.z, st.last.vx, st.last.vy, st.last.vz); },
     /** for the automated checks: where the drone is drawn and whether that is an estimate */
     ceilCheck: (pts) => pts.map(([x, y]) => [S.vol?.ceilAt ? S.vol.ceilAt('los', x, y) : null, ceilFrom({ x: P0.x, y: P0.y, z: P0.z }, x, y)]),
     debug: () => ({ x: drone.position.x, z: drone.position.z, opacity: mk.estimated ? 0.55 : 1, lost: st.lost, pilot: pilot(), rel: st.rel, last: st.last && { agl: st.last.agl, z: st.last.z } }),
