@@ -246,7 +246,7 @@ show only on the packs page). Glitches (a voltage or current spike far from its 
   the lowest cell voltage under load and how long it stayed under 3.5 V, the cell voltage at take-off and at landing
   (resting: without the sag), the worst sag and the pack's **internal resistance**. *Sag vs current* shows each
   moment's voltage drop against its current: the slope is the resistance. The pack that flew it is picked here
-  (or *+ new pack*: name, cells, capacity), with landing advice for that pack. A **chart under the playback bar**
+  (or *+ new pack*: name, cells, capacity, LiPo / LiPo HV / Li-ion), with landing advice for that pack. A **chart under the playback bar**
   follows the replay (cell voltage under load, resting estimate dashed, current, throttle); click it to jump there.
   *[flights] → Colour the path by → Battery: cell voltage / current* colours the 3D path.
 - **Packs page** (*[all packs and their health]*, or the launcher's drone page): every pack with its resistance now
@@ -254,6 +254,12 @@ show only on the packs page). Glitches (a voltage or current spike far from its 
   in mAh and minutes), and flags: *ageing* (resistance up by 40 % since its first flights), *weaker than your other
   packs* of the same type, flights with cells under 3.5 V for more than 5 s. Below: every flight with battery data
   (pick its pack, open it in 3D, see its discharge), the ones without a pack first with *[without a pack]*.
+- **LiPo, LiPo HV or Li-ion:** each pack has its type, and the levels follow it. LiPo (4.20 V full) and LiPo HV
+  (4.35 V full): low under load 3.5 V/cell, live warnings at 3.3 V under load and 3.4 V resting, a good pack is 2 to
+  6 mΩ per cell. Li-ion (18650 / 21700 packs for long range, made to go lower and to sag more): low 3.0 V/cell,
+  warnings at 2.9 V under load and 3.1 V resting, good under 20 mΩ per cell. A LiPo landed under 3.35 V/cell resting
+  is flagged as too deep (for a flight without a pack: "normal for Li-ion, too deep for a LiPo"); Li-ion and LiPo
+  packs are never compared with each other.
 - **Charger check:** type what your charger put back in after a flight. Alpline compares it with the mAh the drone
   logged: within 5 % the current sensor is right; otherwise it gives the Betaflight command
   (`set ibata_scale = …`, then `save`).
@@ -522,7 +528,7 @@ skips it once. Settings for all of these are in `pyproject.toml`.
   compared with `tests/snapshots/signal.json`. When a change is meant to move them: `UPDATE_SNAPSHOTS=1 python -m pytest tests/test_snapshots.py`.
 - **Launcher** (`test_launcher.py`): USB detection (drone, radio, busy, unplugged during a download), map groups and
   zoom levels, and the real window at its smallest size: panels inside and apart, long texts never resize it.
-- **Warnings:** 32 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
+- **Warnings:** 33 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
 - **Browser:** opens the checks page, the map, the share page, the packs page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
 
 Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. `drone.js` draws the drone icon (live link indicator, training box, build card, share page, empty pages). Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`. The logo animation (spin-up when a page opens, spinning while something loads or builds) is in `theme.css`; the launcher plays frames made from it by `tools/render_logo_frames.py` (run it again after changing the logo).

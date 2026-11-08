@@ -62,7 +62,7 @@ export function drawDischarge(cv, d, opts = {}) {
   g.textAlign = 'center';
   for (let s = Math.ceil(t0 / stepT) * stepT; s <= t1; s += stepT) g.fillText(fmtT(s), x(s), h - 2);
   // the low-voltage band
-  const low = opts.low ?? 3.5;
+  const low = opts.low ?? d.summary?.low ?? 3.5;
   if (low > lo) { g.fillStyle = 'rgba(255,45,85,0.08)'; g.fillRect(m.l, yv(low), W, m.t + H - yv(low)); }
   const line = (ys, color, width = 1.3, dash = null, alpha = 1) => {
     g.save(); g.beginPath(); g.strokeStyle = color; g.lineWidth = width; g.globalAlpha = alpha;

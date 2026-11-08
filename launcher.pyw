@@ -1139,7 +1139,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
                  fg=FG, bg=BG, anchor="w").pack(fill="x")
         tk.Label(f, text="Alpline then follows each pack's health and how long it lasts. You can change it per flight on the packs page.",
                  font=SANS, fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(420)).pack(fill="x", pady=(S(2), S(8)))
-        names = [f"{p['name']} · {p['cells']}S {p['capacity']}" for p in packs] + ["+ new pack…"]
+        names = [f"{p['name']} · {p['cells']}S {p['capacity']} {p['chem_label']}" for p in packs] + ["+ new pack…"]
         choice = tk.StringVar(value=next((n for p, n in zip(packs, names) if p["id"] == o.get("last_pack")), names[0]))
         cb = ttk.Combobox(f, textvariable=choice, values=names, state="readonly", width=34); cb.pack(anchor="w")
         newf = tk.Frame(f, bg=BG)
@@ -1147,6 +1147,9 @@ $r | ConvertTo-Json -Depth 4 -Compress
         for lab, var, wd in (("name", name_v, 14), ("cells", cells_v, 3), ("mAh", cap_v, 6)):
             tk.Label(newf, text=lab, font=SANS, fg=FG2, bg=BG).pack(side="left", padx=(0, S(4)))
             tk.Entry(newf, textvariable=var, width=wd, bg=BG2, fg=FG, insertbackground=FG, relief="flat").pack(side="left", padx=(0, S(10)))
+        chems = list(battery.CHEM)
+        chem_v = tk.StringVar(value=battery.CHEM["lipo"]["label"])
+        ttk.Combobox(newf, textvariable=chem_v, values=[battery.CHEM[k]["label"] for k in chems], state="readonly", width=8).pack(side="left")
         msg = tk.Label(f, text="", font=SANS, fg="#ff6b6b", bg=BG, anchor="w")
 
         def sync(*_):
@@ -1158,7 +1161,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
         def save():
             try:
                 if choice.get().startswith("+"):
-                    pid = battery.save_pack(dict(name=name_v.get(), cells=cells_v.get(), capacity=cap_v.get()), ROOT)["id"]
+                    kind = next(k for k in chems if battery.CHEM[k]["label"] == chem_v.get())
+                    pid = battery.save_pack(dict(name=name_v.get(), cells=cells_v.get(), capacity=cap_v.get(), chemistry=kind), ROOT)["id"]
                 else:
                     pid = packs[names.index(choice.get())]["id"]
                 battery.assign(fids, pid, ROOT)

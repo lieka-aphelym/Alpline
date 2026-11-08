@@ -197,14 +197,19 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       const o = await (await fetch('/api/battery/packs')).json();
       st.packs = o.packs.filter((p) => !p.retired);
       $('batWarnPack').innerHTML = '<option value="">cells from the voltage, no capacity</option>'
-        + st.packs.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · ${p.cells}S ${p.capacity} mAh</option>`).join('');
+        + st.packs.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · ${p.cells}S ${p.capacity} mAh ${p.chem_label}</option>`).join('');
       if (st.packs.some((p) => p.id === BC.pack)) $('batWarnPack').value = BC.pack;
     } catch { /* no server data: the warnings still work from the voltage */ }
   }
+  $('batWarnPack').addEventListener('change', () => {          // another pack: its chemistry's low level
+    const p = st.packs?.find((x) => x.id === $('batWarnPack').value);
+    $('batWarnLow').value = p ? p.warn_load : 3.3;
+  });
   const batApply = () => {
     const p = st.packs?.find((x) => x.id === $('batWarnPack').value);
     W.bat.set({ on: $('batWarnOn').checked, landPct: +$('batWarnPct').value || 80, low: +$('batWarnLow').value || 3.3, half: $('batWarnHalf').checked,
-      pack: p?.id || null, cells: p?.cells || 0, capacity: p?.capacity || 0, irCell: p?.ir_now || 0 });
+      pack: p?.id || null, cells: p?.cells || 0, capacity: p?.capacity || 0, irCell: p?.ir_now || 0,
+      critRest: p?.crit_rest || 3.4, chemistry: p?.chemistry || 'lipo' });
     W.save(); summaries();
   };
   ['batWarnOn', 'batWarnPack', 'batWarnPct', 'batWarnLow', 'batWarnHalf'].forEach((id) => $(id).addEventListener('change', batApply));

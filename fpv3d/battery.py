@@ -31,7 +31,21 @@ from .paths import DATA
 from .safefile import write_atomic
 
 BIN_S = 0.1                       # analysis resolution
-LOW_CELL = 3.5                    # "under load" warning level per cell (V)
+LOW_CELL = 3.5                    # LiPo "under load" level per cell (V); each chemistry has its own in CHEM
+# Pack chemistries: the voltages that matter per cell, the warning levels and what a healthy resistance looks like.
+#   LiPo: 4.20 V full, sags little, hurt below ~3.5 V under load / 3.7 V resting at the end of a flight.
+#   LiPo HV: the same at 4.35 V full.
+#   Li-ion (18650 / 21700 packs for long range): 4.20 V full, made to go much lower (about 3.0 V under load,
+#   2.5-2.8 V cut-off), more resistance (more sag), so other levels and other "healthy" numbers.
+CHEM = {
+    "lipo": dict(label="LiPo", full=4.20, low=3.5, warn_load=3.3, crit_rest=3.4, deep_rest=3.35, ir_good=6, ir_used=10),
+    "lihv": dict(label="LiPo HV", full=4.35, low=3.5, warn_load=3.3, crit_rest=3.4, deep_rest=3.35, ir_good=6, ir_used=10),
+    "liion": dict(label="Li-ion", full=4.20, low=3.0, warn_load=2.9, crit_rest=3.1, deep_rest=2.9, ir_good=20, ir_used=35),
+}
+
+
+def chem(key):
+    return CHEM.get(key or "lipo", CHEM["lipo"])
 LANDING_PCT = 80                  # land when this share of the capacity is used (the usual LiPo advice)
 _LOCK = threading.Lock()
 
@@ -191,8 +205,9 @@ def internal_resistance(t, v, i, mah, cells=1):
     return R if 0.001 * cells <= R <= 0.060 * cells else None
 
 
-def summary(s: dict, capacity=None, cells=None):
-    """What a flight's series says. capacity (mAh) and cells come from the pack when it is known."""
+def summary(s: dict, capacity=None, cells=None, chemistry=None):
+    """What a flight's series says. capacity (mAh), cells and chemistry (lipo, lihv, liion) come from the pack."""
+    ch = chem(chemistry)
     t, v, i = (np.asarray(s[k], float) for k in ("t", "v", "i"))
     cells = int(cells or s.get("cells") or 0) or cells_from_voltage(float(v[0]))
     dt = np.diff(t, prepend=t[0])
@@ -211,12 +226,22 @@ def summary(s: dict, capacity=None, cells=None):
         avg_a=round(float(np.average(i, weights=np.maximum(dt, 1e-3))), 1) if has_i else None,
         peak_a=round(float(np.max(i)), 1) if has_i else None,
         min_cell=round(float(cell.min()), 3), min_cell_t=round(float(t[int(np.argmin(cell))]), 1),
-        below_low_s=round(float(np.sum(dt[cell < LOW_CELL])), 1),
+        below_low_s=round(float(np.sum(dt[cell < ch["low"]])), 1), low=ch["low"],
+        chemistry=chemistry or None, chem_label=ch["label"] if chemistry else None,
         start_cell=round(float(cell[:n0].mean()), 3), end_rest_cell=round(rest_end, 3),
         ir_pack_mohm=round(R * 1000, 1) if R else None, ir_cell_mohm=round(R * 1000 / cells, 2) if R else None,
         worst_sag_cell=round(float(sag.max()), 3) if sag is not None else None,
         sag100_cell=round(R * 100 / cells, 3) if R else None,
     )
+    if R:
+        irc = R * 1000 / cells
+        out["health"] = "good" if irc < ch["ir_good"] else "used" if irc < ch["ir_used"] else "tired"
+    # a LiPo (or a pack of unknown kind) discharged this deep: say so (fine for Li-ion, harmful for a LiPo)
+    if chemistry != "liion" and rest_end < CHEM["lipo"]["deep_rest"]:
+        out["hint"] = (f"landed at {rest_end:.2f} V/cell resting: "
+                       + ("too deep for a LiPo (keep above about 3.5 V)" if chemistry else "normal for Li-ion, too deep for a LiPo"))
+    elif chemistry == "liion" and rest_end < CHEM["liion"]["deep_rest"]:
+        out["hint"] = f"landed at {rest_end:.2f} V/cell resting: very deep even for Li-ion (keep above about 3.0 V)"
     if capacity and has_i:
         out["capacity"] = capacity
         out["used_pct"] = round(100 * float(mah[-1]) / capacity, 0)
@@ -291,7 +316,7 @@ def link_track(fid: str, scene: str, track: str, root: Path | None = None):
 
 def _pack_args(d, pid):
     p = next((p for p in d["packs"] if p["id"] == pid), None)
-    return dict(capacity=p.get("capacity"), cells=p.get("cells")) if p else {}
+    return dict(capacity=p.get("capacity"), cells=p.get("cells"), chemistry=p.get("chemistry", "lipo")) if p else {}
 
 
 def load_flight(fid: str, root: Path | None = None):
@@ -309,7 +334,7 @@ def load_flight(fid: str, root: Path | None = None):
 
 
 def save_pack(p: dict, root: Path | None = None) -> dict:
-    """Create (no id) or change a pack: name, cells, capacity (mAh), retired, note."""
+    """Create (no id) or change a pack: name, cells, capacity (mAh), chemistry (lipo, lihv, liion), retired, note."""
     root = Path(root) if root else DATA
     with _LOCK:
         d = _load(root)
@@ -318,12 +343,15 @@ def save_pack(p: dict, root: Path | None = None) -> dict:
         cap = int(float(p.get("capacity") or 0))
         if not name or not (1 <= cells <= 8) or not (100 <= cap <= 30000):
             raise ValueError("a pack needs a name, 1 to 8 cells and a capacity of 100 to 30000 mAh")
+        kind = str(p.get("chemistry") or "lipo").lower()
+        if kind not in CHEM:
+            raise ValueError("the chemistry is lipo, lihv or liion")
         cur = next((x for x in d["packs"] if x["id"] == p.get("id")), None) if p.get("id") else None
         if cur is None:
             n = 1 + max([int(x["id"][1:]) for x in d["packs"] if re.match(r"^p\d+$", x["id"])] or [0])
             cur = dict(id=f"p{n}", since=time.strftime("%Y-%m-%d"))
             d["packs"].append(cur)
-        cur.update(name=name, cells=cells, capacity=cap, retired=bool(p.get("retired", False)),
+        cur.update(name=name, cells=cells, capacity=cap, chemistry=kind, retired=bool(p.get("retired", False)),
                    note=str(p.get("note") or "")[:200])
         _resummarize(d, root, pack=cur["id"])
         _save(d, root)
@@ -415,7 +443,10 @@ def overview(root: Path | None = None) -> dict:
         long_ = [f for f in mine if (f["summary"].get("seconds") or 0) >= 60 and f["summary"].get("mah")]
         rate = (sum(f["summary"]["mah"] for f in long_) / sum(f["summary"]["seconds"] for f in long_) * 60) if long_ else None
         land_mah = round(p["capacity"] * LANDING_PCT / 100)
-        packs.append(dict(p, flights=len(mine), ir_now=round(now, 2) if now else None, ir_first=round(first, 2) if first else None,
+        ch = chem(p.get("chemistry"))
+        packs.append(dict(p, chemistry=p.get("chemistry", "lipo"), chem_label=ch["label"], low=ch["low"], warn_load=ch["warn_load"],
+                          crit_rest=ch["crit_rest"], ir_good=ch["ir_good"], ir_used=ch["ir_used"], flights=len(mine),
+                          ir_now=round(now, 2) if now else None, ir_first=round(first, 2) if first else None,
                           trend=trend, sag100=_median([f["summary"]["sag100_cell"] for f in mine if f["summary"].get("sag100_cell")]),
                           mah_per_min=round(rate) if rate else None, landing_mah=land_mah,
                           landing_min=round(land_mah / rate, 1) if rate else None, flags=[]))
@@ -423,15 +454,21 @@ def overview(root: Path | None = None) -> dict:
     for p in packs:
         if p["ir_now"] and p["ir_first"] and len(p["trend"]) >= 4 and p["ir_now"] > 1.4 * p["ir_first"]:
             p["flags"].append(f"ageing: resistance {p['ir_now']:.1f} mΩ, +{100 * (p['ir_now'] / p['ir_first'] - 1):.0f} % since its first flights")
-        sib = [q["ir_now"] for q in packs if q is not p and q["ir_now"] and q["cells"] == p["cells"]
+        sib = [q["ir_now"] for q in packs if q is not p and q["ir_now"] and q["cells"] == p["cells"] and q["chemistry"] == p["chemistry"]
                and abs(q["capacity"] - p["capacity"]) <= 0.25 * p["capacity"] and not q.get("retired")]
         if p["ir_now"] and len(sib) >= 1 and p["ir_now"] > 1.35 * _median(sib):
-            p["flags"].append(f"weaker than your other {p['cells']}S {p['capacity']} packs ({p['ir_now']:.1f} vs {_median(sib):.1f} mΩ)")
+            p["flags"].append(f"weaker than your other {p['cells']}S {p['capacity']} {p['chem_label']} packs "
+                              f"({p['ir_now']:.1f} vs {_median(sib):.1f} mΩ)")
+        elif p["ir_now"] and p["ir_now"] >= p["ir_used"]:
+            p["flags"].append(f"tired: {p['ir_now']:.1f} mΩ per cell is high for a {p['chem_label']} pack")
         low = [f for f in flights if f.get("pack") == p["id"] and (f["summary"].get("below_low_s") or 0) > 5]
         if low:
-            p["flags"].append(f"{len(low)} flight(s) with cells under {LOW_CELL} V for more than 5 s")
+            p["flags"].append(f"{len(low)} flight(s) with cells under {p['low']} V for more than 5 s")
+        deep = [f for f in flights if f.get("pack") == p["id"] and f["summary"].get("hint")]
+        if deep:
+            p["flags"].append(f"{len(deep)} flight(s) landed very low for a {p['chem_label']} pack")
     return dict(packs=packs, flights=flights, last_pack=d.get("last_pack"), charger=charger_check(flights, root),
-                landing_pct=LANDING_PCT, low_cell=LOW_CELL)
+                landing_pct=LANDING_PCT, low_cell=LOW_CELL, chemistries={k: v["label"] for k, v in CHEM.items()})
 
 
 def charger_check(flights, root: Path | None = None):

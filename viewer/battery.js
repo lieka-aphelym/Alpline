@@ -44,14 +44,13 @@ export function initBattery({ S, $, seek, onChange }) {
       it.push([`${sm.peak_a} A`, 'peak current', `${sm.peak_c ? `${sm.peak_c} C · ` : ''}avg ${sm.avg_a} A`]);
       it.push([`${sm.wh} Wh`, 'energy', sm.seconds > 5 ? `${Math.round(sm.wh / (sm.seconds / 3600))} W average` : '']);
     }
-    it.push([`${sm.min_cell.toFixed(2)} V`, 'lowest cell', sm.below_low_s > 0 ? `under 3.5 V for ${sm.below_low_s} s` : 'under load, never below 3.5 V']);
+    it.push([`${sm.min_cell.toFixed(2)} V`, 'lowest cell', sm.below_low_s > 0 ? `under ${sm.low} V for ${sm.below_low_s} s` : `under load, never below ${sm.low} V`]);
     it.push([`${sm.end_rest_cell.toFixed(2)} V`, 'cell at landing', `resting · took off at ${sm.start_cell.toFixed(2)} V`]);
-    if (sm.ir_cell_mohm) it.push([`${sm.ir_cell_mohm} mΩ`, 'resistance / cell', `${sm.ir_pack_mohm} mΩ pack · ${health(sm.ir_cell_mohm)}`]);
+    if (sm.ir_cell_mohm) it.push([`${sm.ir_cell_mohm} mΩ`, 'resistance / cell', `${sm.ir_pack_mohm} mΩ pack · ${sm.health}${sm.chem_label ? ` for ${sm.chem_label}` : ''}`]);
     if (sm.worst_sag_cell) it.push([`−${sm.worst_sag_cell.toFixed(2)} V`, 'worst sag / cell', `at ${sm.peak_a} A`]);
     it.push([fmtT(sm.seconds), 'logged', sm.landing_t != null ? `${sm.landing_mah} mAh (80 %) at ${fmtT(sm.landing_t)}` : '']);
     return it.map(([v, l, s]) => `<div class="batTile"><b>${esc(v)}</b><span>${esc(l)}</span><div>${esc(s)}</div></div>`).join('');
   }
-  const health = (ir) => (ir < 6 ? 'good' : ir < 10 ? 'used' : 'tired');
   const currentPack = () => st.packs?.packs.find((p) => p.id === st.d?.pack) || null;
 
   function render() {
@@ -69,12 +68,13 @@ export function initBattery({ S, $, seek, onChange }) {
     $('batSummary').innerHTML = (sm.has_current ? `<b>${sm.mah} mAh</b> used in ${fmtT(sm.seconds)}, ` : `${fmtT(sm.seconds)} logged (no current sensor), `)
       + `lowest <b class="${sm.min_cell < 3.5 ? 'bad' : sm.min_cell < 3.6 ? 'warnTxt' : ''}">${sm.min_cell.toFixed(2)} V/cell</b> under load`
       + (sm.ir_cell_mohm ? `, pack resistance <b>${sm.ir_cell_mohm} mΩ/cell</b>.` : '.')
-      + ` <span class="muted">${sm.cells}S${d.meta?.craft ? ` · ${esc(d.meta.craft)}` : ''}</span>`;
+      + ` <span class="muted">${sm.cells}S${sm.chem_label ? ` ${sm.chem_label}` : ''}${d.meta?.craft ? ` · ${esc(d.meta.craft)}` : ''}</span>`
+      + (sm.hint ? `<div class="warnTxt small">${esc(sm.hint)}</div>` : '');
     // which pack
     const sel = $('batPack');
     sel.innerHTML = `<option value="">${d.pack ? '(no pack)' : 'which pack was it? ▾'}</option>`
       + (st.packs?.packs || []).filter((p) => !p.retired || p.id === d.pack)
-        .map((p) => `<option value="${esc(p.id)}" ${p.id === d.pack ? 'selected' : ''}>${esc(p.name)} · ${p.cells}S ${p.capacity} mAh</option>`).join('')
+        .map((p) => `<option value="${esc(p.id)}" ${p.id === d.pack ? 'selected' : ''}>${esc(p.name)} · ${p.cells}S ${p.capacity} mAh ${p.chem_label}</option>`).join('')
       + '<option value="+">+ new pack…</option>';
     sel.classList.toggle('ask', !d.pack);
     $('batTiles').innerHTML = tiles(sm);
@@ -98,7 +98,8 @@ export function initBattery({ S, $, seek, onChange }) {
   $('batNewCancel').onclick = () => { $('batNew').classList.add('hidden'); render(); };
   $('batNewOk').onclick = async () => {
     try {
-      const j = await post('/api/battery/pack', { name: $('batNewName').value, cells: +$('batNewCells').value, capacity: +$('batNewCap').value });
+      const j = await post('/api/battery/pack', { name: $('batNewName').value, cells: +$('batNewCells').value, capacity: +$('batNewCap').value,
+        chemistry: $('batNewChem').value });
       await post('/api/battery/assign', { flights: [st.fid], pack: j.pack.id });
       $('batNew').classList.add('hidden'); $('batMsg').textContent = '';
       await reload();
@@ -152,11 +153,11 @@ export async function askPacks(box, fids) {
   const div = document.createElement('div');
   div.className = 'batAsk';
   const opts = packs.packs.filter((p) => !p.retired)
-    .map((p) => `<option value="${esc(p.id)}" ${p.id === packs.last_pack ? 'selected' : ''}>${esc(p.name)} · ${p.cells}S ${p.capacity}</option>`).join('');
+    .map((p) => `<option value="${esc(p.id)}" ${p.id === packs.last_pack ? 'selected' : ''}>${esc(p.name)} · ${p.cells}S ${p.capacity} ${p.chem_label}</option>`).join('');
   div.innerHTML = `<b>Which pack did you fly?</b> <span class="muted">(${fids.length} flight${fids.length > 1 ? 's' : ''} with battery data)</span>
     <div class="row"><select>${opts}<option value="+">+ new pack…</option><option value="">not now</option></select><button class="primary">save</button></div>
     <div class="row hidden newp"><input placeholder="name" value="pack ${packs.packs.length + 1}"> <select class="c">${[2, 3, 4, 5, 6, 8].map((c) => `<option ${c === 6 ? 'selected' : ''}>${c}</option>`).join('')}</select>S
-      <input class="cap" type="number" value="1300" min="100" step="50" style="width:70px"> mAh</div>
+      <input class="cap" type="number" value="1300" min="100" step="50" style="width:70px"> mAh <select class="chem"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
     <div class="small msg"></div>`;
   box.appendChild(div);
   const [sel, btn] = [div.querySelector('select'), div.querySelector('button')];
@@ -169,7 +170,7 @@ export async function askPacks(box, fids) {
       if (pid === '+') {
         const np = div.querySelector('.newp');
         pid = (await post('/api/battery/pack', { name: np.querySelector('input').value, cells: +np.querySelector('.c').value,
-          capacity: +np.querySelector('.cap').value })).pack.id;
+          capacity: +np.querySelector('.cap').value, chemistry: np.querySelector('.chem').value })).pack.id;
       }
       const name = sel.value === '+' ? div.querySelector('.newp input').value : sel.options[sel.selectedIndex].text.split(' · ')[0];
       await post('/api/battery/assign', { flights: fids, pack: pid });

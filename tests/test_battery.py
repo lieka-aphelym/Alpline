@@ -118,6 +118,36 @@ def test_packs_health_landing_and_charger():
     assert "f7" not in [f["id"] for f in battery.overview(root)["flights"]]
 
 
+def test_lipo_or_liion():
+    """The pack's chemistry sets the levels: a Li-ion flight down to 3.1 V is normal, the same on a LiPo is flagged."""
+    t, v, i, thr = sim_flight(0.015, dur=200)
+    v = v - 6 * 0.55                                       # a pack flown much lower (Li-ion style)
+    s = battery.series(t, v, i, thr)
+    lipo, liion = battery.summary(s, 1300, 6, "lipo"), battery.summary(s, 1300, 6, "liion")
+    assert lipo["low"] == 3.5 and liion["low"] == 3.0 and lipo["below_low_s"] > liion["below_low_s"]
+    assert "too deep for a LiPo" in lipo["hint"] and "hint" not in liion
+    assert lipo["health"] == "tired" and liion["health"] == "good"        # 15 mΩ per cell: high for LiPo, fine for Li-ion
+    assert "normal for Li-ion" in battery.summary(s)["hint"]           # pack unknown: both said
+    root = Path(tempfile.mkdtemp(prefix="alpline_chem_"))
+    a = battery.save_pack(dict(name="li", cells=6, capacity=1300, chemistry="liion"), root)
+    b = battery.save_pack(dict(name="po", cells=6, capacity=1300), root)
+    assert a["chemistry"] == "liion" and b["chemistry"] == "lipo"
+    try:
+        battery.save_pack(dict(name="x", cells=6, capacity=1300, chemistry="nimh"), root)
+        raise AssertionError("accepted")
+    except ValueError:
+        pass
+    for k, pid in enumerate([a["id"], b["id"]]):
+        fid = battery.save_flight(f"c{k}", s, root=root)
+        battery.assign([fid], pid, root)
+    o = battery.overview(root)
+    li, po = (next(p for p in o["packs"] if p["id"] == x["id"]) for x in (a, b))
+    assert li["chem_label"] == "Li-ion" and li["warn_load"] == 2.9
+    assert not any("tired" in f or "very low" in f for f in li["flags"])
+    assert any("tired" in f for f in po["flags"]) and any("very low" in f for f in po["flags"])
+    assert not any("weaker" in f for f in li["flags"] + po["flags"])      # a Li-ion is not compared with a LiPo
+
+
 def test_blackbox_battery_end_to_end():
     try:
         import orangebox  # noqa: F401

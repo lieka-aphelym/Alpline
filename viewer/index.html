@@ -183,7 +183,8 @@
       <div id="batNew" class="renbox hidden">
         <div class="row"><input id="batNewName" spellcheck="false" placeholder="pack 1" maxlength="40"></div>
         <div class="row"><select id="batNewCells"><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select> cells ·
-          <input id="batNewCap" type="number" min="100" max="30000" step="50" value="1300" style="width:80px"> mAh</div>
+          <input id="batNewCap" type="number" min="100" max="30000" step="50" value="1300" style="width:80px"> mAh ·
+          <select id="batNewChem" title="LiPo: 4.2 V full, keep above 3.5 V · LiPo HV: 4.35 V full · Li-ion (18650 / 21700): goes down to about 3.0 V"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
         <div class="row"><button id="batNewOk" class="primary">Add the pack</button><button id="batNewCancel">Cancel</button></div>
       </div>
       <div id="batMsg" class="small bad"></div>
@@ -318,7 +319,8 @@
         low under <input id="batWarnLow" type="number" min="3.0" max="3.6" step="0.05" value="3.3" style="width:62px"> V/cell</label>
       <label class="row small"><input type="checkbox" id="batWarnHalf" checked> say "half pack"</label>
       <div class="small muted">Says "Half pack", "Land now" when the share is used (needs the pack's capacity and a current sensor),
-        "Battery low, land" when the cells stay under the low level for 2 s, "Battery critical" below 3.4 V resting.
+        "Battery low, land" when the cells stay under the low level for 2 s, "Battery critical" below 3.4 V resting
+        (Li-ion packs: 2.9 V under load and 3.1 V resting, set when you pick the pack).
         The flight is saved with this pack.</div>
     </div>
     <label class="row">On screen <select id="warnScreen">

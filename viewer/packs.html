@@ -28,6 +28,7 @@
     <label>name <input id="pfName" maxlength="40" spellcheck="false" placeholder="pack 1"></label>
     <label>cells <select id="pfCells"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select></label>
     <label>capacity <input id="pfCap" type="number" min="100" max="30000" step="50" value="1300"> mAh</label>
+    <label title="LiPo: 4.2 V full, keep above 3.5 V · LiPo HV: 4.35 V full · Li-ion (18650 / 21700): goes down to about 3.0 V">type <select id="pfChem"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></label>
     <label class="wide">note <input id="pfNote" maxlength="200" placeholder="brand, bought where, …"></label>
     <label><input type="checkbox" id="pfRetired"> retired</label>
     <div class="row"><button id="pfSave" class="primary">save</button><button id="pfCancel">cancel</button>

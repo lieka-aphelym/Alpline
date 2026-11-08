@@ -196,6 +196,14 @@ test('battery: critical when the resting voltage is under 3.4 V/cell', () => {
   const ev = w.update({ voltage: 6 * 3.35, current: 2, mah: 900 }, 1200);
   eq([ev?.kind, ev?.text], ['critical', 'Battery critical, land now']);
 });
+test('battery: Li-ion levels: 3.1 V/cell is fine, under 2.9 V under load is low', () => {
+  const li = pack6({ low: 2.9, critRest: 3.1, chemistry: 'liion' }), po = pack6();
+  let liSaid = null, poSaid = null;
+  for (let t = 0; t <= 3000; t += 500) { liSaid ||= li.update({ voltage: 6 * 3.1, current: 10, mah: null }, t); poSaid ||= po.update({ voltage: 6 * 3.1, current: 10, mah: null }, t); }
+  ok(liSaid === null, 'Li-ion at 3.1 V: nothing'); eq(poSaid?.kind, 'critical');
+  let low = null; for (let t = 10000; t <= 13000; t += 500) low ||= li.update({ voltage: 6 * 2.85, current: 30, mah: null }, t);
+  eq(low?.kind, 'low');
+});
 test('battery: no capacity -> no mAh warnings; off -> nothing; no voltage -> nothing', () => {
   const w = createBatteryWatch({ cells: 6 });
   ok(w.update({ voltage: 22, current: 10, mah: 5000 }, 0) === null, 'no capacity');

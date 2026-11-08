@@ -5,11 +5,13 @@
 //   land      the planned share used (default 80 % of the capacity)  "Land now, 1040 milliamp hours"  then every 30 s
 //   low       cells under the low level under load for 2 s          "Battery low, land"              every 20 s while it lasts
 //   critical  resting voltage under 3.4 V/cell, or 0.3 V under low  "Battery critical, land now"     every 10 s
+// The levels follow the pack's chemistry (fpv3d/battery.py CHEM): LiPo 3.3 V under load / 3.4 V resting,
+// Li-ion 2.9 V / 3.1 V (Li-ion packs are made to go lower), chosen with the pack in the live panel.
 // Cells: from the chosen pack, else Betaflight's rule on the first voltage (plugged in, no load).
 // The resting voltage is the voltage plus the sag (current x resistance): the pack's resistance from its flights,
 // else a typical 5 mΩ per cell.
 
-export const BAT_DEFAULTS = { on: true, cells: 0, capacity: 0, landPct: 80, low: 3.3, half: true, irCell: 0 };
+export const BAT_DEFAULTS = { on: true, cells: 0, capacity: 0, landPct: 80, low: 3.3, critRest: 3.4, half: true, irCell: 0 };
 
 export function createBatteryWatch(cfg = {}) {
   const c = { ...BAT_DEFAULTS, ...cfg };
@@ -26,14 +28,14 @@ export function createBatteryWatch(cfg = {}) {
       if (!c.on || b?.voltage == null || !(b.voltage > 1)) return null;
       if (!st.cells) st.cells = c.cells || cellsFrom(b.voltage);
       const n = st.cells, cell = b.voltage / n, amps = Math.max(0, b.current || 0);
-      const r = (c.irCell || 5) / 1000;
+      const r = (c.irCell || (c.chemistry === 'liion' ? 15 : 5)) / 1000;
       const rest = cell + amps * r;
       const used = b.mah != null && c.capacity ? b.mah / c.capacity : null;
       st.last = { cell, rest, amps, mah: b.mah, used, cells: n };
       const again = (k, every) => !st.said[k] || now - st.said[k] >= every;
       const fire = (k, ev) => { st.said[k] = now; return { kind: k, ...ev }; };
       // critical first
-      const crit = rest < 3.4 || cell < c.low - 0.3;
+      const crit = rest < c.critRest || cell < c.low - 0.3;
       st.critSince = crit ? (st.critSince ?? now) : null;
       if (crit && now - st.critSince >= 1000 && again('critical', 10000)) {
         return fire('critical', { level: 'critical', text: 'Battery critical, land now', short: 'Land now' });

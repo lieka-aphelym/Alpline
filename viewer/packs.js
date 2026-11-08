@@ -33,7 +33,7 @@ function renderPacks() {
     const ir = p.trend.map((x) => x.ir);
     return `<tr class="click ${p.id === st.pack ? 'sel' : ''}" data-p="${esc(p.id)}">
       <td><b>${esc(p.name)}</b>${p.retired ? '<span class="retired">retired</span>' : ''}${p.note ? `<div class="muted small">${esc(p.note)}</div>` : ''}</td>
-      <td>${p.cells}S ${p.capacity}</td><td class="num">${p.flights}</td>
+      <td>${p.cells}S ${p.capacity} <span class="chem chem-${esc(p.chemistry)}">${esc(p.chem_label)}</span></td><td class="num">${p.flights}</td>
       <td class="num">${p.ir_now ? `${p.ir_now.toFixed(1)} mΩ` : '–'}</td><td>${sparkline(ir)}</td>
       <td class="num hideS">${p.sag100 ? `${p.sag100.toFixed(2)} V` : '–'}</td>
       <td class="num hideS">${p.mah_per_min ? `${p.mah_per_min}/min` : '–'}</td>
@@ -54,13 +54,15 @@ function renderDetail() {
   const p = st.o.packs.find((x) => x.id === st.pack);
   $('detail').classList.toggle('hidden', !p);
   if (!p) return;
-  $('dTitle').textContent = `${p.name} · ${p.cells}S ${p.capacity} mAh · since ${p.since}`;
+  $('dTitle').textContent = `${p.name} · ${p.cells}S ${p.capacity} mAh ${p.chem_label} · since ${p.since}`;
   drawTrend($('dTrend'), p.trend, { height: 140 });
   const mine = st.o.flights.filter((f) => f.pack === p.id);
   const totalMah = mine.reduce((s, f) => s + (f.summary.mah || 0), 0);
   $('dText').innerHTML = `<p><b>${p.flights}</b> flight${p.flights === 1 ? '' : 's'}, ${Math.round(totalMah)} mAh logged in total.</p>`
     + (p.ir_now ? `<p>Resistance now <b>${p.ir_now.toFixed(1)} mΩ per cell</b>${p.ir_first && p.trend.length >= 4 ? ` (first flights: ${p.ir_first.toFixed(1)})` : ''}. `
-      + 'A fresh good pack is usually 2 to 6 mΩ per cell; it rises with age and wear, and on cold days.</p>' : '<p>No resistance measured yet: it needs flights with some punch-outs.</p>')
+      + (p.chemistry === 'liion' ? 'A good Li-ion pack is usually under 20 mΩ per cell (it sags more than a LiPo by design); '
+        : 'A fresh good LiPo is usually 2 to 6 mΩ per cell; ') + 'it rises with age and wear, and on cold days.</p>' : '<p>No resistance measured yet: it needs flights with some punch-outs.</p>')
+    + `<p class="muted">${esc(p.chem_label)}: low under load ${p.low} V per cell; the live warnings use ${p.warn_load} V under load and ${p.crit_rest} V resting.</p>`
     + (p.mah_per_min ? `<p>At your flying it gives about <b>${p.mah_per_min} mAh a minute</b>: land at <b>${p.landing_mah} mAh</b>, after about <b>${p.landing_min} min</b>.</p>` : '')
     + (p.flags.length ? `<p class="flag">${p.flags.map(esc).join('<br>')}</p>` : '');
 }
@@ -86,7 +88,7 @@ function renderFlights() {
       <td>${esc(f.when || '')}</td><td class="hideS">${esc(f.craft || '')}</td><td>${where}</td>
       <td><select data-assign="${esc(f.id)}" class="${f.pack ? '' : 'ask'}">${packOptions(f.pack)}</select></td>
       <td class="num">${fmtT(s.seconds)}</td><td class="num">${s.mah != null ? s.mah : '–'}</td>
-      <td class="num ${s.min_cell < 3.5 ? 'flag' : ''}">${s.min_cell.toFixed(2)}</td>
+      <td class="num ${s.min_cell < (s.low ?? 3.5) ? 'flag' : ''}" ${s.hint ? `title="${esc(s.hint)}"` : ''}>${s.min_cell.toFixed(2)}${s.hint ? ' ⚠' : ''}</td>
       <td class="num">${s.ir_cell_mohm ? s.ir_cell_mohm.toFixed(1) : '–'}</td>
       <td class="num hideS"><input class="chg" type="number" min="0" step="10" placeholder="mAh" data-chg="${esc(f.id)}" value="${f.charged_mah ?? ''}" title="What your charger put back in after this flight"></td></tr>`;
   }).join('');
@@ -143,7 +145,7 @@ function renderCharger() {
 function editPack(p) {
   $('packForm').classList.remove('hidden');
   $('pfId').value = p?.id || ''; $('pfName').value = p?.name || `pack ${st.o.packs.length + 1}`;
-  $('pfCells').value = String(p?.cells || 6); $('pfCap').value = p?.capacity || 1300;
+  $('pfCells').value = String(p?.cells || 6); $('pfCap').value = p?.capacity || 1300; $('pfChem').value = p?.chemistry || 'lipo';
   $('pfNote').value = p?.note || ''; $('pfRetired').checked = !!p?.retired;
   $('pfDelete').classList.toggle('hidden', !p); $('pfMsg').textContent = '';
   $('pfName').focus();
@@ -153,7 +155,7 @@ $('pfCancel').onclick = () => $('packForm').classList.add('hidden');
 $('pfSave').onclick = async () => {
   try {
     await post('/api/battery/pack', { id: $('pfId').value || undefined, name: $('pfName').value, cells: +$('pfCells').value,
-      capacity: +$('pfCap').value, note: $('pfNote').value, retired: $('pfRetired').checked });
+      capacity: +$('pfCap').value, chemistry: $('pfChem').value, note: $('pfNote').value, retired: $('pfRetired').checked });
     $('packForm').classList.add('hidden'); await load();
   } catch (e) { $('pfMsg').textContent = e.message; }
 };

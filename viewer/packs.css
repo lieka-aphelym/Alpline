@@ -46,3 +46,6 @@ button.danger { color: #ff6b6b; border-color: #ff6b6b80; }
 .packsPage input, .packsPage select { background: var(--t-bg2); color: var(--t-fg); border: 1px solid var(--t-rule2); font: 12.5px var(--mono); padding: 3px 6px; }
 .packsPage button { background: var(--t-bg2); color: var(--t-fg); border: 1px solid var(--t-rule2); font: 12px var(--mono); padding: 3px 8px; cursor: pointer; }
 .packsPage button.primary { background: var(--t-acc); color: var(--t-acc-fg); border-color: var(--t-acc); }
+.chem { font-size: 10.5px; border: 1px solid var(--t-rule2); padding: 0 4px; margin-left: 4px; color: var(--t-fg2); }
+.chem-liion { border-color: #4cc9f0; color: #4cc9f0; }
+.chem-lihv { border-color: #b388ff; color: #b388ff; }
