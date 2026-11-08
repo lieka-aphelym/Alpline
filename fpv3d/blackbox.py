@@ -306,6 +306,30 @@ def nearest_location(lat, lon, scenes_dir=None):
     return best[1] if best else None
 
 
+def _battery_for_old(x, f, folder, stamp, location, scenes):
+    """A flight added by an older Alpline (before the battery analysis): keep its battery now, and give its 3D
+    track the battery colours. True when something was added."""
+    from .battery import describe, flight_file, save_flight, summary
+    loc = None
+    if location:
+        from .locations import list_locations
+        loc = next((l for l in list_locations(Path(scenes or ROOT / "scenes")) if l["name"] == location), None)
+    loc = loc or nearest_location(*x["start"], scenes)
+    when = x["when"].strftime("%Y-%m-%d_%H%M") if x["when"] else f"{stamp}_{x['index']:02d}"
+    stem = f"{loc['name'] if loc else Path(f).stem}_bb_{when}"
+    if flight_file(stem).exists():
+        return False
+    save_flight(stem, x["battery"], when=x["when"].strftime("%Y-%m-%d %H:%M") if x["when"] else None)
+    linked = False
+    if loc and loc.get("built"):
+        from .scene import attach_battery_to_track
+        linked = attach_battery_to_track(Path(scenes or ROOT / "scenes") / loc["name"], stem)
+    log(f"flight {x['index']}: added before; battery now kept ({describe(summary(x['battery']))})"
+        + (" and shown on its 3D track" if linked else ""))
+    log(f"BATTERY {stem}")
+    return True
+
+
 def _remember(seen, seen_file, fp):
     seen.add(fp)
     seen_file.parent.mkdir(parents=True, exist_ok=True)
@@ -389,6 +413,8 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
                 continue
             fp = _fingerprint(x["rows"])
             if fp in seen:
+                if x.get("battery") and _battery_for_old(x, f, folder, stamp, location, scenes):
+                    continue
                 log(f"flight {x['index']}: {mins:.1f} min, already added before: skipped")
                 continue
             loc = None

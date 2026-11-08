@@ -346,6 +346,28 @@ def _attach_battery(cfg, p, tr, data, summ):
         log(f"[battery] {tr.name}: not read ({ex.__class__.__name__}: {ex})")
 
 
+def attach_battery_to_track(scene_dir: Path, fid: str) -> bool:
+    """Give an existing track (whose log is named `fid`) its battery series without rebuilding: path colours and the
+    link the viewer's battery tab needs. False when no track of this scene came from that log."""
+    from . import battery
+    try:
+        meta = json.loads((scene_dir / "scene.json").read_text(encoding="utf-8"))
+        t = next((t for t in meta.get("tracks", []) if t["name"] == fid or Path(t.get("source", "")).stem == fid), None)
+        if not t:
+            return False
+        s = json.loads(battery.flight_file(fid).read_text(encoding="utf-8"))
+        f = scene_dir / t["file"]
+        data = json.loads(f.read_text(encoding="utf-8"))
+        data.update(battery.resample(s, data["t"]), bat_cells=s.get("cells"))
+        write_atomic(f, json.dumps(data, separators=(",", ":")))
+        t["battery"] = fid
+        write_atomic(scene_dir / "scene.json", json.dumps(meta, indent=1))
+        battery.link_track(fid, meta.get("name", scene_dir.name), t["name"])
+        return True
+    except (OSError, ValueError, KeyError):
+        return False
+
+
 def add_tracks(cfg, terrain, pilot, out: Path, log_paths, meta_tracks, overrides=None):
     """Process logs into tracks. `log_paths` items are paths or (path, log_option_overrides)."""
     (out / "tracks").mkdir(exist_ok=True)

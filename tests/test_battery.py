@@ -151,6 +151,22 @@ def test_blackbox_battery_end_to_end():
     assert next(t for t in d.scene("001_field")["tracks"] if t["name"] == bats[0]).get("battery") == bats[0]
     out2 = d.run("blackbox", "--file", str(bbl)).stdout                # twice: nothing new
     assert "BATTERY" not in out2
+    # a flight downloaded by an older Alpline (no battery kept): downloading again adds the battery to its track
+    import shutil
+    shutil.rmtree(d.dir / "battery")
+    tf = d.dir / "scenes" / "001_field" / tr["file"]
+    old = json.loads(tf.read_text(encoding="utf-8"))
+    for k in ("cell_v", "amps", "bat_cells"):
+        old.pop(k, None)
+    tf.write_text(json.dumps(old), encoding="utf-8")
+    m = d.scene("001_field")
+    for t in m["tracks"]:
+        t.pop("battery", None)
+    (d.dir / "scenes" / "001_field" / "scene.json").write_text(json.dumps(m), encoding="utf-8")
+    out3 = d.run("blackbox", "--file", str(bbl)).stdout
+    assert "battery now kept" in out3 and "shown on its 3D track" in out3, out3
+    assert next(t for t in d.scene("001_field")["tracks"] if t["name"] == bats[0]).get("battery") == bats[0]
+    assert "cell_v" in json.loads(tf.read_text(encoding="utf-8"))
 
 
 def test_battery_api():
