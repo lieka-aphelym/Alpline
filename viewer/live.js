@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { createWarner } from './warn.js';
 import { mountDrone } from './drone.js';
+import { createDroneMarker } from './marker.js';
 
 const $ = (id) => document.getElementById(id);
 function toLV95(lat, lon) {
@@ -90,11 +91,18 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     S.requestRender?.(200);
   }
 
-  const drone = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.ConeGeometry(6, 16, 4), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true }));
-  body.rotation.x = Math.PI / 2;
-  const halo = new THREE.Mesh(new THREE.SphereGeometry(13, 16, 12), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.25, depthWrite: false }));
-  drone.add(body, halo); drone.visible = false; scene3.add(drone);
+  // the drone: the same marker as the replay (marker.js), faded while its position is estimated between GPS fixes
+  const MK = createDroneMarker({ THREE, scene3, camera, viewEl: document.getElementById('view') });
+  const drone = MK.group;
+  MK.setVisible(false);
+  const mk = { vel: new THREE.Vector3(), color: 0x22d3ee, css: '#22d3ee', agl: null, groundY: null, estimated: false };
+  const _gw = new THREE.Vector3();
+  function placeMarker(x, y, z, vx, vy, vz) {
+    toWorld(x, y, z, drone.position);
+    mk.vel.set(vx, vz * S.exag, -vy);
+    mk.agl = z - demHeight(x, y);
+    mk.groundY = toWorld(x, y, demHeight(x, y), _gw).y;
+  }
   const MAXP = 6000;
   const tGeo = new THREE.BufferGeometry();
   tGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAXP * 3), 3));
@@ -208,6 +216,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     showPilot();
     Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
     tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
+    MK.setVisible(false);
     st.t0 = performance.now(); st.flyT0 = null;
     $('liveConnectBox').classList.add('hidden'); $('liveTiles').classList.remove('hidden', 'dim'); $('liveConnBar').classList.remove('hidden');
     $('liveConnTxt').textContent = (srcSel.value === 'serial' ? `${$('livePort').value} · radio` : 'replay')
@@ -253,7 +262,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     $('liveConnectBox').classList.remove('hidden'); $('liveTiles').classList.add('hidden'); $('liveConnBar').classList.add('hidden');
     hero('off'); $('liveStatus').textContent = 'pick the radio and connect';
     document.body.classList.remove('live-on');
-    W.stop(); pred.visible = false;
+    W.stop(); pred.visible = false; MK.setVisible(false);
     D.loop(null); D.flying(false); D.off(true); linkTxt('not connected'); $('liveHint').classList.add('hidden');
     try {
       const r = await fetch('/api/live/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: $('liveSave').checked }) });
@@ -318,7 +327,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (vz == null && st.last) vz = (z - st.last.z) / Math.max(s.t - st.last.t, 0.05);
     const cur = { t: s.t, x, y, z, agl: z - ground, vx: spd * Math.sin(h), vy: spd * Math.cos(h), vz: vz || 0, heading: s.heading || 0, lq: s.lq, raw: s };
     st.prev = st.last; st.last = cur;
-    if (newest) { st.lastAt = performance.now(); st.estAt = 0; body.material.opacity = 1; halo.material.opacity = 0.25; }
+    if (newest) { st.lastAt = performance.now(); st.estAt = 0; mk.estimated = false; }
     if (cur.agl < 3 && spd < 1) st.seenGround = true;      // every sample: a batch may hold the takeoff
     if (newest) {
       D.link(s.lq);
@@ -331,11 +340,10 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       else if (st.flying && cur.agl < 2 && spd < 1) { st.flying = false; D.flying(false); }
     }
     // drone + trail
-    drone.visible = true;
-    toWorld(x, y, z, drone.position);
-    drone.rotation.y = -h;
+    MK.setVisible(true);
+    placeMarker(x, y, z, cur.vx, cur.vy, cur.vz);
     const col = new THREE.Color(s.lq == null ? 0x22d3ee : s.lq >= 80 ? 0x2ecc71 : s.lq >= 60 ? 0xffb000 : 0xff3b30);
-    body.material.color.copy(col); halo.material.color.copy(col);
+    mk.color = col; mk.css = '#' + col.getHexString();
     const i = st.trail.length % MAXP;
     st.trail.push(1);
     tGeo.attributes.position.setXYZ(i, drone.position.x, drone.position.y, drone.position.z);
@@ -364,8 +372,8 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (dt < 0.25) return;                                  // the real position is fresh
     const t = Math.min(dt, Math.max(3, 2 * (st.gpsEvery || 1)));
     const x = c.x + c.vx * t, y = c.y + c.vy * t, g = demHeight(x, y), z = Math.max(g + 0.5, c.z + c.vz * t);
-    toWorld(x, y, z, drone.position);
-    body.material.opacity = 0.55; halo.material.opacity = 0.12;
+    placeMarker(x, y, z, c.vx, c.vy, c.vz);
+    mk.estimated = true;
     const L = W.cfg.lookahead;
     pred.geometry.setFromPoints([toWorld(x, y, z), toWorld(x + c.vx * L, y + c.vy * L, z + c.vz * L)]); pred.computeLineDistances();
     S.requestRender?.(200);
@@ -518,10 +526,13 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
 
   return {
     simTick, simStop: () => { if (!st.on) W.stop(); },
-    tick(now) { W.tick(now); },
-    setExag() { if (st.last) { toWorld(st.last.x, st.last.y, st.last.z, drone.position); } },
+    tick(now) {
+      W.tick(now);
+      if (MK.visible) { MK.style({ faded: mk.estimated }); MK.update({ vel: mk.vel, acc: null, color: mk.color, css: mk.css, groundY: mk.groundY, agl: mk.agl, now }); }
+    },
+    setExag() { if (st.last) placeMarker(st.last.x, st.last.y, st.last.z, st.last.vx, st.last.vy, st.last.vz); },
     /** for the automated checks: where the drone is drawn and whether that is an estimate */
     ceilCheck: (pts) => pts.map(([x, y]) => [S.vol?.ceilAt ? S.vol.ceilAt('los', x, y) : null, ceilFrom({ x: P0.x, y: P0.y, z: P0.z }, x, y)]),
-    debug: () => ({ x: drone.position.x, z: drone.position.z, opacity: body.material.opacity, lost: st.lost, pilot: pilot(), rel: st.rel, last: st.last && { agl: st.last.agl, z: st.last.z } }),
+    debug: () => ({ x: drone.position.x, z: drone.position.z, opacity: mk.estimated ? 0.55 : 1, lost: st.lost, pilot: pilot(), rel: st.rel, last: st.last && { agl: st.last.agl, z: st.last.z } }),
   };
 }

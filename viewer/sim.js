@@ -345,7 +345,12 @@ export function initSim(app) {
       camera.position.copy(st.pos).addScaledVector(_back, 12).add(_u.set(0, 4, 0));
       camera.lookAt(st.pos);
     }
-    if (S.drone) { S.drone.visible = st.view === 'chase'; S.drone.position.copy(st.pos); S.drone.scale.setScalar(0.25); }
+    if (S.drone) {                                           // chase view: the same marker as the replay, real attitude
+      S.drone.visible = st.view === 'chase'; S.drone.position.copy(st.pos);
+      const s = st.sig, g = app.simGround ? app.simGround(st.pos.x, st.pos.z, st.pos.y, st.pos.y).h : null;
+      const m = s?.links?.[0]?.margin, css = m == null ? '#3ddc84' : m < 0 ? '#ff2d55' : s.clearance < 0 ? '#ff7a1a' : '#3ddc84';
+      app.markerUpdate?.({ vel: st.vel, attitude: st.q, groundY: g, agl: s?.agl, color: css, css });
+    }
     osd(inp);
     return true;
   }

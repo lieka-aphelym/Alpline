@@ -106,6 +106,7 @@ Existing location files keep their own values in both modes; edit them to change
 - **Radio setups instead of dB fields:** *[signal] → Radio range* offers ready-made choices per link (e.g. *25 mW · stock antennas (CH / EU limit)*, *500 mW · patch on the goggles*). The exact numbers are under *Advanced: exact radio values*.
 - **Simpler signal display:** *clear*, *no line of sight* and *signal loss likely* (no separate Fresnel state).
 - **Clean flight info box:** distance, height and speed in large type, one bar per radio link (margin, plus LQ when the log has it), the drone zone only when you're in one; the rest under *[more]*.
+- **The drone in the view:** close up (under ~250 m from the camera) a small 3D quad that leans into turns and climbs, with a ring in the link colour; further away a round Alpline badge with a chevron pointing where it flies. Always a dashed line down to its shadow on the ground with the height above ground, and in replay a fading tail of the last 5 s. Same look in live flight (faded while the position is only estimated), the training flight's chase view (real attitude) and the see-through ghost of *Compare with*.
 - **Dark / light theme:** the *[dark] [light]* switch next to the title, remembered per browser. Dark for indoors, light for sunlight at the field.
 - **Playback bar:** small, and you can drag it anywhere by its grip (double-click the grip to put it back). In *[flights]*, the flight **(none)** hides the path, the drone, the info box and the bar.
 
@@ -173,7 +174,7 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
 4. In the viewer, open *[fly]*, click *[refresh]*, pick the port and click *[connect]*. Connect while the drone is still on the ground: its GPS altitude is then calibrated against the terrain. You can also type an altitude correction yourself.
 
 **What you get**
-- **Live drone:** the drone moves on the map with a trail coloured by LQ, a dashed line shows where it will be in a few seconds, and you see LQ, RSSI, SNR, TX power, battery, flight mode, height above ground, speed, distance and satellites.
+- **Live drone:** the drone (same marker as in replay, faded while its position is estimated) moves on the map with a trail coloured by LQ, a dashed line shows where it will be in a few seconds, and you see LQ, RSSI, SNR, TX power, battery, flight mode, height above ground, speed, distance and satellites.
 - **Warnings (voice + beeps, through the laptop speaker or an earbud):** the path of the next seconds (*Look ahead*, 5 s by default) is checked against the 3D shadows of the scene, i.e. the height below which there is no line of sight to the pilot:
   - "Blind zone ahead, climb 30" (or "..., turn left" when climbing is not enough), with slow beeps
   - "Blind zone close, climb 30 now" / "..., turn back now", with fast beeps

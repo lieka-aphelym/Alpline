@@ -18,6 +18,7 @@ import { initProfile } from './profile.js';
 import { initLive } from './live.js';
 import { initBlackbox } from './blackbox.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
+import { createDroneMarker } from './marker.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
 
 const $ = (id) => document.getElementById(id);
@@ -518,11 +519,8 @@ function buildTrackObjects() {
 }
 
 function buildDrone() {
-  const grp = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.OctahedronGeometry(7), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-  const halo = new THREE.Mesh(new THREE.SphereGeometry(14, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, depthWrite: false }));
-  grp.add(body, halo); grp.userData = { body, halo };
-  S.drone = grp; scene3.add(grp);
+  S.droneMarker = createDroneMarker({ THREE, scene3, camera, viewEl: $('view') });   // marker.js: quad close, badge far
+  S.drone = S.droneMarker.group;
   S.velArrow = makeArrow(C_VEL); S.accArrow = makeArrow(C_ACC);
   const bg = new THREE.BufferGeometry(); bg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
   S.beam = new THREE.Line(bg, new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 12, gapSize: 8 }));
@@ -535,6 +533,29 @@ function findIndex(t) {
   return lo;
 }
 
+// the replay drone's marker: heading / bank from the track's speed and acceleration, the drop line to the ground,
+// and a tail of the last 5 s of the flight
+const _mv = new THREE.Vector3(), _ma = new THREE.Vector3(), _mg = new THREE.Vector3(), _tailPts = Array.from({ length: 64 }, () => new THREE.Vector3());
+function trackMarkerArgs(tr, i, out = {}) {
+  const has = !!tr.vx;
+  out.vel = has ? _mv.set(tr.vx[i], tr.vz[i] * S.exag, -tr.vy[i]) : null;
+  out.acc = has ? _ma.set(tr.ax[i], tr.az[i] * S.exag, -tr.ay[i]) : null;
+  out.groundY = toWorld(tr.x[i], tr.y[i], demHeight(tr.x[i], tr.y[i]), _mg).y;
+  out.agl = tr.agl ? tr.agl[i] : null;
+  return out;
+}
+function replayMarker(now) {
+  const tr = S.track, i = S.idx ?? 0, st = statusOf(i);
+  const a = trackMarkerArgs(tr, i);
+  let n = 0;                                               // the last 5 s, at most 64 points
+  const t0 = tr.t[i] - 5;
+  let k = i; while (k > 0 && tr.t[k - 1] >= t0) k--;
+  const step = Math.max(1, Math.ceil((i - k + 1) / 63));
+  for (let j = k; j <= i && n < 63; j += step) toWorld(tr.x[j], tr.y[j], tr.z[j], _tailPts[n++]);
+  _tailPts[n++].copy(S.drone.position);
+  S.droneMarker.update({ ...a, color: st.c, css: st.css, tail: _tailPts.slice(0, n), now });
+}
+
 const _v = new THREE.Vector3(), _prev = new THREE.Vector3();
 function updateDrone() {
   const tr = S.track; if (!tr || !S.drone) return;
@@ -545,7 +566,6 @@ function updateDrone() {
   _prev.copy(S.drone.position);
   toWorld(lerp(tr.x[i], tr.x[j], f), lerp(tr.y[i], tr.y[j], f), lerp(tr.z[i], tr.z[j], f), S.drone.position);
   const st = statusOf(S.idx);
-  S.drone.userData.halo.material.color.copy(st.c);
   const p = S.meta.pilot, b = S.beam.geometry.attributes.position;
   toWorld(p.x, p.y, p.z, _v); b.setXYZ(0, _v.x, _v.y, _v.z);
   b.setXYZ(1, S.drone.position.x, S.drone.position.y, S.drone.position.z); b.needsUpdate = true;
@@ -889,6 +909,7 @@ function simGround(wx, wz, wy, prevY) {
 const SIM = initSim({
   THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration, simGround,
   detailSize: () => S.detail?.sizeM,
+  markerUpdate: (o) => S.droneMarker?.update(o),
   ensureDrone: () => { if (!S.drone) buildDrone(); },
   zonesAt: (x, y, z) => (S.zones ? S.zones.zonesAt(x, y, z) : []),
   setClutterVisible: (on) => {   // markers that only get in the way of an FPV view
@@ -939,16 +960,17 @@ function renderCompare() {
 }
 
 function buildCompareObjects() {
-  for (const o of [S.cmpLine, S.cmpGhost]) if (o) { scene3.remove(o); o.geometry?.dispose(); }
-  S.cmpLine = S.cmpGhost = null;
+  if (S.cmpLine) { scene3.remove(S.cmpLine); S.cmpLine.geometry.dispose(); }
+  S.cmpMarker?.dispose();
+  S.cmpLine = S.cmpGhost = S.cmpMarker = null;
   const tr = S.cmp; if (!tr) return;
   const pos = new Float32Array(tr.n * 3), v = new THREE.Vector3();
   for (let i = 0; i < tr.n; i++) toWorld(tr.x[i], tr.y[i], tr.z[i], v).toArray(pos, i * 3);
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   S.cmpLine = new THREE.Line(g, new THREE.LineDashedMaterial({ color: 0xffffff, dashSize: 6, gapSize: 4, transparent: true, opacity: 0.85 }));
   S.cmpLine.computeLineDistances(); scene3.add(S.cmpLine);
-  S.cmpGhost = new THREE.Mesh(new THREE.OctahedronGeometry(6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 }));
-  scene3.add(S.cmpGhost);
+  S.cmpMarker = createDroneMarker({ THREE, scene3, camera, viewEl: null, ghost: true });   // see-through, no label
+  S.cmpGhost = S.cmpMarker.group;
   placeGhost();
 }
 function placeGhost() {
@@ -956,7 +978,7 @@ function placeGhost() {
   const t = Math.min(S.time + tr.t[0], tr.t[tr.n - 1]);
   let lo = 0, hi = tr.n - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (tr.t[mid] <= t) lo = mid; else hi = mid - 1; }
   toWorld(tr.x[lo], tr.y[lo], tr.z[lo], S.cmpGhost.position);
-  if (S.drone) S.cmpGhost.scale.copy(S.drone.scale);
+  S.cmpMarker?.update({ ...trackMarkerArgs(tr, lo), color: 0xffffff, css: '#f2f5f8' });
 }
 
 async function loadCompare(file) {
@@ -1183,11 +1205,12 @@ renderer.setAnimationLoop(() => {
     updateDrone();
   }
   V.tick();
-  if (S.drone) { const s = Math.max(1, camera.position.distanceTo(S.drone.position) / 500); S.drone.scale.setScalar(s); }
   if (S.pilot) { const s = Math.max(1, camera.position.distanceTo(S.pilot.position) / 600); S.pilot.userData.head.scale.setScalar(s); }
   updateArrows();
   CAM.update(dt);
   if (S.drone) S.drone.visible = CAM.mode() !== 'drone' && (!!S.track || document.body.classList.contains('sim-on'));   // don't sit inside the marker
+  if (S.drone && S.track) replayMarker(now);
+  if (S.cmpMarker) placeGhost();
   if (S.curtain) S.curtain.visible = $('curtainOn').checked && CAM.mode() !== 'drone';
   const orbitMoved = CAM.usesOrbit() ? controls.update() : false;
   S.detail?.update(now);

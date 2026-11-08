@@ -361,3 +361,8 @@ details.lvFold[open] > summary { margin-bottom: 6px; }
   font-family: var(--mono); max-height: 9.5em; overflow-y: auto; white-space: pre-wrap; }
 .bbLog .ok { color: var(--ok, #34d399); }
 .bbLog .bad { color: var(--bad, #f87171); }
+
+/* 3D view: height above ground next to the drone's drop line (marker.js) */
+.droneAgl { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; white-space: nowrap;
+  font: 700 11px var(--mono, Consolas, monospace); color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+body.sim-on .droneAgl { display: none !important; }
