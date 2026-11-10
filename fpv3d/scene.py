@@ -24,6 +24,7 @@ from . import geozones, progress, radio, swisstopo
 from .config import VALID_RES, LocationConfig
 from .geo import Grid, lv95_to_wgs84, wgs84_to_lv95
 from .los import Terrain, los_ceilings, path_clearance
+from .paths import from_portable, portable
 from .safefile import write_atomic
 
 
@@ -346,13 +347,47 @@ def _attach_battery(cfg, p, tr, data, summ):
         log(f"[battery] {tr.name}: not read ({ex.__class__.__name__}: {ex})")
 
 
+def _stem(src: str) -> str:
+    """File name without folder and extension, whatever the path style (it may come from another system)."""
+    return src.replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def make_sources_portable(scenes_dir: Path) -> int:
+    """Scene files written by older versions hold each log's full path (C:\\Users\\<you>\\...). Rewrite those inside
+    your Alpline folder as relative paths; returns how many were changed. Safe to run at every start."""
+    from .paths import DATA
+    n = 0
+    for f in sorted(Path(scenes_dir).glob("*/scene.json")):
+        try:
+            meta = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        changed = 0
+        for t in meta.get("tracks", []):
+            src = t.get("source")
+            if not src or src == "config" or not (src.startswith(("/", "\\")) or (len(src) > 2 and src[1] == ":")):
+                continue
+            p = from_portable(src)
+            new = portable(p) if p.exists() else None
+            if new is None:                                 # the log is gone: keep only where it was inside the folder
+                parts = [x for x in src.replace("\\", "/").split("/") if x]
+                new = "/".join(parts[len(parts) - 1 - parts[::-1].index("logs"):]) if "logs" in parts else parts[-1]
+            if new != src and not Path(new).is_absolute() and DATA:
+                t["source"] = new
+                changed += 1
+        if changed:
+            write_atomic(f, json.dumps(meta, indent=1))
+            n += changed
+    return n
+
+
 def attach_battery_to_track(scene_dir: Path, fid: str) -> bool:
     """Give an existing track (whose log is named `fid`) its battery series without rebuilding: path colours and the
     link the viewer's battery tab needs. False when no track of this scene came from that log."""
     from . import battery
     try:
         meta = json.loads((scene_dir / "scene.json").read_text(encoding="utf-8"))
-        t = next((t for t in meta.get("tracks", []) if t["name"] == fid or Path(t.get("source", "")).stem == fid), None)
+        t = next((t for t in meta.get("tracks", []) if t["name"] == fid or _stem(t.get("source", "")) == fid), None)
         if not t:
             return False
         s = json.loads(battery.flight_file(fid).read_text(encoding="utf-8"))
@@ -383,7 +418,7 @@ def add_tracks(cfg, terrain, pilot, out: Path, log_paths, meta_tracks, overrides
         if ov.get("track_name"):                       # renamed in fpv3d, the log file itself was left alone
             tr.name = ov["track_name"]
         data, summ = process_track(cfg, terrain, pilot, tr, dict(cfg.log_options, **ov_proc))
-        summ["source"] = str(Path(p).resolve())           # remembered so rebuilds keep this track
+        summ["source"] = portable(p)                      # remembered so rebuilds keep this track (no full path)
         _attach_battery(cfg, p, tr, data, summ)
         if ov:
             summ["log_options"] = ov
@@ -421,8 +456,8 @@ def previous_tracks(cfg, out: Path, log_paths):
             continue
         seen.add(t["name"])
         src = t.get("source")
-        if src and Path(src).exists():
-            redo.append((src, t.get("log_options") or {}))
+        if src and src != "config" and from_portable(src).exists():
+            redo.append((str(from_portable(src)), t.get("log_options") or {}))
         elif (out / t["file"]).exists():
             keep.append(t)
     # track files no longer listed (lost by an older rebuild): find their log again, else keep as is

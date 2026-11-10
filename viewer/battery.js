@@ -3,6 +3,7 @@
 // under the playback bar with the replay cursor (click it to jump there). The data: GET /api/battery/flight
 // (series at 0.1 s on the track's clock) and /api/battery/packs; analysis in fpv3d/battery.py.
 import { esc } from './esc.js';
+import { APP } from './env.js';
 import { drawDischargeCursor, drawSag, fmtT } from './batchart.js';
 
 import { postJSON as post, getJSON as get } from './net.js';
@@ -80,7 +81,7 @@ export function initBattery({ S, $, seek, onChange }) {
       adv.innerHTML = `<b>${esc(pk.name)}</b> at your flying: about <b>${pk.mah_per_min} mAh a minute</b>. Land at <b>${pk.landing_mah} mAh</b> `
         + `(80 % of ${pk.capacity}): after about <b>${pk.landing_min} min</b>.` + (pk.flags.length ? `<div class="warnTxt">${pk.flags.map(esc).join('<br>')}</div>` : '');
     } else if (pk) adv.innerHTML = `Landing advice for <b>${esc(pk.name)}</b> appears after a flight longer than a minute with it.`;
-    else adv.innerHTML = 'Say which pack flew this flight: Alpline then follows each pack\'s health and how long it lasts at your flying.';
+    else adv.innerHTML = `Say which pack flew this flight: ${APP} then follows each pack's health and how long it lasts at your flying.`;
     // the pack's notes (newest 3) and a quick note tied to this flight
     $('batNoteBox').classList.toggle('hidden', !pk);
     $('batNotes').innerHTML = pk?.notes?.length ? `<b>Notes</b>: ` + pk.notes.slice(0, 3).map((n) =>

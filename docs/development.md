@@ -70,3 +70,22 @@ Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (r
   on screen), `viewer/esc.js` (text safe for HTML); `fpv3d/filelock.py` (a lock between programs),
   `fpv3d/safefile.py` (writes that never leave half a file), `fpv3d/errorlog.py`.
 - **Types:** `mypy` checks eleven modules (see `pyproject.toml`); add a module there when it is clean.
+
+## Renaming the app
+
+The name is defined once, in `fpv3d/brand.py` (`APP_NAME`, and `BY` for the maker's name). The launcher, its texts,
+the taskbar id, the desktop shortcut, the server's messages and the pages all read it; the pages get it from the
+server and `viewer/theme.js` puts it into every text and title. After changing it:
+
+- your existing files are still found: the folders of `EARLIER_NAMES` are used when the new one does not exist
+- internal names stay (`ALPLINE_DATA`, `alpline-cli.exe`, backup file names, the firewall rule, the package `fpv3d`)
+- the installer (`packaging/alpline.iss`), `Alpline.bat`, `build_app.bat` and this documentation spell the name
+  themselves: change them by hand
+- the logo images in `viewer/brand/` are pictures: replace them if the logo changes
+
+## No personal data in the project
+
+Scene files store each log's place relative to your Alpline folder (`logs/sim/x.csv`), never the full path, which
+would hold your Windows user name; older scene files are rewritten when the launcher starts. `logs/errors.txt` writes
+your home folder as `~`. Your locations, flights, scenes, settings and backups are not part of the git repository
+(`.gitignore`).

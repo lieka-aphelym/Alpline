@@ -2,6 +2,7 @@
 // data (which pack flew it, charger entry), one flight's discharge, and the current-sensor check.
 // Data: GET /api/battery/packs (computed in fpv3d/battery.py), /api/battery/flight?id=; changes: POST /api/battery/*.
 import { esc } from './esc.js';
+import { APP } from './env.js';
 import { drawDischarge, drawSag, drawTrend, sparkline, fmtT } from './batchart.js';
 
 const $ = (id) => document.getElementById(id);
@@ -158,7 +159,7 @@ function drawFlight() {
 
 function renderCharger() {
   const c = st.o.charger, box = $('charger');
-  const how = '<p class="muted">After a flight, type in the flights list what your charger put back in (mAh). Alpline compares it with the mAh '
+  const how = '<p class="muted">After a flight, type in the flights list what your charger put back in (mAh). ' + APP + ' compares it with the mAh '
     + 'the drone logged: if they differ, the current sensor needs calibrating, and you get the value to set in Betaflight.</p>';
   if (!c) { box.innerHTML = how; return; }
   const pct = Math.round((c.ratio - 1) * 100);

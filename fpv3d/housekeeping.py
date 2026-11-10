@@ -12,6 +12,7 @@ import time
 import zipfile
 from pathlib import Path
 
+from .brand import APP_NAME
 from .paths import DATA
 from .safefile import write_atomic
 
@@ -248,7 +249,7 @@ def read_backup(src: Path) -> dict:
             info["names"] = [n for n in z.namelist() if n != BACKUP_TAG]
             return info
     except (KeyError, zipfile.BadZipFile, ValueError, OSError) as ex:
-        raise ValueError(f"{Path(src).name} is not an Alpline backup") from ex
+        raise ValueError(f"{Path(src).name} is not an {APP_NAME} backup") from ex
 
 
 def _safe_target(root: Path, name: str) -> Path | None:

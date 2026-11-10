@@ -31,6 +31,7 @@ import numpy as np
 from .filelock import try_lock, unlock
 from .paths import DATA
 from .safefile import write_atomic
+from .brand import APP_NAME
 
 BIN_S = 0.1                       # analysis resolution
 LOW_CELL = 3.5                    # LiPo "under load" level per cell (V); each chemistry has its own in CHEM
@@ -304,7 +305,7 @@ def _locked(root: Path):
         end = time.monotonic() + 10
         while not try_lock(f):
             if time.monotonic() > end:
-                raise RuntimeError("the packs file is in use by another Alpline window: try again") from None
+                raise RuntimeError(f"the packs file is in use by another {APP_NAME} window: try again") from None
             time.sleep(0.05)
         try:
             yield

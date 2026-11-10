@@ -207,6 +207,70 @@ def test_library_check_reads_the_pins():
     assert deps.differences(HERE.parent / "requirements.txt") is not None and deps.differences(d / "none.txt") == []
 
 
+def test_scene_files_hold_no_full_paths():
+    """A log inside the Alpline folder is written down relative to it: no user name in scene files or backups, and a
+    restore on another PC still finds the log. Scene files of older versions are rewritten."""
+    from fpv3d import paths, scene
+    root = make_data()
+    old = paths.DATA
+    try:
+        paths.DATA = root
+        log = root / "logs" / "flight1.csv"
+        assert paths.portable(log) == "logs/flight1.csv" and paths.from_portable("logs/flight1.csv") == root / "logs" / "flight1.csv"
+        outside = Path(tempfile.mkdtemp()) / "elsewhere.csv"
+        assert paths.portable(outside) == str(outside)                          # not yours to shorten
+        # written by an older version on Windows, and on this system under another folder
+        win = "C:\\Users\\somebody\\PycharmProjects\\fpv3d\\logs\\flight1.csv"
+        assert paths.from_portable(win) == log and paths.from_portable("/old/home/x/logs/blackbox/2026/a.csv") == root / "logs/blackbox/2026/a.csv"
+        sj = root / "scenes" / "001_a" / "scene.json"
+        meta = json.loads(sj.read_text(encoding="utf-8"))
+        meta["tracks"] = [dict(name="flight1", file="tracks/flight1.json", source=win),
+                          dict(name="gone", file="tracks/gone.json", source="C:\\Users\\somebody\\x\\logs\\sim\\001_a\\gone.csv"),
+                          dict(name="ext", file="tracks/ext.json", source=str(outside)), dict(name="cfg", file="t.json", source="config")]
+        sj.write_text(json.dumps(meta), encoding="utf-8")
+        outside.write_text("x", encoding="utf-8")
+        assert scene.make_sources_portable(root / "scenes") == 2
+        srcs = [t["source"] for t in json.loads(sj.read_text(encoding="utf-8"))["tracks"]]
+        assert srcs == ["logs/flight1.csv", "logs/sim/001_a/gone.csv", str(outside), "config"]
+        assert "somebody" not in sj.read_text(encoding="utf-8") and scene.make_sources_portable(root / "scenes") == 0
+    finally:
+        paths.DATA = old
+
+
+def test_app_name_in_one_place():
+    from fpv3d import brand, paths
+    base = Path(tempfile.mkdtemp())
+    old = (paths.APP_NAME, paths.EARLIER_NAMES)
+    try:
+        paths.APP_NAME, paths.EARLIER_NAMES = "Newname", ("Alpline",)
+        assert paths._named(base) == base / "Newname"                           # a new install: the new name
+        (base / "Alpline").mkdir()
+        assert paths._named(base) == base / "Alpline"                           # your existing folder is still found
+        (base / "Newname").mkdir()
+        assert paths._named(base) == base / "Newname"
+    finally:
+        paths.APP_NAME, paths.EARLIER_NAMES = old
+    assert brand.APP_NAME in brand.APP_ID and brand.APP_NAME in brand.EARLIER_NAMES
+    # no user-visible text spells the name itself any more (comments, docstrings and internal file names aside)
+    import re
+    bad = []
+    keep = re.compile(r'Alpline\.exe|Alpline\.bat|Alpline \(phone\)|"Alpline"|^\s*#|alpline')
+    for f in [HERE.parent / "launcher.pyw", *sorted((HERE.parent / "fpv3d").glob("*.py"))]:
+        if f.name in ("brand.py",):
+            continue
+        doc = False
+        for i, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if line.count('"""') == 1:
+                doc = not doc
+                continue
+            if doc or line.count('"""') == 2:
+                continue
+            code = line.split("  #")[0]
+            if re.search(r"[\"'][^\"']*Alpline", code) and not keep.search(code):
+                bad.append(f"{f.name}:{i}: {line.strip()[:90]}")
+    assert not bad, "\n".join(bad)
+
+
 def test_clear_refused_while_building():
     from fpv3d.buildlock import scene_lock
     root = make_data()

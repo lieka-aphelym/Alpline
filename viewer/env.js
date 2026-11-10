@@ -4,3 +4,5 @@
 //   LIGHT : either of them (lighter 3D: smaller meshes, render on demand)
 const E = window.ALPLINE || { mode: 'full', lite: false, phone: false, light: false };
 export const MODE = E.mode, LITE = E.lite, PHONE = E.phone, LIGHT = E.light;
+/** the app's name (fpv3d/brand.py, handed over by the server): for texts built in JavaScript */
+export const APP = window.APP_BRAND?.name || 'Alpline';

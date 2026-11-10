@@ -13,13 +13,30 @@ import os
 import sys
 from pathlib import Path
 
+from .brand import APP_NAME, EARLIER_NAMES
+
 FROZEN = bool(getattr(sys, "frozen", False))                 # running as the packaged Alpline.exe
 APP = Path(getattr(sys, "_MEIPASS", "")) if FROZEN else Path(__file__).resolve().parent.parent
 EXE_DIR = Path(sys.executable).resolve().parent if FROZEN else APP
 
 # the installed app remembers the chosen data folder here (outside the data folder itself)
-POINTER = Path(os.environ.get("APPDATA") or Path.home() / ".config") / "Alpline" / "data_folder.txt"
-DEFAULT_DATA = Path.home() / "Documents" / "Alpline"
+_CONF = Path(os.environ.get("APPDATA") or Path.home() / ".config")
+
+
+def _named(base: Path, tail: str = "") -> Path:
+    """<base>/<app name>[/tail]. After a rename of the app (fpv3d/brand.py) the folder of an earlier name is used
+    when it exists and the new one does not: your existing files are found, new installs get the new name."""
+    new = base / APP_NAME / tail if tail else base / APP_NAME
+    if not new.exists():
+        for old in EARLIER_NAMES:
+            cand = base / old / tail if tail else base / old
+            if old != APP_NAME and cand.exists():
+                return cand
+    return new
+
+
+POINTER = _named(_CONF, "data_folder.txt")
+DEFAULT_DATA = _named(Path.home() / "Documents")
 
 
 def _data() -> Path:
@@ -37,6 +54,34 @@ def _data() -> Path:
 
 
 DATA = _data()
+
+
+def portable(path) -> str:
+    """How a file of yours is written down in scene files: relative to your Alpline folder when it is inside it
+    ("logs/sim/x.csv"), so no file carries the folder's full path (it holds your Windows user name) and a backup
+    restored on another PC still finds its logs. Files elsewhere keep their full path."""
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(DATA.resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(p)
+
+
+def from_portable(src: str) -> Path:
+    """The file a stored path means. Relative = inside your Alpline folder. A full path written by an older version
+    (or on another PC) that no longer exists is looked for under logs/ here."""
+    s = str(src or "")
+    absolute = s.startswith(("/", "\\")) or (len(s) > 2 and s[1] == ":")
+    if not absolute:
+        return DATA / s
+    p = Path(s)
+    if not p.exists():
+        parts = [x for x in s.replace("\\", "/").split("/") if x]
+        if "logs" in parts:
+            cand = DATA.joinpath(*parts[len(parts) - 1 - parts[::-1].index("logs"):])
+            if cand.exists():
+                return cand
+    return p
 
 
 def data_chosen() -> bool:

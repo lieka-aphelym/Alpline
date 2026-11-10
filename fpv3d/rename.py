@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .locations import LOC_DIR, NAME_RE, ROOT
 from .safefile import write_atomic
+from .paths import from_portable, portable
 
 LOGS = ROOT / "logs"
 TRACK_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,60}$", re.I)
@@ -179,7 +180,7 @@ def rename_track(scene: str, old: str, new: str, scenes_dir: Path, log=print):
 
     # 1. the source log file (only inside the project, never the user's own folders)
     src = t.get("source")
-    sp = Path(src) if src else None
+    sp = from_portable(src) if src else None
     if sp is None or not sp.exists():                  # older scenes: look for it under logs/
         cand = [c for c in LOGS.rglob(f"{old}.*") if c.suffix.lower() in (".csv", ".gpx", ".txt")] if LOGS.exists() else []
         sp = cand[0] if cand else None
@@ -197,11 +198,7 @@ def rename_track(scene: str, old: str, new: str, scenes_dir: Path, log=print):
         if listed and loc is not None:             # keep `logs:` of the location file valid
             write_atomic(loc, loc.read_text(encoding="utf-8").replace(sp.name, dst.name))
         log(f"log file: {sp.relative_to(ROOT)} -> {dst.name}")
-        if src:   # keep the path style of the stored source (it may have been written on another OS)
-            base = re.split(r"[\\/]", src)[-1]
-            t["source"] = src[: len(src) - len(base)] + dst.name
-        else:
-            t["source"] = str(dst)
+        t["source"] = portable(dst)
         (t.get("log_options") or {}).pop("track_name", None)
     else:
         # log outside the project: leave the file alone, remember the display name for rebuilds

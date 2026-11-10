@@ -58,6 +58,24 @@
     oops(r.message || r, r.stack);
   });
   window.alpOops = oops;
+  // the app's name comes from the server (fpv3d/brand.py, through /api/mode.js): when it is not the one written in the
+  // pages, every text and title is updated once the page is there (and remembered for the offline page)
+  var WRITTEN = 'Alpline', WRITTEN_BY = 'lieka', brand = window.APP_BRAND;
+  try { if (brand) localStorage.setItem('fpv3d:brand', JSON.stringify(brand)); else brand = JSON.parse(localStorage.getItem('fpv3d:brand') || 'null'); } catch (e) { /* private mode */ }
+  brand = brand || { name: WRITTEN, by: WRITTEN_BY };
+  window.APP_BRAND = brand;
+  function rebrand(text) {
+    return text.split(WRITTEN.toUpperCase()).join(brand.name.toUpperCase()).split(WRITTEN).join(brand.name).split('by ' + WRITTEN_BY).join('by ' + brand.by);
+  }
+  if (brand.name !== WRITTEN || brand.by !== WRITTEN_BY) {
+    window.addEventListener('DOMContentLoaded', function () {
+      document.title = rebrand(document.title);
+      var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), n, todo = [];
+      while ((n = w.nextNode())) if (n.nodeValue.toLowerCase().indexOf(WRITTEN.toLowerCase()) >= 0 || n.nodeValue.indexOf(WRITTEN_BY) >= 0) todo.push(n);
+      todo.forEach(function (t) { if (!t.parentElement.closest('script,style')) t.nodeValue = rebrand(t.nodeValue); });
+      document.querySelectorAll('[title*="' + WRITTEN + '"]').forEach(function (el) { el.title = rebrand(el.title); });
+    });
+  }
   window.ALPLINE.app = matchMedia('(display-mode: standalone)').matches || /[?&]app=1/.test(location.search);
   if (window.ALPLINE.app) root.dataset.app = '1';
   // the logo is busy (steady spin, branches pulse) while something loads or builds: alpBusy(true) ... alpBusy(false)

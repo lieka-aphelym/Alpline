@@ -16,6 +16,7 @@ import json
 from pathlib import Path
 
 from .locations import ROOT
+from .brand import APP_NAME
 
 DIR = ROOT / "cache" / "tls"
 CA_CRT, CA_KEY = DIR / "alpline-ca.crt", DIR / "ca.key"
@@ -54,7 +55,7 @@ def _ca():
         return x509.load_pem_x509_certificate(CA_CRT.read_bytes()), _load_key(CA_KEY)
     DIR.mkdir(parents=True, exist_ok=True)
     key = _key()
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Alpline local CA (this PC only)")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"{APP_NAME} local CA (this PC only)")])
     now = dt.datetime.now(dt.timezone.utc)
     cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
             .serial_number(x509.random_serial_number()).not_valid_before(now - dt.timedelta(days=1))
@@ -88,7 +89,7 @@ def ensure(ips) -> tuple:
     until = now + dt.timedelta(days=397)                 # browsers refuse server certificates valid for longer
     san = [x509.DNSName("localhost")] + [x509.IPAddress(ipaddress.ip_address(i)) for i in ips]
     cert = (x509.CertificateBuilder()
-            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Alpline on this PC")]))
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"{APP_NAME} on this PC")]))
             .issuer_name(ca_cert.subject).public_key(key.public_key()).serial_number(x509.random_serial_number())
             .not_valid_before(now - dt.timedelta(days=1)).not_valid_after(until)
             .add_extension(x509.SubjectAlternativeName(san), critical=False)

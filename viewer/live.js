@@ -7,6 +7,7 @@ import { createDroneMarker } from './marker.js';
 import { createPilotMarker, textSprite } from './pilotmark.js';
 import { pxPerUnit } from './screen.js';
 import { esc } from './esc.js';
+import { APP } from './env.js';
 
 const $ = (id) => document.getElementById(id);
 function toLV95(lat, lon) {
@@ -287,11 +288,11 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (!st.on) return;
     if (document.hidden) {
       st.hiddenAt = performance.now();
-      W.notice('Alpline is in the background. Warnings may be late.');
+      W.notice(`${APP} is in the background. Warnings may be late.`);
     } else {
       keepAwake(true);
       if (st.hiddenAt && performance.now() - st.hiddenAt > 1500) W.notice('Warnings back.');
-      $('liveMsg').textContent = st.hiddenAt ? 'The page was in the background: warnings may have been late or missing meanwhile. Keep Alpline in front during the flight.' : $('liveMsg').textContent;
+      $('liveMsg').textContent = st.hiddenAt ? `The page was in the background: warnings may have been late or missing meanwhile. Keep ${APP} in front during the flight.` : $('liveMsg').textContent;
       $('liveMsg').className = 'small err';
       st.hiddenAt = null;
     }

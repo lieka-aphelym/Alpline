@@ -69,6 +69,7 @@ from .paths import APP, cli_cmd
 from .netinfo import lan_addresses  # shared with the launcher
 from .tilecache import TILE, TileCache
 from .safefile import write_atomic
+from .brand import APP_NAME, BY
 
 UA = {"User-Agent": "fpv3d/0.1 (local FPV planning tool)"}
 JOBS: dict = {}
@@ -322,9 +323,9 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             if wrong:
                 n = PIN_TRIES.get(ip, (0, 0))[0] + 1
                 PIN_TRIES[ip] = (0, time.time() + 60) if n >= 10 else (n, 0)
-            body = (f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>Alpline</title>"
+            body = (f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>{APP_NAME}</title>"
                     "<body style='font:16px system-ui;background:#07090c;color:#f2f5f8;padding:28px'>"
-                    "<h2 style='font-family:monospace'>ALPLINE</h2><p>Type the PIN shown in the Alpline launcher on the computer "
+                    f"<h2 style='font-family:monospace'>{APP_NAME.upper()}</h2><p>Type the PIN shown in the {APP_NAME} launcher on the computer "
                     "(status bar, next to the phone address).</p>"
                     f"{'<p style=color:#ff6b6b>Wrong PIN.</p>' if wrong else ''}"
                     "<form method=get>" + "".join(f"<input type=hidden name='{html.escape(k)}' value='{html.escape(v[0])}'>"
@@ -342,7 +343,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
         def do_GET(self):
             u = urllib.parse.urlparse(self.path)
             if not self._host_ok():
-                return self._refuse(403, "Alpline only answers requests addressed to 127.0.0.1 or localhost.")
+                return self._refuse(403, f"{APP_NAME} only answers requests addressed to 127.0.0.1 or localhost.")
             if self._gate(u):
                 return
             if not self._local() and (u.path.endswith("/") or u.path.endswith(".html")):
@@ -361,9 +362,14 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                         return self._json(dict(error="no certificate yet: share with the phone first"), 404)
                     return self._bin(CA_CRT.read_bytes(), "application/x-x509-ca-cert",
                                      {"Content-Disposition": 'attachment; filename="alpline-ca.crt"'})
+                if u.path == "/viewer/manifest.webmanifest" and APP_NAME != "Alpline":   # the installed phone app's name
+                    m = json.loads((APP / "viewer" / "manifest.webmanifest").read_text(encoding="utf-8"))
+                    m.update(name=APP_NAME, short_name=APP_NAME)
+                    return self._json(m)
                 if u.path == "/api/mode.js":     # loaded by the pages before anything else: Full or Lite mode
                     from . import mode
-                    body = f'window.FPV3D_MODE = "{mode.current()}";\n'.encode()
+                    body = (f'window.FPV3D_MODE = "{mode.current()}";\n'
+                            f'window.APP_BRAND = {json.dumps(dict(name=APP_NAME, by=BY))};\n').encode()   # see fpv3d/brand.py
                     self.send_response(200)
                     self.send_header("Content-Type", "text/javascript")
                     self.send_header("Cache-Control", "no-store")
@@ -499,7 +505,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
         def do_POST(self):
             u = urllib.parse.urlparse(self.path)
             if not self._host_ok():
-                return self._refuse(403, "Alpline only answers requests addressed to 127.0.0.1 or localhost.")
+                return self._refuse(403, f"{APP_NAME} only answers requests addressed to 127.0.0.1 or localhost.")
             # other web pages can't post here: a JSON body needs a browser "preflight" that this server never
             # allows, and a page's Origin must be Alpline's own address
             if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
@@ -517,7 +523,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return self._json(dict(error="request too large" if n > 0 else "bad Content-Length"), 413 if n > 0 else 400)
             # shared on the network (phone): other devices may look, fly and build, but not delete or rename
             if u.path in LOCAL_ONLY and not self._local():
-                return self._json(dict(error="Deleting and renaming only work on the computer running Alpline."), 403)
+                return self._json(dict(error=f"Deleting and renaming only work on the computer running {APP_NAME}."), 403)
             try:
                 b = self._body()
                 m = re.match(r"^/api/jobs/([\w-]+)/cancel$", u.path)

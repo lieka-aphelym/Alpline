@@ -28,6 +28,7 @@ from tkinter import ttk
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fpv3d import paths  # noqa: E402  (standard library only)
 from fpv3d.safefile import write_atomic
+from fpv3d.brand import APP_NAME, BY
 
 APP = paths.APP                                      # the program: viewer pages, logo frames, icon
 ROOT = paths.DATA                                    # your files: launcher.json, logs, scenes, cache, locations
@@ -280,8 +281,8 @@ class Pill(tk.Frame):
 # rail pages: key, label, tooltip
 PAGES = (("map", "map", "Your locations on the map of Switzerland"),
          ("drone", "drone", "Drone and radio on USB: download the blackbox, start a live flight"),
-         ("phone", "phone", "Open Alpline on your phone (same Wi-Fi or the phone's hotspot)"),
-         ("checks", "checks", "Run Alpline's own tests on this computer"),
+         ("phone", "phone", f"Open {APP_NAME} on your phone (same Wi-Fi or the phone's hotspot)"),
+         ("checks", "checks", f"Run {APP_NAME}'s own tests on this computer"),
          ("disk", "files", "Your files: sizes, clean-up / start fresh, backup and restore"),
          ("settings", "settings", "Full / Lite, where pages open, desktop shortcut, your files"))
 
@@ -328,7 +329,7 @@ class Launcher:
         self.devices: dict = {}                             # serial port -> what is plugged in there (drone / radio / busy)
         self.bb_proc = None                                 # blackbox download running
         self._last_refresh = time.monotonic()
-        root.title("Alpline by lieka")
+        root.title(f"{APP_NAME} by {BY}")
         root.configure(bg=BG)
         root.protocol("WM_DELETE_WINDOW", self.quit)
         try:                                       # window / taskbar icon
@@ -358,12 +359,12 @@ class Launcher:
         self.logo = LogoAnim(root, top, S(28))
         if self.logo.label:
             self.logo.label.pack_configure(padx=(S(14), S(8)))
-        tk.Label(top, text="ALPLINE", font=("Consolas", 15, "bold"), fg=FG, bg=BG).pack(side="left",
+        tk.Label(top, text=APP_NAME.upper(), font=("Consolas", 15, "bold"), fg=FG, bg=BG).pack(side="left",
                  padx=(0 if self.logo.label else S(14), 0))
-        tk.Label(top, text="by lieka", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(S(6), 0), pady=(S(5), 0))
+        tk.Label(top, text=f"by {BY}", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(S(6), 0), pady=(S(5), 0))
         b = self.button(top, "[locations map]", lambda: self.open("/viewer/map.html"))
         b.pack(side="right", padx=(S(6), S(14)))
-        Tip(b, "The map page in Alpline: search places, create and build locations, drone zones.")
+        Tip(b, f"The map page in {APP_NAME}: search places, create and build locations, drone zones.")
         b = self.button(top, "[3d viewer]", lambda: self.open_location(self.map.current()) if self.map.current()
                         and self.map.current().get("built") else self.open("/viewer/"), primary=True)
         b.pack(side="right")
@@ -534,7 +535,7 @@ class Launcher:
             time.sleep(0.25)
         port = next((p for p in range(base, base + 20) if port_free(p)), None)
         if port is None:
-            self.say("No free port between 8000 and 8019: close the other Alpline windows.")
+            self.say(f"No free port between 8000 and 8019: close the other {APP_NAME} windows.")
             return False
         args = paths.cli_cmd(unbuffered=True) + ["serve", "--port", str(port), "--no-browser"]
         if self.mode.get() == "lite":
@@ -583,7 +584,7 @@ class Launcher:
                 self.windows = [w for w in self.windows if w.poll() is None]
                 w = subprocess.Popen(cmd, cwd=str(ROOT))
                 self.windows.append(w)
-                self.say("opening an Alpline window…")
+                self.say(f"opening an {APP_NAME} window…")
                 self.root.after(5000, lambda: self.window_check(w, url))
                 return
             except OSError:
@@ -596,7 +597,7 @@ class Launcher:
         stop means the window did not open: show the page in the browser instead and say so."""
         code = w.poll()
         if code is None or code == 0:
-            self.say("opened in an Alpline window · keep this window open")
+            self.say(f"opened in an {APP_NAME} window · keep this window open")
         else:
             try:
                 with open(ROOT / "logs" / "window.log", "a", encoding="utf-8") as f:
@@ -604,7 +605,7 @@ class Launcher:
             except OSError:
                 pass
             webbrowser.open(url)
-            self.say("the Alpline window did not open (see logs/window.log): opened in the browser")
+            self.say(f"the {APP_NAME} window did not open (see logs/window.log): opened in the browser")
 
     def stop(self):
         if self.server_alive():
@@ -633,7 +634,7 @@ class Launcher:
         if ok or self.cfg.get("no_https"):
             return ok
         from tkinter import messagebox
-        if not messagebox.askyesno("Alpline: phone", "For a secure (https) page on the phone, Alpline needs one more library "
+        if not messagebox.askyesno(f"{APP_NAME}: phone", f"For a secure (https) page on the phone, {APP_NAME} needs one more library "
                                    "(cryptography, about 5 MB). It lets the phone keep its screen on during a live flight.\n\n"
                                    "Install it now? (needs internet)", parent=self.root):
             self.cfg["no_https"] = True; self.save()
@@ -663,7 +664,7 @@ class Launcher:
 
     # Windows blocks connections from other devices unless (1) the firewall lets them in and (2) the Wi-Fi is a
     # "Private" network (on "Public" networks Windows refuses them, whatever the firewall says for Private).
-    RULE = "Alpline (phone)"
+    RULE = "Alpline (phone)"                 # the Windows firewall rule keeps its first name (it may exist already)
 
     def ps(self, cmd: str, timeout=30) -> str:
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd], capture_output=True,
@@ -732,12 +733,12 @@ $r | ConvertTo-Json -Depth 4 -Compress
             return
         fix = ("The phone can't reach this computer:\n• " + "\n• ".join(problems) + "\n\n"
                "Fix it now? Windows asks for administrator permission once. This will:\n"
-               "• allow incoming connections to Alpline (ports 8000-8019 and 8443-8462 only)\n"
+               f"• allow incoming connections to {APP_NAME} (ports 8000-8019 and 8443-8462 only)\n"
                + ("• switch off the rules that block Python\n" if blocks else "")
                + ("• set " + ", ".join(n.get("name", "?") for n in public) + " to Private "
                   "(fine for your home Wi-Fi or your own phone hotspot)\n" if public else "")
                + "\nClick [phone] again later to stop sharing.")
-        if not messagebox.askyesno("Alpline: phone access", fix, parent=self.root):
+        if not messagebox.askyesno(f"{APP_NAME}: phone access", fix, parent=self.root):
             self.say("phone access not fixed: the phone won't load the page")
             return
         log = ROOT / "logs" / "phone_fix.txt"
@@ -955,7 +956,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
     # ------------------------------------------------------------ drone page (USB)
     def build_drone_page(self, parent):
         col = self.page_frame(parent, "DRONE ON USB",
-                              "Plug the drone in with its USB cable (no battery needed). Alpline finds a Betaflight flight "
+                              f"Plug the drone in with its USB cable (no battery needed). {APP_NAME} finds a Betaflight flight "
                               "controller by itself and can copy its blackbox: every flight with GPS is added to the location "
                               "where it took off. Close Betaflight Configurator first (it holds the port).")
         self.drone_lab = FitLabel(col, font=("Consolas", 10, "bold"), fg=FG2, bg=BG)
@@ -1164,13 +1165,13 @@ $r | ConvertTo-Json -Depth 4 -Compress
         o = battery.overview(ROOT)
         packs = [p for p in o["packs"] if not p.get("retired")]
         w = tk.Toplevel(self.root, bg=BG)
-        w.title("Alpline: which pack?")
+        w.title(f"{APP_NAME}: which pack?")
         w.transient(self.root)
         w.resizable(False, False)
         f = tk.Frame(w, bg=BG, padx=S(16), pady=S(14)); f.pack(fill="both")
         tk.Label(f, text=f"Which pack did you fly? ({len(fids)} flight(s) with battery data)", font=("Consolas", 10, "bold"),
                  fg=FG, bg=BG, anchor="w").pack(fill="x")
-        tk.Label(f, text="Alpline then follows each pack's health and how long it lasts. You can change it per flight on the packs page.",
+        tk.Label(f, text=f"{APP_NAME} then follows each pack's health and how long it lasts. You can change it per flight on the packs page.",
                  font=SANS, fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(420)).pack(fill="x", pady=(S(2), S(8)))
         names = [f"{p['name']} · {p['cells']}S {p['capacity']} {p['chem_label']}" for p in packs] + ["+ new pack…"]
         choice = tk.StringVar(value=next((n for p, n in zip(packs, names) if p["id"] == o.get("last_pack")), names[0]))
@@ -1219,7 +1220,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
     # ------------------------------------------------------------ phone page
     def build_phone_page(self, parent):
         col = self.page_frame(parent, "PHONE",
-                              "Open Alpline on your phone: same Wi-Fi as this computer, or connect the computer to the "
+                              f"Open {APP_NAME} on your phone: same Wi-Fi as this computer, or connect the computer to the "
                               "phone's hotspot. The phone can look, fly and build; deleting and renaming stay on this computer.")
         row = tk.Frame(col, bg=BG); row.pack(fill="x")
         self.share_btn = self.button(row, "[share on my network: off]", self.toggle_share)
@@ -1268,12 +1269,12 @@ $r | ConvertTo-Json -Depth 4 -Compress
         r = row("OPEN PAGES IN")
         seg = tk.Frame(r, bg=RULE, padx=1, pady=1); seg.pack(anchor="w")
         self.where_btns = {}
-        for k, label in (("window", "Alpline window"), ("browser", "my browser")):
+        for k, label in (("window", f"{APP_NAME} window"), ("browser", "my browser")):
             b = tk.Button(seg, text=label, font=("Consolas", 10, "bold"), relief="flat", bd=0, cursor="hand2", padx=S(10),
                           command=lambda k=k: self.set_open_in(k))
             b.pack(side="left")
             self.where_btns[k] = b
-        tk.Label(r, text="Alpline windows: Edge or Chrome in app mode, no address bar or tabs, own taskbar icon.",
+        tk.Label(r, text=f"{APP_NAME} windows: Edge or Chrome in app mode, no address bar or tabs, own taskbar icon.",
                  font=SANS, fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(500)).pack(fill="x", pady=(S(4), 0))
         self.set_open_in(self.cfg.get("open_in", "window"), save=False)
         r = row("DESKTOP")
@@ -1287,13 +1288,13 @@ $r | ConvertTo-Json -Depth 4 -Compress
         if paths.FROZEN:
             ch = self.button(br, "[change…]", self.change_data_folder, small=True)
             ch.pack(side="left", padx=(S(6), 0))
-            Tip(ch, "Use another folder for locations, flights and maps (e.g. an existing project folder). Restarts Alpline.")
+            Tip(ch, f"Use another folder for locations, flights and maps (e.g. an existing project folder). Restarts {APP_NAME}.")
         r = row("ABOUT")
         try:
             from fpv3d import __version__ as ver
         except Exception:
             ver = "?"
-        tk.Label(r, text=f"Alpline {ver} · {'installed app' if paths.FROZEN else 'from the source folder'}",
+        tk.Label(r, text=f"{APP_NAME} {ver} · {'installed app' if paths.FROZEN else 'from the source folder'}",
                  font=("Consolas", 9), fg=FG2, bg=BG, anchor="w").pack(fill="x")
 
     def set_open_in(self, k, save=True):
@@ -1301,7 +1302,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
             self.cfg["open_in"] = k
             self.save()
             if k == "window" and not self.window_ok():
-                self.say("Alpline windows need Microsoft Edge or Google Chrome: meanwhile the browser", "bad")
+                self.say(f"{APP_NAME} windows need Microsoft Edge or Google Chrome: meanwhile the browser", "bad")
         for key, b in self.where_btns.items():
             on = key == self.cfg.get("open_in", "window")
             b.configure(bg=ACC if on else BG2, fg="#000" if on else FG2, activebackground=ACC if on else BG3)
@@ -1317,10 +1318,10 @@ $r | ConvertTo-Json -Depth 4 -Compress
 
     def change_data_folder(self):
         from tkinter import filedialog, messagebox
-        pick = filedialog.askdirectory(parent=self.root, title="Folder for Alpline's files", initialdir=str(ROOT))
+        pick = filedialog.askdirectory(parent=self.root, title=f"Folder for {APP_NAME}'s files", initialdir=str(ROOT))
         if not pick or Path(pick) == ROOT:
             return
-        if not messagebox.askyesno("Alpline", f"Use {pick} for your files? Alpline restarts.", parent=self.root):
+        if not messagebox.askyesno(f"{APP_NAME}", f"Use {pick} for your files? {APP_NAME} restarts.", parent=self.root):
             return
         paths.set_data(Path(pick))
         self.quit()
@@ -1341,7 +1342,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
 
     def build_checks_page(self, parent):
         col = self.page_frame(parent, "CHECKS",
-                              "Runs Alpline's own tests on this computer, about 20 seconds. Your locations and flights are "
+                              f"Runs {APP_NAME}'s own tests on this computer, about 20 seconds. Your locations and flights are "
                               "not touched: the tests work in a temporary folder with a fake swisstopo service.")
         self.libs_row = tk.Frame(col, bg=BG2, padx=S(8), pady=S(6), highlightthickness=1, highlightbackground=ACC)
         self.libs_lab = tk.Label(self.libs_row, text="", font=SANS, fg=FG, bg=BG2, justify="left", anchor="w", wraplength=S(460))
@@ -1542,7 +1543,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
             from fpv3d import __version__ as ver
         except Exception:
             ver = "?"
-        lines = [f"Alpline {ver} checks, {time.strftime('%Y-%m-%d %H:%M')}, {sys.platform}, Python {sys.version.split()[0]}"]
+        lines = [f"{APP_NAME} {ver} checks, {time.strftime('%Y-%m-%d %H:%M')}, {sys.platform}, Python {sys.version.split()[0]}"]
         for key, label, _ in self.CHECK_GROUPS:
             mine = [r for r in res if r["group"] == key]
             if mine:
@@ -1559,7 +1560,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
     def build_disk_page(self, parent):
         from fpv3d.housekeeping import KINDS
         col = self.page_frame(parent, "YOUR FILES",
-                              "What Alpline keeps on this computer. Tick what to delete: a backup zip is made first "
+                              f"What {APP_NAME} keeps on this computer. Tick what to delete: a backup zip is made first "
                               "unless you untick it. Ticking everything starts fresh, like a new install.")
         self.disk_free = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
         self.disk_free.pack(fill="x", pady=(0, S(8)))
@@ -1639,7 +1640,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
                 for k, b in res.items():
                     self.disk_labels[k].configure(text=human(b))
                 used = sum(res.values())
-                self.disk_free.set(f"Alpline uses {human(used)}" + (f" · {human(free)} free on the disk" if free is not None else ""))
+                self.disk_free.set(f"{APP_NAME} uses {human(used)}" + (f" · {human(free)} free on the disk" if free is not None else ""))
                 self.disk_inc_cb.configure(text=f"include the built 3D scenes ({human(res.get('scenes', 0))}; no rebuild needed after restoring)")
                 self.disk_show_selection()
             self.root.after(0, show)
@@ -1663,6 +1664,11 @@ $r | ConvertTo-Json -Depth 4 -Compress
     def auto_backup(self):
         """Once a week, at start: a small backup in backups/ (the five newest are kept)."""
         def work():
+            try:
+                from fpv3d.scene import make_sources_portable
+                make_sources_portable(ROOT / "scenes")   # older scene files: no full paths (your user name) in them
+            except Exception as ex:                      # noqa: BLE001
+                unexpected(ex)
             try:
                 from fpv3d import housekeeping as hk
                 f = hk.auto_backup(ROOT)
@@ -1688,7 +1694,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         (ROOT / "backups").mkdir(exist_ok=True)
         dest = filedialog.asksaveasfilename(parent=self.root, title="Save the backup", initialdir=str(ROOT / "backups"),
                                             initialfile=self.backup_name(), defaultextension=".zip",
-                                            filetypes=[("Alpline backup", "*.zip")])
+                                            filetypes=[(f"{APP_NAME} backup", "*.zip")])
         if not dest:
             return
         kinds = hk.backup_kinds(include_scenes=self.disk_inc_scenes.get())
@@ -1701,7 +1707,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         from tkinter import filedialog, messagebox
         from fpv3d import housekeeping as hk
         src = filedialog.askopenfilename(parent=self.root, title="Restore a backup", initialdir=str(ROOT / "backups"),
-                                         filetypes=[("Alpline backup", "*.zip")])
+                                         filetypes=[(f"{APP_NAME} backup", "*.zip")])
         if not src:
             return
         try:
@@ -1711,7 +1717,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
             return
         labels = ", ".join(hk.KINDS[k][0].lower() for k in info.get("kinds", []) if k in hk.KINDS)
         ans = messagebox.askyesnocancel(
-            "Alpline: restore",
+            f"{APP_NAME}: restore",
             f"Backup from {info.get('made', '?')}: {labels} ({len(info['names'])} files).\n\n"
             "Replace the files you already have with the ones in the backup?\n"
             "Yes: replace them · No: keep yours, add only what's missing", parent=self.root)
@@ -1741,8 +1747,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
         names = "\n".join(f"  · {hk.KINDS[k][0]} ({hk.human(self.disk_sizes.get(k, 0))})" for k in hk.KINDS if k in ks)
         backup = self.disk_backup_first.get()
         if not messagebox.askyesno(
-                "Alpline: start fresh" if everything else "Alpline: delete",
-                ("Start fresh: delete ALL your Alpline files?\n\n" if everything else "Delete these files?\n\n") + names
+                f"{APP_NAME}: start fresh" if everything else f"{APP_NAME}: delete",
+                (f"Start fresh: delete ALL your {APP_NAME} files?\n\n" if everything else "Delete these files?\n\n") + names
                 + ("\n\nA backup zip is saved first in the 'backups' folder." if backup
                    else "\n\nNo backup: this cannot be undone."), icon="warning", parent=self.root):
             return
@@ -1782,7 +1788,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
 
     def disk_run(self, args, confirm=None, after=None):
         from tkinter import messagebox
-        if confirm and not messagebox.askyesno("Alpline", confirm, parent=self.root):
+        if confirm and not messagebox.askyesno(f"{APP_NAME}", confirm, parent=self.root):
             return
         self.disk_out.set("working…")
         self.logo.busy(True)
@@ -1832,13 +1838,13 @@ $r | ConvertTo-Json -Depth 4 -Compress
         else:                                     # from the source folder: the project's .venv, so the map can read your locations
             target, arg, icon = venv_exe("pythonw.exe"), f'\"{APP / "launcher.pyw"}\"', APP / "viewer" / "brand" / "icon.ico"
         ps = ("$d=[Environment]::GetFolderPath('Desktop');"
-              "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Alpline.lnk'));"
+              f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d '{APP_NAME}.lnk'));"
               f"$s.TargetPath='{target}';$s.Arguments='{arg}';$s.WorkingDirectory='{ROOT}';"
               f"$s.IconLocation='{icon},0';"
-              "$s.Description='Alpline by lieka: FPV line of sight on Swiss terrain';$s.Save()")
+              f"$s.Description='{APP_NAME} by {BY}: FPV line of sight on Swiss terrain';$s.Save()")
         r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.say("shortcut 'Alpline' added to your desktop" if r.returncode == 0
+        self.say(f"shortcut '{APP_NAME}' added to your desktop" if r.returncode == 0
                  else f"could not create the shortcut: {(r.stderr or r.stdout).strip()[:120]}")
 
 
@@ -2791,7 +2797,7 @@ class SwissMap:
         self._spin_job = self.app.root.after(LogoAnim.MS["busy"], self._spin_tick)
 
 
-APP_ID = "lieka.Alpline.Launcher"
+from fpv3d.brand import APP_ID  # noqa: E402
 
 
 def sharp_on_windows():
@@ -2857,8 +2863,8 @@ def first_start_folder(root) -> bool:
     """Installed app, very first start: where should your files go? True = continue, False = restart needed / quit."""
     from tkinter import filedialog, messagebox
     ans = messagebox.askyesnocancel(
-        "Alpline: your files",
-        "Where should Alpline keep your locations, flights and downloaded maps?\n\n"
+        f"{APP_NAME}: your files",
+        f"Where should {APP_NAME} keep your locations, flights and downloaded maps?\n\n"
         f"Yes: in {paths.DEFAULT_DATA}\n"
         "No: choose a folder (for example your existing fpv3d project folder, to keep everything you already have)",
         parent=root)
@@ -2866,7 +2872,7 @@ def first_start_folder(root) -> bool:
         return False
     folder = paths.DEFAULT_DATA
     if ans is False:
-        pick = filedialog.askdirectory(parent=root, title="Folder for Alpline's files", mustexist=False,
+        pick = filedialog.askdirectory(parent=root, title=f"Folder for {APP_NAME}'s files", mustexist=False,
                                        initialdir=str(Path.home()))
         if not pick:
             return False
