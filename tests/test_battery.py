@@ -148,6 +148,39 @@ def test_lipo_or_liion():
     assert not any("weaker" in f for f in li["flags"] + po["flags"])      # a Li-ion is not compared with a LiPo
 
 
+def test_pack_notes():
+    """Remarks about a pack: a crash is checked against the resistance before / after it, a swollen pack must retire."""
+    root = Path(tempfile.mkdtemp(prefix="alpline_notes_"))
+    pk = battery.save_pack(dict(name="pack 1", cells=6, capacity=1300), root)
+    for k, (r, day) in enumerate([(.0040, "2026-03-01"), (.0041, "2026-03-05"), (.0040, "2026-03-09"),
+                                  (.0055, "2026-03-20"), (.0056, "2026-03-25")]):
+        t, v, i, thr = sim_flight(r, seed=k)
+        fid = battery.save_flight(f"n{k}", battery.series(t, v, i, thr), when=f"{day} 12:00", root=root)
+        battery.assign([fid], pk["id"], root)
+    n1 = battery.add_note(pk["id"], "crash", "tree at 40 km/h", "2026-03-12", "n2", root)
+    p = battery.overview(root)["packs"][0]
+    assert p["notes"][0]["label"] == "Crash / hard landing" and p["notes"][0]["text"] == "tree at 40 km/h"
+    assert any("crash / hard landing on 2026-03-12: resistance up" in f for f in p["flags"])
+    assert battery.overview(root)["flights"][2]["notes"] == [n1["id"]]
+    battery.add_note(pk["id"], "puffed", "", "2026-03-26", root=root)
+    p = battery.overview(root)["packs"][0]
+    assert p["state"] == "retire" and p["flags"][0].startswith("puffed / swollen on 2026-03-26: retire it")
+    battery.add_note(pk["id"], "crash", "", "2026-04-01", root=root)                   # no flight since: check it
+    assert any("check it before the next flight" in f for f in battery.overview(root)["packs"][0]["flags"])
+    for bad in (lambda: battery.add_note(pk["id"], "dropped", root=root), lambda: battery.add_note("p9", "crash", root=root),
+                lambda: battery.add_note(pk["id"], "crash", when="12.03.2026", root=root),
+                lambda: battery.add_note(pk["id"], "crash", flight="nope", root=root)):
+        try:
+            bad()
+            raise AssertionError("accepted")
+        except ValueError:
+            pass
+    battery.delete_note(n1["id"], root)
+    assert len(battery.overview(root)["packs"][0]["notes"]) == 2
+    battery.delete_pack(pk["id"], root)
+    assert not battery._load(root)["notes"]
+
+
 def test_blackbox_battery_end_to_end():
     try:
         import orangebox  # noqa: F401
@@ -231,6 +264,19 @@ def _api_checks(req, server, http, phone_port):
         assert c.getresponse().status == 403
     finally:
         server.SHARE.clear(); server.SHARE.update(old)
+    st, raw, _ = req("POST", "/api/battery/note", dict(pack=pid, kind="crash", text="api"))
+    nid = json.loads(raw)["note"]["id"]
+    assert st == 200 and req("POST", "/api/battery/note", dict(pack=pid, kind="nope"))[0] == 400
+    old = dict(server.SHARE)
+    try:
+        server.SHARE.update(on=True, pin="424242")
+        c = http.client.HTTPConnection("127.0.0.1", phone_port(), timeout=10)
+        c.request("POST", "/api/battery/delete-note", body=json.dumps(dict(id=nid)),
+                  headers={"Cookie": "alp_pin=424242", "Content-Type": "application/json"})
+        assert c.getresponse().status == 403
+    finally:
+        server.SHARE.clear(); server.SHARE.update(old)
+    assert req("POST", "/api/battery/delete-note", dict(id=nid))[0] == 200
     assert req("POST", "/api/battery/delete-pack", dict(id=pid))[0] == 200
 
 

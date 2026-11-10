@@ -163,6 +163,18 @@ export function drawTrend(cv, trend, opts = {}) {
   trend.forEach((p, k) => (k ? g.lineTo(x(k), y(p.ir)) : g.moveTo(x(k), y(p.ir)))); g.stroke();
   g.fillStyle = g.strokeStyle;
   trend.forEach((p, k) => { g.beginPath(); g.arc(x(k), y(p.ir), 2.5, 0, 7); g.fill(); });
+  // notes (crash, puffed...): a vertical mark between the flights before and after that day
+  for (const n of opts.notes || []) {
+    const after = trend.findIndex((p) => (p.when || '').slice(0, 10) > n.when);
+    const k = after < 0 ? trend.length - 0.5 : after - 0.5;
+    if (k < -0.5) continue;
+    const xx = Math.round(trend.length === 1 ? x(0) + (after < 0 ? 12 : -12) : m.l + Math.max(0, Math.min(1, k / (trend.length - 1))) * W) + 0.5;
+    const c = n.level === 'retire' ? COL.bad : n.level === 'check' ? COL.warn : COL.text;
+    g.strokeStyle = c; g.fillStyle = c; g.lineWidth = 1.2; g.setLineDash([3, 3]);
+    g.beginPath(); g.moveTo(xx, m.t); g.lineTo(xx, m.t + H); g.stroke(); g.setLineDash([]);
+    g.textAlign = xx > m.l + W - 60 ? 'right' : 'left';
+    g.fillText(n.kind === 'other' ? 'note' : n.kind === 'deep' ? 'deep' : n.kind, xx + (g.textAlign === 'left' ? 3 : -3), m.t + 9);
+  }
 }
 
 /** a small inline sparkline (svg text) of resistance values */

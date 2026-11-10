@@ -86,6 +86,11 @@ export function initBattery({ S, $, seek, onChange }) {
         + `(80 % of ${pk.capacity}): after about <b>${pk.landing_min} min</b>.` + (pk.flags.length ? `<div class="warnTxt">${pk.flags.map(esc).join('<br>')}</div>` : '');
     } else if (pk) adv.innerHTML = `Landing advice for <b>${esc(pk.name)}</b> appears after a flight longer than a minute with it.`;
     else adv.innerHTML = 'Say which pack flew this flight: Alpline then follows each pack\'s health and how long it lasts at your flying.';
+    // the pack's notes (newest 3) and a quick note tied to this flight
+    $('batNoteBox').classList.toggle('hidden', !pk);
+    $('batNotes').innerHTML = pk?.notes?.length ? `<b>Notes</b>: ` + pk.notes.slice(0, 3).map((n) =>
+      `<div class="${n.level === 'retire' ? 'bad' : n.level === 'check' ? 'warnTxt' : 'muted'}">${esc(n.when)} · ${esc(n.label)}${n.text ? ` – ${esc(n.text)}` : ''}${n.flight === st.fid ? ' (this flight)' : ''}</div>`).join('')
+      + (pk.notes.length > 3 ? `<div class="muted">and ${pk.notes.length - 3} more on the packs page</div>` : '') : '';
   }
 
   $('batPack').onchange = async (e) => {
@@ -96,6 +101,15 @@ export function initBattery({ S, $, seek, onChange }) {
     catch (ex) { $('batMsg').textContent = ex.message; }
   };
   $('batNewCancel').onclick = () => { $('batNew').classList.add('hidden'); render(); };
+  $('batNoteAdd').onclick = async () => {
+    try {
+      const f = st.packs?.flights.find((x) => x.id === st.fid);
+      await post('/api/battery/note', { pack: st.d.pack, kind: $('batNoteKind').value, text: $('batNoteText').value,
+        when: (f?.when || '').slice(0, 10) || undefined, flight: st.fid });
+      $('batNoteText').value = ''; $('batNoteMsg').textContent = 'saved'; $('batNoteBox').open = false;
+      await reload();
+    } catch (ex) { $('batNoteMsg').textContent = ex.message; }
+  };
   $('batNewOk').onclick = async () => {
     try {
       const j = await post('/api/battery/pack', { name: $('batNewName').value, cells: +$('batNewCells').value, capacity: +$('batNewCap').value,

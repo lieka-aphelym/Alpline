@@ -266,6 +266,13 @@ show only on the packs page). Glitches (a voltage or current spike far from its 
   warnings at 2.9 V under load and 3.1 V resting, good under 20 mΩ per cell. A LiPo landed under 3.35 V/cell resting
   is flagged as too deep (for a flight without a pack: "normal for Li-ion, too deep for a LiPo"); Li-ion and LiPo
   packs are never compared with each other.
+- **Notes about a pack:** what happened to it, dated and optionally tied to a flight: crash / hard landing, puffed /
+  swollen, damaged wrap / leads / plug, over-discharged, came back hot, flown in the cold, left full, repaired, other,
+  with your remark. Add them on the packs page (pick the pack) or from the viewer's [battery] tab (*+ a note about this
+  pack*, dated with that flight). They show as marks on the pack's resistance chart and in its list. A swollen pack is
+  flagged **retire it** (first flag, ⚠ in the table); after a crash or damage Alpline compares the resistance before
+  and after (*resistance up 35 % since* or *no change since*), or says to check it before the next flight. Notes can
+  be deleted on the computer only.
 - **Charger check:** type what your charger put back in after a flight. Alpline compares it with the mAh the drone
   logged: within 5 % the current sensor is right; otherwise it gives the Betaflight command
   (`set ibata_scale = …`, then `save`).
@@ -521,7 +528,8 @@ skips it once. Settings for all of these are in `pyproject.toml`.
   cell), mAh within 2 %, glitches like the real ones (32 V, 184 A) don't change the result, cells by Betaflight's rule,
   radio-log columns, logs without a current sensor or too short; a blackbox with a GPS flight and a battery-only one
   (both kept, the GPS one linked to its 3D track and path colours, kept by a rebuild, not added twice); packs, flags,
-  landing advice, the charger check's Betaflight scale; the battery API (the phone can't delete packs).
+  landing advice, the charger check's Betaflight scale, notes (a crash checked against the resistance before / after,
+  a swollen pack to retire); the battery API (the phone can't delete packs or notes).
 - **Your files** (`test_files.py`): safe saving keeps the old file when writing fails, the error log stays small,
   clean-up deletes only the ticked kinds (never the program), backup → start fresh → restore gives everything back,
   unsafe zip entries are refused, nothing is deleted while building, a build stops when the disk is too full.

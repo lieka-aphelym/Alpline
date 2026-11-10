@@ -22,8 +22,8 @@ POST /api/jobs/<id>/cancel      stop a running build
 POST /api/zones {scene}         download the current drone no-fly zones for one scene
 POST /api/pilot {scene,lat,lon} move the pilot point (live flight: takeoff point) and rebuild
 GET  /api/battery/packs · /api/battery/flight?id=   battery: packs with health and advice, one flight's series
-POST /api/battery/pack {id?, name, cells, capacity, retired, note} · assign {flights, pack} · charger {flight, mah}
-     · delete-pack {id} (this PC only)
+POST /api/battery/pack {id?, name, cells, capacity, chemistry, retired, note} · assign {flights, pack} · charger {flight, mah}
+     · note {pack, kind, text, when?, flight?} · delete-pack {id} · delete-note {id} (deletes: this PC only)
 GET  /api/share · /api/ca.crt   phone sharing: addresses + PIN (this PC only) · the private CA for https
 
 Listens on 127.0.0.1 only (this computer), unless started with --lan (launcher [phone]): then other devices on
@@ -582,6 +582,12 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     if act == "charger":
                         battery.set_charged(b["flight"], b.get("mah"))
                         return self._json(dict(ok=True))
+                    if act == "note":
+                        return self._json(dict(ok=True, note=battery.add_note(b["pack"], b["kind"], b.get("text", ""),
+                                                                              b.get("when"), b.get("flight"))))
+                    if act == "delete-note":
+                        battery.delete_note(b["id"])
+                        return self._json(dict(ok=True))
                     if act == "delete-pack":
                         battery.delete_pack(b["id"])
                         return self._json(dict(ok=True))
@@ -694,7 +700,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
     return Handler
 
 
-LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename", "/api/battery/delete-pack")
+LOCAL_ONLY = ("/api/delete", "/api/restore", "/api/rename", "/api/battery/delete-pack", "/api/battery/delete-note")
 CLIENT_ERRORS: list = []        # times of the pages' error reports in the last minute
 MAX_BODY = 20_000_000           # largest request body: a long training flight's CSV fits
 _CSP: dict = {}                 # (newest page time) -> header

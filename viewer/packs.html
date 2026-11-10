@@ -43,6 +43,15 @@
       <div><div class="sub">resistance per cell over its flights (mΩ)</div><canvas id="dTrend" class="pkCanvas"></canvas></div>
       <div id="dText" class="small"></div>
     </div>
+    <div class="sub" style="margin-top:12px">notes: what happened to this pack</div>
+    <div id="dNotes"></div>
+    <div class="pkForm noteForm">
+      <label>what <select id="nKind"><option value="crash">Crash / hard landing</option><option value="puffed">Puffed / swollen</option><option value="damage">Damaged wrap, leads or plug</option><option value="deep">Over-discharged</option><option value="hot">Came back hot</option><option value="cold">Flown in the cold</option><option value="storage">Left full / not at storage</option><option value="repair">Repaired (plug, wrap)</option><option value="other">Other</option></select></label>
+      <label>day <input id="nWhen" type="date"></label>
+      <label>flight <select id="nFlight"><option value="">(none)</option></select></label>
+      <label class="wide">remark <input id="nText" maxlength="500" placeholder="e.g. tree at 40 km/h, wrap torn near the balance lead"></label>
+      <div class="row"><button id="nAdd" class="primary">add the note</button><span id="nMsg" class="small bad"></span></div>
+    </div>
   </div>
 
   <div class="lbl">Flights <span class="filters"><button data-f="all" class="on">[all]</button><button data-f="none">[without a pack]</button></span></div>

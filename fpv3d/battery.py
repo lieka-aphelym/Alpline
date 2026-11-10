@@ -272,7 +272,7 @@ def _load(root: Path | None = None) -> dict:
         d = json.loads(f.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         d = {}
-    d.setdefault("packs", []); d.setdefault("flights", {}); d.setdefault("last_pack", None)
+    d.setdefault("packs", []); d.setdefault("flights", {}); d.setdefault("last_pack", None); d.setdefault("notes", [])
     return d
 
 
@@ -358,11 +358,58 @@ def save_pack(p: dict, root: Path | None = None) -> dict:
         return cur
 
 
+# Notes about a pack: what happened to it (a crash, puffing, a damaged lead...). Each kind says how serious it is:
+#   retire: stop using it (a swollen or punctured LiPo can catch fire)
+#   check:  look it over before the next flight
+#   info:   worth remembering (it explains a worse flight or a jump in resistance)
+NOTE_KINDS = {
+    "crash": ("Crash / hard landing", "check"),
+    "puffed": ("Puffed / swollen", "retire"),
+    "damage": ("Damaged wrap, leads or plug", "check"),
+    "deep": ("Over-discharged", "check"),
+    "hot": ("Came back hot", "info"),
+    "cold": ("Flown in the cold", "info"),
+    "storage": ("Left full / not at storage", "info"),
+    "repair": ("Repaired (plug, wrap)", "info"),
+    "other": ("Other", "info"),
+}
+
+
+def add_note(pid: str, kind: str, text: str = "", when=None, flight=None, root: Path | None = None) -> dict:
+    """Write down what happened to a pack (a crash, puffing...), dated, optionally tied to a flight."""
+    root = Path(root) if root else DATA
+    if kind not in NOTE_KINDS:
+        raise ValueError(f"unknown kind of note (one of: {', '.join(NOTE_KINDS)})")
+    when = str(when or time.strftime("%Y-%m-%d"))[:10]
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", when):
+        raise ValueError("the date is YYYY-MM-DD")
+    with _LOCK:
+        d = _load(root)
+        if not any(p["id"] == pid for p in d["packs"]):
+            raise ValueError("unknown pack")
+        if flight and flight not in d["flights"]:
+            raise ValueError("unknown flight")
+        n = 1 + max([int(x["id"][1:]) for x in d["notes"] if re.match(r"^n\d+$", x.get("id", ""))] or [0])
+        note = dict(id=f"n{n}", pack=pid, kind=kind, text=str(text or "").strip()[:500], when=when, flight=flight or None)
+        d["notes"].append(note)
+        _save(d, root)
+        return note
+
+
+def delete_note(nid: str, root: Path | None = None):
+    root = Path(root) if root else DATA
+    with _LOCK:
+        d = _load(root)
+        d["notes"] = [n for n in d["notes"] if n.get("id") != nid]
+        _save(d, root)
+
+
 def delete_pack(pid: str, root: Path | None = None):
     root = Path(root) if root else DATA
     with _LOCK:
         d = _load(root)
         d["packs"] = [p for p in d["packs"] if p["id"] != pid]
+        d["notes"] = [n for n in d["notes"] if n.get("pack") != pid]
         for fl in d["flights"].values():
             if fl.get("pack") == pid:
                 fl["pack"] = None
@@ -467,7 +514,33 @@ def overview(root: Path | None = None) -> dict:
         deep = [f for f in flights if f.get("pack") == p["id"] and f["summary"].get("hint")]
         if deep:
             p["flags"].append(f"{len(deep)} flight(s) landed very low for a {p['chem_label']} pack")
+    # notes: newest first; serious ones become flags, and a crash is checked against the resistance before / after it
+    for p in packs:
+        notes = sorted((dict(n, label=NOTE_KINDS[n["kind"]][0], level=NOTE_KINDS[n["kind"]][1])
+                        for n in d["notes"] if n.get("pack") == p["id"] and n.get("kind") in NOTE_KINDS),
+                       key=lambda n: (n["when"], n["id"]), reverse=True)
+        p["notes"] = notes
+        lvl = {"retire": 0, "check": 1, "info": 2}
+        for n in sorted(notes, key=lambda n: lvl[n["level"]]):
+            if n["level"] == "retire":
+                p["flags"].insert(0, f"{n['label'].lower()} on {n['when']}: retire it (a swollen or damaged pack can catch fire)")
+            elif n["level"] == "check":
+                later = [t["ir"] for t in p["trend"] if (t["when"] or "")[:10] > n["when"]]
+                before = [t["ir"] for t in p["trend"] if (t["when"] or "")[:10] <= n["when"]]
+                jump = (_median(later[:3]) / _median(before[-3:]) - 1) if later and before else None
+                msg = f"{n['label'].lower()} on {n['when']}"
+                if jump is not None and jump > 0.2:
+                    msg += f": resistance up {round(jump * 100)} % since"
+                elif jump is not None:
+                    msg += ": no change in resistance since"
+                elif not later:
+                    msg += ": check it before the next flight (dents, puffing, loose leads)"
+                p["flags"].append(msg)
+        p["state"] = "retire" if any(n["level"] == "retire" for n in notes) else p.get("state")
+    for f in flights:
+        f["notes"] = [n["id"] for n in d["notes"] if n.get("flight") == f["id"]]
     return dict(packs=packs, flights=flights, last_pack=d.get("last_pack"), charger=charger_check(flights, root),
+                note_kinds={k: dict(label=v[0], level=v[1]) for k, v in NOTE_KINDS.items()},
                 landing_pct=LANDING_PCT, low_cell=LOW_CELL, chemistries={k: v["label"] for k, v in CHEM.items()})
 
 

@@ -32,7 +32,7 @@ function renderPacks() {
   const rows = o.packs.map((p) => {
     const ir = p.trend.map((x) => x.ir);
     return `<tr class="click ${p.id === st.pack ? 'sel' : ''}" data-p="${esc(p.id)}">
-      <td><b>${esc(p.name)}</b>${p.retired ? '<span class="retired">retired</span>' : ''}${p.note ? `<div class="muted small">${esc(p.note)}</div>` : ''}</td>
+      <td><b>${esc(p.name)}</b>${p.retired ? '<span class="retired">retired</span>' : ''}${p.state === 'retire' && !p.retired ? ' <span class="flag" title="a note says it is swollen or damaged">⚠ retire</span>' : ''}${p.notes.length ? ` <span class="muted small" title="notes">✎${p.notes.length}</span>` : ''}${p.note ? `<div class="muted small">${esc(p.note)}</div>` : ''}</td>
       <td>${p.cells}S ${p.capacity} <span class="chem chem-${esc(p.chemistry)}">${esc(p.chem_label)}</span></td><td class="num">${p.flights}</td>
       <td class="num">${p.ir_now ? `${p.ir_now.toFixed(1)} mΩ` : '–'}</td><td>${sparkline(ir)}</td>
       <td class="num hideS">${p.sag100 ? `${p.sag100.toFixed(2)} V` : '–'}</td>
@@ -55,7 +55,8 @@ function renderDetail() {
   $('detail').classList.toggle('hidden', !p);
   if (!p) return;
   $('dTitle').textContent = `${p.name} · ${p.cells}S ${p.capacity} mAh ${p.chem_label} · since ${p.since}`;
-  drawTrend($('dTrend'), p.trend, { height: 140 });
+  drawTrend($('dTrend'), p.trend, { height: 140, notes: p.notes });
+  renderNotes(p);
   const mine = st.o.flights.filter((f) => f.pack === p.id);
   const totalMah = mine.reduce((s, f) => s + (f.summary.mah || 0), 0);
   $('dText').innerHTML = `<p><b>${p.flights}</b> flight${p.flights === 1 ? '' : 's'}, ${Math.round(totalMah)} mAh logged in total.</p>`
@@ -66,6 +67,29 @@ function renderDetail() {
     + (p.mah_per_min ? `<p>At your flying it gives about <b>${p.mah_per_min} mAh a minute</b>: land at <b>${p.landing_mah} mAh</b>, after about <b>${p.landing_min} min</b>.</p>` : '')
     + (p.flags.length ? `<p class="flag">${p.flags.map(esc).join('<br>')}</p>` : '');
 }
+
+function renderNotes(p) {
+  const fl = (id) => st.o.flights.find((f) => f.id === id);
+  $('dNotes').innerHTML = p.notes.length ? `<table class="pk notes">${p.notes.map((n) => `<tr class="lvl-${esc(n.level)}">
+      <td>${esc(n.when)}</td><td><b>${esc(n.label)}</b>${n.level === 'retire' ? ' <span class="flag">retire it</span>' : ''}</td>
+      <td class="txt">${esc(n.text || '')}${n.flight && fl(n.flight) ? ` <span class="muted">(flight ${esc(fl(n.flight).when || n.flight)})</span>` : ''}</td>
+      <td><button class="small" data-delnote="${esc(n.id)}" title="Delete this note (on this computer)">[x]</button></td></tr>`).join('')}</table>`
+    : '<p class="muted small">No note yet. Write down crashes, puffing, a damaged lead or plug: they explain a jump in resistance, and a swollen pack is flagged to retire.</p>';
+  $('dNotes').querySelectorAll('[data-delnote]').forEach((b) => b.addEventListener('click', async () => {
+    try { await post('/api/battery/delete-note', { id: b.dataset.delnote }); await load(); }
+    catch (e) { $('nMsg').textContent = /403|this computer/.test(e.message) ? 'Deleting works on the computer only.' : e.message; }
+  }));
+  const mine = st.o.flights.filter((f) => f.pack === p.id).slice().reverse();
+  $('nFlight').innerHTML = '<option value="">(none)</option>' + mine.map((f) => `<option value="${esc(f.id)}">${esc(f.when || f.id)}</option>`).join('');
+  if (!$('nWhen').value) $('nWhen').value = new Date().toISOString().slice(0, 10);
+}
+$('nFlight').onchange = () => { const f = st.o.flights.find((x) => x.id === $('nFlight').value); if (f?.when) $('nWhen').value = f.when.slice(0, 10); };
+$('nAdd').onclick = async () => {
+  try {
+    await post('/api/battery/note', { pack: st.pack, kind: $('nKind').value, text: $('nText').value, when: $('nWhen').value, flight: $('nFlight').value || null });
+    $('nText').value = ''; $('nMsg').textContent = ''; await load();
+  } catch (e) { $('nMsg').textContent = e.message; }
+};
 
 function packOptions(sel) {
   return `<option value="">${sel ? '(no pack)' : 'which pack? ▾'}</option>` + st.o.packs.filter((p) => !p.retired || p.id === sel)

@@ -198,6 +198,12 @@
         internal resistance. It rises as a pack ages, and it is higher when the pack is cold or nearly empty (orange dots:
         the last 300 mAh). Resistance needs some punch-outs in the flight to be measured.</p></details>
       <p id="batAdvice" class="small"></p>
+      <div id="batNotes" class="small"></div>
+      <details id="batNoteBox" class="help"><summary>+ a note about this pack (crash, puffing…)</summary>
+        <div class="row"><select id="batNoteKind"><option value="crash">Crash / hard landing</option><option value="puffed">Puffed / swollen</option><option value="damage">Damaged wrap, leads or plug</option><option value="deep">Over-discharged</option><option value="hot">Came back hot</option><option value="cold">Flown in the cold</option><option value="storage">Left full / not at storage</option><option value="repair">Repaired (plug, wrap)</option><option value="other">Other</option></select></div>
+        <div class="row"><input id="batNoteText" maxlength="500" placeholder="what happened" style="width:100%"></div>
+        <div class="row"><button id="batNoteAdd" class="primary">Add (dated this flight)</button><span id="batNoteMsg" class="small"></span></div>
+      </details>
       <a class="navlink" href="packs.html" title="Every pack: health over time, flights, charger check">[all packs and their health]</a>
     </div>
   </section>

@@ -49,3 +49,9 @@ button.danger { color: #ff6b6b; border-color: #ff6b6b80; }
 .chem { font-size: 10.5px; border: 1px solid var(--t-rule2); padding: 0 4px; margin-left: 4px; color: var(--t-fg2); }
 .chem-liion { border-color: #4cc9f0; color: #4cc9f0; }
 .chem-lihv { border-color: #b388ff; color: #b388ff; }
+table.pk.notes td { white-space: normal; }
+table.pk.notes td:first-child { white-space: nowrap; width: 90px; }
+table.pk.notes td.txt { color: var(--t-fg2); font-family: system-ui, sans-serif; }
+table.pk.notes tr.lvl-retire td:first-child { border-left: 3px solid #ff2d55; }
+table.pk.notes tr.lvl-check td:first-child { border-left: 3px solid #ffb000; }
+.noteForm { margin-top: 8px; }
