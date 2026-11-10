@@ -36,4 +36,5 @@ ignore = ["E701", "E702", "E741", "E731", "B905"]
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true
-files = ["fpv3d/geo.py", "fpv3d/radio.py", "fpv3d/crsf.py", "fpv3d/launcher_tiles.py", "fpv3d/paths.py"]
+files = ["fpv3d/geo.py", "fpv3d/radio.py", "fpv3d/crsf.py", "fpv3d/launcher_tiles.py", "fpv3d/paths.py",
+         "fpv3d/safefile.py", "fpv3d/errorlog.py", "fpv3d/deps.py", "fpv3d/housekeeping.py", "fpv3d/battery.py", "fpv3d/config.py"]

@@ -22,7 +22,7 @@ def svb(v: int) -> bytes:
     return uvb(((v << 1) ^ (v >> 31)) & 0xFFFFFFFF)       # zigzag, as Betaflight writes it
 
 
-def header(firmware="4.5.1", battery=False, gps=True):
+def header(firmware="4.5.1", battery=False, gps=True, start=None):
     extra = ",vbatLatest,amperageLatest,rcCommand[3]" if battery else ""
     k = 3 if battery else 0
     lines = [
@@ -52,6 +52,8 @@ def header(firmware="4.5.1", battery=False, gps=True):
     ]
     if not gps:
         lines = [l for l in lines if not l.startswith(("Field G", "Field H"))]
+    if start:                                            # e.g. "2026-11-07T15:40:31.194+00:00" (the FC knew the time)
+        lines.append(f"Log start datetime:{start}")
     return "".join(f"H {l}\n" for l in lines).encode("ascii")
 
 
@@ -64,10 +66,11 @@ def pack_state(s, seconds, cells, r_cell, cap_mah, used):
     return cells * (rest - amps * r_cell), amps, min(thr, 1.0)
 
 
-def flight(lat0, lon0, alt_m, seconds=30, gps_hz=10, main_hz=50, alt_unit=0.1, firmware="4.5.1", battery=None, gps=True):
+def flight(lat0, lon0, alt_m, seconds=30, gps_hz=10, main_hz=50, alt_unit=0.1, firmware="4.5.1", battery=None, gps=True,
+           start=None):
     """One log: a circle of 60 m radius around (lat0, lon0) climbing 40 m.
     battery: dict(cells, r_cell (ohm), cap_mah, glitch=False) adds vbatLatest / amperageLatest / throttle."""
-    out = bytearray(header(firmware, bool(battery), gps))
+    out = bytearray(header(firmware, bool(battery), gps, start))
     used = 0.0
     home = (round(lat0 * 1e7), round(lon0 * 1e7))
     it, t_us = 0, 0

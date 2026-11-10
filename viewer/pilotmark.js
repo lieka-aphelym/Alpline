@@ -6,6 +6,8 @@
 // Distance rings (500 m / 1 km / 2 km, dashed, lying on the terrain) are a separate object: createRangeRings().
 // World frame as in app.js: X east, Z south, Y = height × exaggeration.
 
+import { pxPerUnit as ppuOf } from './screen.js';
+
 const SWITCH_M = 250;          // camera distance where the station gives way to the badge
 const BADGE_PX = 46, STATION_PX = 90, DISC_PX = 22, LABEL_PX = 15;
 
@@ -92,7 +94,7 @@ export function createPilotMarker({ THREE, scene3, camera, viewEl, faded = false
   scene3.add(group);
   const st = { antWorld: 1.8, antM: 1.8, target: null };
   const _v = new THREE.Vector3();
-  const pxPerUnit = (d) => (viewEl?.clientHeight || 800) / (2 * Math.max(d, 1e-3) * Math.tan((camera.fov * Math.PI) / 360));
+  const pxPerUnit = (d) => ppuOf(camera, viewEl, d);
 
   return {
     group,
@@ -150,7 +152,7 @@ export function createRangeRings({ THREE, scene3, camera, viewEl, toWorld, groun
   }
   scene3.add(group);
   const _w = new THREE.Vector3();
-  const pxPerUnit = (d) => (viewEl?.clientHeight || 800) / (2 * Math.max(d, 1e-3) * Math.tan((camera.fov * Math.PI) / 360));
+  const pxPerUnit = (d) => ppuOf(camera, viewEl, d);
   return {
     group,
     /** centre (local x, y metres); the rings follow the ground (a little above it so they stay visible) */

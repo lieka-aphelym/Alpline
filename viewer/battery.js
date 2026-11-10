@@ -3,15 +3,9 @@
 // under the playback bar with the replay cursor (click it to jump there). The data: GET /api/battery/flight
 // (series at 0.1 s on the track's clock) and /api/battery/packs; analysis in fpv3d/battery.py.
 import { esc } from './esc.js';
-import { drawDischarge, drawSag, fmtT } from './batchart.js';
+import { drawDischargeCursor, drawSag, fmtT } from './batchart.js';
 
-const post = async (url, body) => {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || r.status);
-  return j;
-};
-const get = async (url) => { const r = await fetch(url); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j; };
+import { postJSON as post, getJSON as get } from './net.js';
 
 export function initBattery({ S, $, seek, onChange }) {
   const st = { d: null, fid: null, packs: null, chart: null, lastCursor: null, tab: false };
@@ -69,7 +63,8 @@ export function initBattery({ S, $, seek, onChange }) {
       + `lowest <b class="${sm.min_cell < 3.5 ? 'bad' : sm.min_cell < 3.6 ? 'warnTxt' : ''}">${sm.min_cell.toFixed(2)} V/cell</b> under load`
       + (sm.ir_cell_mohm ? `, pack resistance <b>${sm.ir_cell_mohm} mΩ/cell</b>.` : '.')
       + ` <span class="muted">${sm.cells}S${sm.chem_label ? ` ${sm.chem_label}` : ''}${d.meta?.craft ? ` · ${esc(d.meta.craft)}` : ''}</span>`
-      + (sm.hint ? `<div class="warnTxt small">${esc(sm.hint)}</div>` : '');
+      + (sm.hint ? `<div class="warnTxt small">${esc(sm.hint)}</div>` : '')
+      + (sm.cells_unsure ? `<div class="warnTxt small">${esc(sm.cells_unsure)}</div>` : '');
     // which pack
     const sel = $('batPack');
     sel.innerHTML = `<option value="">${d.pack ? '(no pack)' : 'which pack was it? ▾'}</option>`
@@ -137,7 +132,7 @@ export function initBattery({ S, $, seek, onChange }) {
     const tnow = S.time;
     if (!force && st.lastCursor === tnow) return;
     st.lastCursor = tnow;
-    st.chart = drawDischarge(strip, st.d, { cursor: tnow, compact: true, height: 74, tStart: Math.min(0, st.d.t[0]),
+    st.chart = drawDischargeCursor(strip, st.d, { cursor: tnow, compact: true, height: 74, tStart: Math.min(0, st.d.t[0]),
       tEnd: Math.max(S.track.t[S.track.n - 1], st.d.t.at(-1)) });
     const v = st.chart.valueAt(tnow);
     $('batAt').innerHTML = v ? `at ${fmtT(tnow)}: <b class="volt">${v.cell.toFixed(2)} V/cell</b>`

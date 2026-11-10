@@ -214,24 +214,22 @@ def flights_in(path: Path):
     first = Parser.load(str(path))
     n = first.reader.log_count
     flights = []
+    from .battery import BlackboxCollector
+    need = ["time", "GPS_numSat", "GPS_coord[0]", "GPS_coord[1]", "GPS_altitude", "GPS_speed", "GPS_ground_course"]
     for idx in range(1, n + 1):
+        raw, t0, bat, gps = [], None, None, False
         try:
             p = first if idx == 1 else Parser.load(str(path), idx)
             names = p.field_names
-            need = ["time", "GPS_numSat", "GPS_coord[0]", "GPS_coord[1]", "GPS_altitude", "GPS_speed", "GPS_ground_course"]
-            if not all(k in names for k in need):
-                bat = _battery(path, idx, None)
-                if bat:
-                    flights.append(dict(index=idx, rows=None, battery=bat, when=_log_time(p.headers),
-                                        seconds=bat["t"][-1] - bat["t"][0]))
-                    log(f"log {idx}: no GPS (battery data only)")
-                else:
-                    log(f"log {idx}: no GPS in this log (is GPS logging on in Betaflight's Blackbox tab?)")
-                continue
-            ix = [names.index(k) for k in need]
-            raw, last, t0 = [], None, None
-            for fr in p.frames():
+            gps = all(k in names for k in need)
+            ix = [names.index(k) for k in need] if gps else None
+            col = BlackboxCollector(names)
+            last = None
+            for fr in p.frames():                # ONE walk over the frames: GPS positions and the battery together
                 d = fr.data
+                col.add(d)
+                if not gps:
+                    continue
                 try:
                     t, sats, la, lo, alt, spd, crs = (d[i] for i in ix)
                 except IndexError:
@@ -244,34 +242,29 @@ def flights_in(path: Path):
                 last = key
                 t0 = t if t0 is None else t0
                 raw.append(((t - t0) / 1e6, la / 1e7, lo / 1e7, alt, sats, spd / 100, crs / 10))
+            try:
+                bat = col.result(p.headers, t0 if len(raw) >= 3 else None)
+            except Exception as ex:              # noqa: BLE001 - the flight still counts without its battery
+                log(f"log {idx}: battery data not readable ({ex.__class__.__name__})")
         except Exception as ex:                  # a damaged log: keep the others
             log(f"log {idx}: could not be read ({ex.__class__.__name__}: {ex})")
             continue
         if len(raw) < 3:
-            bat = _battery(path, idx, None)
+            why = f"too few GPS positions ({len(raw)})" if gps else "no GPS"
             if bat:
                 flights.append(dict(index=idx, rows=None, battery=bat, when=_log_time(p.headers),
                                     seconds=bat["t"][-1] - bat["t"][0]))
-                log(f"log {idx}: too few GPS positions ({len(raw)}): battery data only")
+                log(f"log {idx}: {why} (battery data only)")
+            elif gps:
+                log(f"log {idx}: {why}: skipped")
             else:
-                log(f"log {idx}: too few GPS positions ({len(raw)}): skipped")
+                log(f"log {idx}: no GPS in this log (is GPS logging on in Betaflight's Blackbox tab?)")
             continue
         s = _alt_scale(p.headers, [r[3] for r in raw])
         rows = [(round(r[0], 3), r[1], r[2], round(r[3] * s, 1), r[4], round(r[5], 2), round(r[6], 1)) for r in raw]
         flights.append(dict(index=idx, rows=rows, start=(rows[0][1], rows[0][2]), seconds=rows[-1][0],
-                            when=_log_time(p.headers), battery=_battery(path, idx, t0)))
+                            when=_log_time(p.headers), battery=bat))
     return flights
-
-
-def _battery(path, idx, t0_us):
-    """The log's battery series (voltage, current, throttle), on the same clock as its GPS track; None if absent."""
-    try:
-        from orangebox import Parser
-        from .battery import from_blackbox
-        return from_blackbox(Parser.load(str(path), idx), t0_us)
-    except Exception as ex:                      # noqa: BLE001 - the flight still counts without it
-        log(f"log {idx}: battery data not readable ({ex.__class__.__name__})")
-        return None
 
 
 def write_csv(rows, out: Path):
@@ -306,7 +299,7 @@ def nearest_location(lat, lon, scenes_dir=None):
     return best[1] if best else None
 
 
-def _battery_for_old(x, f, folder, stamp, location, scenes):
+def _battery_for_old(x, f, folder, stamp, location, scenes, known=""):
     """A flight added by an older Alpline (before the battery analysis): keep its battery now, and give its 3D
     track the battery colours. True when something was added."""
     from .battery import describe, flight_file, save_flight, summary
@@ -316,7 +309,7 @@ def _battery_for_old(x, f, folder, stamp, location, scenes):
         loc = next((l for l in list_locations(Path(scenes or ROOT / "scenes")) if l["name"] == location), None)
     loc = loc or nearest_location(*x["start"], scenes)
     when = x["when"].strftime("%Y-%m-%d_%H%M") if x["when"] else f"{stamp}_{x['index']:02d}"
-    stem = f"{loc['name'] if loc else Path(f).stem}_bb_{when}"
+    stem = known or f"{loc['name'] if loc else Path(f).stem}_bb_{when}"   # its name when it was added, if recorded
     if flight_file(stem).exists():
         return False
     save_flight(stem, x["battery"], when=x["when"].strftime("%Y-%m-%d %H:%M") if x["when"] else None)
@@ -330,11 +323,32 @@ def _battery_for_old(x, f, folder, stamp, location, scenes):
     return True
 
 
-def _remember(seen, seen_file, fp):
-    seen.add(fp)
+def _free_name(stem, index, used, folder, scene_dir):
+    """A flight's name must be its own: two flights that start in the same minute (or a flight added on another day
+    with the same start minute) would otherwise overwrite each other's CSV, 3D track and battery data. When the name
+    is taken, the log's number is added (_02), then a letter if needed."""
+    from .battery import flight_file
+
+    def taken(n):
+        return (n in used or (folder / f"{n}.csv").exists() or flight_file(n).exists()
+                or bool(scene_dir and (scene_dir / "tracks" / f"{n}.json").exists()))
+    name = stem
+    if taken(name):
+        name = f"{stem}_{index:02d}"
+        k = 0
+        while taken(name):
+            k += 1
+            name = f"{stem}_{index:02d}{chr(96 + k) if k <= 26 else k}"
+    used.add(name)
+    return name
+
+
+def _remember(seen, seen_file, fp, name=""):
+    """added.txt: one line per flight already added, "<fingerprint> <its name>" (older lines: the fingerprint only)."""
+    seen[fp] = name
     seen_file.parent.mkdir(parents=True, exist_ok=True)
     with open(seen_file, "a", encoding="utf-8") as sf:
-        sf.write(fp + "\n")
+        sf.write(f"{fp} {name}".strip() + "\n")
 
 
 # ---------------------------------------------------------------- the whole thing
@@ -382,10 +396,15 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
             raise SystemExit("The drive has no blackbox files.")
     seen_file = ROOT / "logs" / "blackbox" / "added.txt"   # flights already added: downloading again skips them
     try:
-        seen = set(seen_file.read_text(encoding="utf-8").split())
+        seen = {}
+        for line in seen_file.read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if parts:
+                seen[parts[0]] = parts[1] if len(parts) > 1 else ""
     except OSError:
-        seen = set()
+        seen = {}
     added = 0
+    used = set()                                         # names given in this run
     for f in files:
         try:
             fl = flights_in(f)
@@ -401,19 +420,19 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
                 fp = "bat:" + _fingerprint(list(zip(bat["t"][::50], bat["v"][::50])))
                 when = x["when"].strftime("%Y-%m-%d_%H%M") if x["when"] else stamp
                 craft = re.sub(r"[^\w-]+", "_", bat.get("meta", {}).get("craft") or Path(f).stem) or "log"
-                fid = f"{craft}_bat_{when}_{x['index']:02d}"
+                fid = _free_name(f"{craft}_bat_{when}_{x['index']:02d}", x["index"], used, folder, None)
                 if fp in seen:
                     log(f"flight {x['index']}: battery only, already added before: skipped")
                     continue
                 from .battery import describe, save_flight, summary
                 save_flight(fid, bat, when=x["when"].strftime("%Y-%m-%d %H:%M") if x["when"] else None)
-                _remember(seen, seen_file, fp)
+                _remember(seen, seen_file, fp, fid)
                 log(f"flight {x['index']}: {mins:.1f} min, no GPS: battery kept ({describe(summary(bat))})")
                 log(f"BATTERY {fid}")
                 continue
             fp = _fingerprint(x["rows"])
             if fp in seen:
-                if x.get("battery") and _battery_for_old(x, f, folder, stamp, location, scenes):
+                if x.get("battery") and _battery_for_old(x, f, folder, stamp, location, scenes, seen[fp]):
                     continue
                 log(f"flight {x['index']}: {mins:.1f} min, already added before: skipped")
                 continue
@@ -423,7 +442,9 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
                 loc = next((l for l in list_locations(Path(scenes or ROOT / "scenes")) if l["name"] == location), None)
             loc = loc or nearest_location(*x["start"], scenes)
             when = x["when"].strftime("%Y-%m-%d_%H%M") if x["when"] else f"{stamp}_{x['index']:02d}"
-            out = folder / f"{loc['name'] if loc else Path(f).stem}_bb_{when}.csv"
+            stem = _free_name(f"{loc['name'] if loc else Path(f).stem}_bb_{when}", x["index"], used, folder,
+                              Path(scenes or ROOT / "scenes") / loc["name"] if loc else None)
+            out = folder / f"{stem}.csv"
             write_csv(x["rows"], out)
             if x.get("battery"):                          # saved first: adding the flight links it to the 3D track
                 from .battery import save_flight
@@ -446,8 +467,31 @@ def run(port=None, file=None, location=None, scenes=None, timeout=60, skip=()):
                 log(f"flight {x['index']}: could not be added to {loc['name']}: {ex.__class__.__name__}: {ex}")
                 continue
             added += 1
-            _remember(seen, seen_file, fp)
+            _remember(seen, seen_file, fp, out.stem)
             log(f"flight {x['index']}: {mins:.1f} min → added to {loc['name']} ({out.stem})")
             log(f"ADDED {loc['name']} {out.stem}")
     log(f"done: {added} flight(s) added" + ("" if file else " · you can unplug the drone now"))
     return added
+
+
+def rescan_saved(scenes=None):
+    """Read every blackbox file kept in logs/blackbox/ again (no drone needed). Flights already added keep their
+    track and get their battery data if they had none; flights never added are added now."""
+    files = []
+    base = ROOT / "logs" / "blackbox"
+    for g in LOG_GLOBS:
+        files += base.glob(f"*/{g}")
+    files = sorted({f.resolve() for f in files})
+    if not files:
+        log("no saved blackbox file in logs/blackbox/: download from the drone first")
+        return 0
+    log(f"{len(files)} saved blackbox file(s)")
+    total = 0
+    for f in files:
+        log(f"--- {f.parent.name}/{f.name}")
+        try:
+            total += run(file=str(f), scenes=scenes) or 0
+        except SystemExit as ex:                  # one unreadable file does not stop the others
+            log(str(ex))
+    log(f"all saved files read: {total} flight(s) added")
+    return total

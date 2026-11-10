@@ -49,11 +49,12 @@ the left and a header that stays the same on every page:
   tiles about 10 km around each location, so the map is sharp at the field without internet (new locations get theirs
   automatically when online).
 - **drone:** finds a Betaflight drone and the radio on USB by itself (a dot on the rail icon). After a download it asks
-  which battery pack you flew; *[battery packs]* opens the packs page (see *Battery analysis* below). *[download blackbox]*
+  which battery pack you flew; *[battery packs]* opens the packs page (see [Battery analysis](docs/battery.md)). *[download blackbox]*
   copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
   selected location on the fly tab.
 - **phone:** share on your network, the address and PIN, *[qr code]*, *[check access]* (details below).
-- **checks:** *[run quick check]* runs Alpline's own tests (about 20 s, in a temporary folder: your locations are not
+- **checks:** when a library pinned in `requirements.txt` changed (after an update of Alpline), a notice lists what
+  differs and *[update libraries]* installs it: no command line. *[run quick check]* runs Alpline's own tests (about 20 s, in a temporary folder: your locations are not
   touched), with a line per group (security, robustness, journeys…), what went wrong for a failure, and *[copy
   report]* to paste the results in a message. A red dot on the icon means the last check found a problem. From the
   source folder only (the installed app has no tests).
@@ -145,7 +146,7 @@ cd fpv3d
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python tests/run_all.py         # all checks (see Checks below)
+python tests/run_all.py         # all checks (see docs/development.md)
 ```
 
 ## Use it
@@ -171,125 +172,6 @@ python -m fpv3d serve
 
 Viewer controls: drag to rotate, right-drag to pan, scroll to zoom, click the terrain to read elevation and distance to the pilot, space to play/pause. If your GPU struggles, open `http://127.0.0.1:8000/viewer/?maxgrid=500`.
 
-## Live telemetry from the radio + warnings for the pilot
-
-The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map from your radio's telemetry (ELRS / CRSF), warns the pilot before he flies into a zone without line of sight, and marks the last known position plus a likely impact zone if the link is lost.
-
-**Setup (EdgeTX, e.g. RadioMaster TX15)**
-1. Install the serial library once: `pip install pyserial`.
-2. On the radio, set *SYS → Hardware → USB-VCP* to **Telemetry mirror** (EdgeTX 2.9+; the menu name can differ slightly between versions).
-3. Plug the radio in USB and choose **USB Serial (VCP)** when it asks.
-4. In the viewer, open *[fly]*, click *[refresh]*, pick the port and click *[connect]*. Connect while the drone is still on the ground: its GPS altitude is then calibrated against the terrain. You can also type an altitude correction yourself.
-
-**What you get**
-- **Live drone:** the drone (same marker as in replay, faded while its position is estimated) moves on the map with a trail coloured by LQ, a dashed line shows where it will be in a few seconds, and you see LQ, RSSI, SNR, TX power, battery, flight mode, height above ground, speed, distance and satellites.
-- **Warnings (voice + beeps, through the laptop speaker or an earbud):** the path of the next seconds (*Look ahead*, 5 s by default) is checked against the 3D shadows of the scene, i.e. the height below which there is no line of sight to the pilot:
-  - "Blind zone ahead, climb 30" (or "..., turn left" when climbing is not enough), with slow beeps
-  - "Blind zone close, climb 30 now" / "..., turn back now", with fast beeps
-  - "No line of sight, climb 40" (or "..., turn right"), with double beeps
-  - "Signal weak" when the real LQ drops, "Signal weak, turn back" when it is very low
-  - "Clear", once it's safe again
-
-  The voice always says the reason first, then one action. When the warning goes on, it only repeats the action ("Climb 35", "Turn left now"). Directions are from the drone's direction of flight: *bear left/right* (a small turn), *turn left/right*, *turn back*. A coloured box at the top of the screen shows the same thing for a spotter (title, action, seconds and metres), with a small clock dial for the escape direction.
-
-  **Command sounds.** Under *[fly] → Warnings → Alerts* you choose *Sounds + voice the first time* (default: the sentence once when something new happens, then only the sound repeats), *Sounds only*, *Voice + beeps* (the sentences and plain beeps) or *Off*. Each command has its own sound, and it repeats faster when it gets closer (every 1.6 s ahead, 0.7 s close):
-  - climb: a rising sweep (twice = climb more than 40 m). It repeats faster than the other sounds (every 0.9 s, 0.6 s when close) for as long as you still have to climb; with no line of sight the buzz only comes every 3rd time. In *Sounds + voice the first time* mode, the voice says "Climb" after every three sweeps
-  - left / right: a double tick in that ear only (use stereo earbuds)
-  - turn back: two falling tones, left then right
-  - no line of sight: a low harsh double buzz, followed by the action
-  - signal weak: a soft low wobble (followed by "turn back" when very weak)
-  - signal lost: one long low tone
-  - clear: two bright rising notes
-
-  The buttons under *Alerts* play each sound, to learn them before flying (the simulator warns too). Untick a sound to switch it off: that warning then stays silent, voice included, and only shows on screen. If a warning combines two sounds (no line of sight + climb), the other one still plays.
-- **No-fly zone age:** *[map] → No-fly zones* shows the date of the zone data, says *refresh before flying* when it is more than a week old, and **[refresh zones]** downloads the current FOCA zones for this location.
-- **Safety checks during a live flight:**
-  - The warning sounds run on their own timer. If the Alpline page goes to the background, the voice says *"Alpline is in the background. Warnings may be late"*, and the panel reminds you afterwards: browsers slow down hidden pages, so keep Alpline in front. On the PC the screen is kept on while connected.
-  - If the drone leaves the built area there is no shadow data under it: you get **OUTSIDE THE MAP** (turn-back sound) instead of a silent "all clear".
-  - When the drone sits on the ground at connect, its position is compared with the location's pilot point. More than 75 m apart: a note in the panel and a spoken warning, and **[use the takeoff point as pilot]** moves the pilot point there and rebuilds the shadows.
-  - At connect, the panel lists what is switched off (sounds, voice, warning box), so a flight never starts silent without you knowing.
-- **Signal lost:** after 1.5 s without GPS telemetry there is one long tone and "Signal lost". A red pin marks the last fix and a red area the likely impact zone (free fall from the last height and speed, carried forward along the course). The panel gives distance and direction from the pilot, GPS coordinates to copy, and a link to map.geo.admin.ch.
-- **Recording:** everything is saved to `logs/live/<location>/`. When you disconnect (with *Save the flight* ticked), the flight becomes a normal log of the scene.
-- **Training:** the same warnings work in the simulator (*Also warn during training flights*), so you can get used to them before a real flight. *Replay a flight log (test)* plays one of the scene's logs back as if it came from the radio, to try everything without flying.
-
-**Limits**
-- The warnings are only as good as the model: trees, cables and terrain finer than the scene's detail are not in it. The live LQ warning is the real safety net, and you still keep visual line of sight as the rules require.
-- GPS telemetry arrives a few times per second, so warnings aim at 2–5 s ahead, not the last second.
-- The impact zone is an estimate; the last known position is the solid part.
-- The warnings need the 3D shadows of the scene (built by default; `refresh-all` for old scenes).
-
-
-**Pilot position at the field.** The warnings use the *live pilot*: the take-off point (the median of the drone's
-GPS positions while it sits on the ground, locked at take-off so it never jumps), or your phone's GPS (*[my
-position]*), or a point picked on the map. The line of sight is computed live from there, in the browser, so
-taking off away from the location's planned point needs no rebuild. The coloured shadow maps stay those of the
-location's point; *[save as this location's pilot]* rebuilds them from the live point (do it at home, it takes a while).
-
-**Altitude when armed.** Betaflight sends the GPS altitude while disarmed and the height above the arming point
-while armed (760 m becomes 0). Alpline recognises the second case (an altitude far below the ground) and adds the
-ground height at the take-off point.
-
-## Deleting locations
-
-On the map page, *[saved] → [delete]* next to a location (or *[map] → This location → [delete]* in the 3D viewer) deletes it after a confirmation. Nothing is destroyed right away: the location file, its 3D scene and its training flights move to the `deleted/` folder.
-- **Undo:** use *Undo* just after deleting, *[restore]* under *Recently deleted*, or `python -m fpv3d restore <name>`.
-- **Kept:** the terrain cache (shared by all locations) and your own flight logs outside `logs/sim/` are never touched.
-
-```bash
-python -m fpv3d delete teysachaux          # asks for confirmation (-y to skip)
-python -m fpv3d restore                    # list what can be restored
-python -m fpv3d restore teysachaux
-python -m fpv3d deleted --purge            # empty deleted/ for good (--older-than 30 = only old ones)
-```
-
-## Battery analysis
-
-Betaflight logs the pack's voltage and current in the blackbox (about 50 times a second); radio logs carry RxBt / Curr
-(once a second). Alpline reads them when a blackbox is downloaded or a log is added, also from logs without GPS (those
-show only on the packs page). Glitches (a voltage or current spike far from its neighbours) are filtered out.
-
-- **[battery] tab in the 3D viewer**, for the flight being replayed: mAh and Wh used, peak and average current (and C),
-  the lowest cell voltage under load and how long it stayed under 3.5 V, the cell voltage at take-off and at landing
-  (resting: without the sag), the worst sag and the pack's **internal resistance**. *Sag vs current* shows each
-  moment's voltage drop against its current: the slope is the resistance. The pack that flew it is picked here
-  (or *+ new pack*: name, cells, capacity, LiPo / LiPo HV / Li-ion), with landing advice for that pack. A **chart under the playback bar**
-  follows the replay (cell voltage under load, resting estimate dashed, current, throttle); click it to jump there.
-  *[flights] → Colour the path by → Battery: cell voltage / current* colours the 3D path.
-- **Packs page** (*[all packs and their health]*, or the launcher's drone page): every pack with its resistance now
-  and its trend over its flights, sag at 100 A, mAh per minute at your flying and when to land (80 % of the capacity,
-  in mAh and minutes), and flags: *ageing* (resistance up by 40 % since its first flights), *weaker than your other
-  packs* of the same type, flights with cells under 3.5 V for more than 5 s. Below: every flight with battery data
-  (pick its pack, open it in 3D, see its discharge), the ones without a pack first with *[without a pack]*.
-- **LiPo, LiPo HV or Li-ion:** each pack has its type, and the levels follow it. LiPo (4.20 V full) and LiPo HV
-  (4.35 V full): low under load 3.5 V/cell, live warnings at 3.3 V under load and 3.4 V resting, a good pack is 2 to
-  6 mΩ per cell. Li-ion (18650 / 21700 packs for long range, made to go lower and to sag more): low 3.0 V/cell,
-  warnings at 2.9 V under load and 3.1 V resting, good under 20 mΩ per cell. A LiPo landed under 3.35 V/cell resting
-  is flagged as too deep (for a flight without a pack: "normal for Li-ion, too deep for a LiPo"); Li-ion and LiPo
-  packs are never compared with each other.
-- **Notes about a pack:** what happened to it, dated and optionally tied to a flight: crash / hard landing, puffed /
-  swollen, damaged wrap / leads / plug, over-discharged, came back hot, flown in the cold, left full, repaired, other,
-  with your remark. Add them on the packs page (pick the pack) or from the viewer's [battery] tab (*+ a note about this
-  pack*, dated with that flight). They show as marks on the pack's resistance chart and in its list. A swollen pack is
-  flagged **retire it** (first flag, ⚠ in the table); after a crash or damage Alpline compares the resistance before
-  and after (*resistance up 35 % since* or *no change since*), or says to check it before the next flight. Notes can
-  be deleted on the computer only.
-- **Charger check:** type what your charger put back in after a flight. Alpline compares it with the mAh the drone
-  logged: within 5 % the current sensor is right; otherwise it gives the Betaflight command
-  (`set ibata_scale = …`, then `save`).
-- **Live flight warnings** (*[fly] → Live flight → Warnings*): pick the pack you fly, the share to land at (80 %) and
-  the low level (3.3 V/cell). From the radio's telemetry the voice says *Half pack*, *Land now, 1040 milliamp hours*,
-  *Battery low, land* (cells under the low level for 2 s) and *Battery critical, land now* (resting under 3.4 V/cell),
-  after a three-note sound (mute it with the *battery* box). The tile shows the cell voltage and the share used. The
-  saved live flight is linked to that pack. Replaying a log with battery data uses its real battery.
-
-The resistance is the slope of voltage against current over the flight (V = rest(mAh) − R·I, least squares with the
-outliers dropped). It needs some punch-outs (at least ~8 A of spread) and is only reported when believable (1 to
-60 mΩ per cell). A good fresh pack is usually 2 to 6 mΩ per cell; cold packs and nearly empty packs read higher.
-Limits: the flight controller measures the whole pack, so a single weak cell only shows as more sag; there is no
-temperature; mAh are only as good as the current sensor's calibration (use the charger check). The packs and which
-pack flew what are kept in `battery/packs.json`, each flight's series in `battery/flights/` (both in backups; the
-files page can clear them).
-
 ## Your files: clean-up, start fresh, backup
 
 The launcher's **files** page lists what Alpline keeps, with the size of each: flight logs, training flights, built 3D
@@ -302,172 +184,19 @@ your locations uses.
 
 *[make a backup…]* saves your locations, flights, training flights and settings in one zip (tick *include the built
 3D scenes* to skip rebuilding after restoring). Use it to keep your files safe or to move to another PC.
+**Once a week**, when the launcher starts, a small backup (no scenes, no maps) is saved by itself as
+`backups/auto_<date>.zip`; the five newest are kept, and the files page shows the latest.
 *[restore a backup…]* unpacks one. It asks whether to replace files you already have or only add what's missing, and
 never deletes anything. Without the scenes, each location shows *not built*; build it and its flights come back.
 A restore only writes Alpline's own kinds of files inside Alpline's folder: entries pointing anywhere else (`../`,
-`C:\`, program files) are refused.
+`C:\`, program files) or claiming an absurd size are refused, and files are copied in pieces.
 
 **Problems are written down.** When something fails (a launcher button, a page, the server), you get a short notice
 and the details go to `logs/errors.txt` (click the launcher's notice to open it). The pages report their errors there
-too, including the phone, which has no developer tools. Send that file along when you report a problem.
+too, including the phone, which has no developer tools. Send that file along when you report a problem (your home
+folder is written as `~` in it, so your user name is not).
 Settings, location files and scene files are saved through a temporary file, so a crash or power cut in the middle
 never leaves a half-written file. A build stops right away with a clear message when the disk is too full for it.
-
-## Routes (corridor locations)
-
-Sometimes you only fly along a line: from your takeoff spot to a summit, or along a ridge. A **route** location keeps only a strip along that line instead of a whole square. That means far fewer tiles to download (a 5 km route with 500 m each side is about 6 km² instead of 50–100 km²), faster builds, and room for finer detail.
-
-- **Create one on the map page:** *[new] → Shape → Route*. Click points along the route, drag the white dots to adjust, and set the width on each side (100 m – 2 km, default 500 m). The first point is also the pilot until you move [pilot]. The preview shows the strip, its tiles (already cached or not), the download size and the area a square would have needed. *Undo point* / *Clear route* fix mistakes.
-- **In a location file:**
-  ```yaml
-  corridor:
-    width_m: 500
-    points:
-      - {lat: 46.5395, lon: 7.0000}
-      - {lat: 46.5486, lon: 7.0181}
-  ```
-  (instead of `center` / `half_size_m`; the pilot defaults to the first point).
-- **Build:** only the tiles the strip touches are downloaded in full detail. The signal from the pilot to the strip can cross terrain outside it, so the area between the pilot and the route gets a coarse 10 m bare-ground model; it's small and only used for the signal analysis. Shadows, 3D volumes and buildings are computed for the strip only.
-- **Viewer:** only the strip is drawn, with the route as an orange line. *[signal] → Side view along the route* shows a side view along the route:
-  - the ground
-  - the height below which you have **no line of sight** to the pilot (indigo band)
-  - the Fresnel line (amber) and the predicted signal-loss line (red, dashed)
-  - the "shadow at X m above ground" height
-  - your flight, projected onto the route
-
-  Hover it to read the numbers at any point; a marker appears on the 3D map. It follows antenna / power edits live.
-
-Limit: inside the program the strip is stored in the rectangle around it. A very long diagonal route at very fine detail can still use a lot of memory, and the map page warns you when the box gets large.
-
-## Terrain detail and 3D buildings
-
-A browser can't draw a 0.5 m terrain of several km (an 8 km scene at 0.5 m is 16 000 × 16 000 cells, about 1 GB). The viewer therefore shows:
-- **Overview:** the whole map, decimated to about 1500 × 1500 cells. The local server sends only that, not the full file.
-- **Sharp close-up:** a patch of about 770 × 770 cells at the scene's full resolution. It follows the point you look at (orbit target, or the chased drone).
-- **Sharp photo:** when the scene's resolution is 1 m or finer, the build also downloads the aerial photo at 0.5 m within `detail_radius_m` of the pilot, and the close-up uses it.
-
-*[map] → + Advanced* shows the mesh detail. Turn the close-up off with *Extra detail near the centre of the view*.
-
-**3D buildings:** footprints come from OpenStreetMap (very complete in Switzerland). The ground under each building is the lowest swissALTI3D height under it. On surface-model (`dsm`) scenes, the roof is the median swissSURFACE3D height inside the footprint. Otherwise the height comes from the OSM tags (`height`, `building:levels`) or a default. With *View → Ground → Bare ground + 3D buildings* you get clean blocks on the bare terrain instead of the blurry "blobs" a surface model gives. Click a building for its height. The signal analysis still uses the surface model, which also contains trees.
-
-Location options (`terrain:`): `buildings: true|false`, `ortho_detail_m: auto|0.25|off`, `detail_radius_m: 600`. Existing scenes get buildings and bare ground with `python -m fpv3d refresh-all`.
-
-Buildings come from the public OpenStreetMap servers (Overpass API), which limit how many requests one computer can make in a row. fpv3d retries a busy server and then tries two other public servers. If a scene still ends up without buildings, the viewer says why (*View* tab), and you can retry only the missing ones:
-```bash
-python -m fpv3d buildings                          # every built scene that has no buildings yet
-python -m fpv3d buildings locations/moleson.yaml   # one scene (redone even if it has some)
-python -m fpv3d buildings --all                    # redo all of them
-```
-The same thing is available as the *Buildings* button on the map page ([saved]).
-
-## Terrain cache (memoised levels of detail)
-
-Every 1 km swisstopo tile is downloaded once and resampled once per resolution. Results are kept in `cache/lod/<dtm|dsm|ortho>/<res>m/`, and every later build and location that touches those tiles reuses them. A new resolution of an area you already downloaded is made from the saved downloads, with no network needed. LOS shadow maps are also reused when terrain, pilot and radio settings haven't changed.
-
-```bash
-python -m fpv3d prefetch locations/moleson.yaml --res 2 5 10 --ortho-res 1 2   # get several detail levels now, use them later or offline
-python -m fpv3d prefetch locations/moleson.yaml --surface both                  # bare ground + trees/buildings
-python -m fpv3d build locations/moleson.yaml --resolution 2 --name moleson_2m  # high-detail variant next to the normal scene
-python -m fpv3d cache info                                                      # what's cached and how big
-python -m fpv3d cache clear --raw                                               # free space, keep the resampled tiles
-python -m fpv3d build locations/moleson.yaml --refresh                         # re-download (new swisstopo acquisition)
-```
-
-## Switzerland map (click to create locations)
-
-```bash
-python -m fpv3d map
-```
-This opens a map of Switzerland in your browser. It shows:
-- every 1 km tile you have already cached, coloured by kind; finer resolution is drawn more opaque
-- your locations, as a rectangle for the area and a small [p] tag for the pilot
-
-Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. You can also search for a place. Then pick the size, detail level and radio settings. Before you save, it tells you how many tiles are already cached and roughly how much would be downloaded. **Save & build** creates `locations/<name>.yaml`, builds the scene and links straight to the 3D view. While it builds, the location's 1 km tiles are drawn on the map and fill up as they download: dashed = still to get, blue outline = downloading, bright = just downloaded, dark = already cached, grey = no data. A card shows the steps (Terrain → Photo → Shadows → Logs → Zones), an overall bar, tile counters and the download speed. The full build log is under *Technical details*. The basemap and place search need internet; cached tiles and your locations show either way.
-
-## Training flight (simulator)
-
-In the 3D viewer: *[fly] → Start training flight*. You fly over the real swisstopo terrain with your radio, plugged in by USB in **Joystick** mode, or with the keyboard. The link to your pilot position is computed live with the same model as the build, and shown in an OSD (margin, RSSI and LQ estimate, line of sight). With *Simulate link loss* on:
-- the video gets blocky, then freezes on "NO SIGNAL"
-- losing the control link triggers failsafe (stage 1, then the quad drops)
-
-Flights are recorded while armed. **Save training flight** stores them in `logs/sim/<scene>/` and adds them as tracks named `<location>_sim_<date>_<time>`. Under *Flight → Compare with* you can pick the real flight: it shows as a dashed line with a ghost drone at the same elapsed time, plus a side-by-side table (distance, height, speed, time without LOS, predicted and logged signal).
-
-Set up the radio with *Radio setup*: detect or pick each axis, then invert if needed. Settings (rates, angle/acro, thrust-to-weight, camera tilt and FOV) are under *Drone and camera settings*.
-
-**How it flies** (`viewer/simphysics.js`, checked by `tests/test_sim.mjs`):
-- **What you see is what you hit:** the ground under the drone is the sharp terrain shown around it (with trees when
-  the map shows the surface model), and the 3D buildings: land on a roof, or crash into a wall (a slow touch is a bump,
-  more than ~15 km/h a crash). The sharp terrain follows the drone, loaded a little ahead in the direction of flight.
-- **Battery:** the voltage drops as the pack empties and sags when you punch (OSD: volts per cell and %, "BATTERY LOW —
-  LAND" near the end); an empty pack can't hold a hover. *Pack lasts … min hovering* sets the capacity (the presets have
-  typical values; a mixed flight lasts about two thirds of it).
-- **Throttle mid / expo** like Betaflight's `thr_mid` / `thr_expo`: copy yours so the throttle feels the same.
-- **Propwash:** descending into your own wake with throttle on shakes the quad (strength adjustable).
-- **Ground effect** close to the ground, and more drag through the prop disk than sideways (it falls flat slower).
-- **Motor sound:** pitch and loudness follow the throttle, air noise follows the speed (volume and on/off in the settings).
-- **Smooth:** the drawing resolution drops a little when frames get slow and comes back when there is room (*Keep it smooth*).
-
-These are under *Battery, throttle and feel*.
-
-## Drone zones (FOCA)
-
-Every build also downloads the official FOCA/BAZL dataset "Geographical UAS zones" (`ch.bazl.einschraenkungen-drohnen`). It's cached and refreshed after 7 days. The zones touching the map are drawn in the viewer:
-- hatched on the terrain, red = prohibited, orange = authorisation required, yellow = conditional
-- with walls showing their height limits
-- with a clickable list giving rules, validity dates, the authority and a link
-
-The HUD shows the zone the drone is in (inside the zone's height band). Tracks can be coloured by zone, and the comparison table shows the time spent in restricted zones. The simulator warns when you enter a zone. The map page shows the official FOCA layer.
-
-Update only the zones of an existing scene: `python -m fpv3d zones locations/<name>.yaml`
-
-**Informative only**: zones change (events, temporary bans). Always check map.geo.admin.ch or an official app before flying.
-
-## Update every scene at once
-
-```bash
-python -m fpv3d refresh-all               # all built scenes: new features, fresh drone zones, tracks kept (terrain reused)
-python -m fpv3d refresh-all --zones-only  # only re-download the drone zones (fastest)
-python -m fpv3d refresh-all --full        # also rebuild the terrain from the cache
-python -m fpv3d refresh-all --missing     # also build locations that were never built
-python -m fpv3d refresh-all --only moleson teysachaux
-```
-The same thing is available as buttons on the map page (*Update all scenes*). One scene failing doesn't stop the others, and a summary is printed at the end.
-
-## Renaming locations and logs
-
-File names are kept plain: lowercase letters, digits, `_` and `-`, with no spaces, accents or emoji. That makes them easy to type, sort and copy. Display titles can contain accents (emoji are removed).
-
-- **In the viewer:** use *[map] → This location → [rename]* to change the title and file name of the location, or *[flights] → [rename]* next to the log picker to rename the selected log.
-- **On the map page:** use *[saved] → [rename]* next to a location.
-
-```bash
-python -m fpv3d rename location t gruyere_north --title "Gruyère north"   # yaml, scene folder, logs/sim/<name>/
-python -m fpv3d rename location moleson --title "Moléson (FR)"           # title only
-python -m fpv3d rename log teysachaux teysachaux_sim_2026-10-11_1525 first_ridge_run
-python -m fpv3d tidy            # show what would be cleaned (titles, old sim_YYYYMMDD_HHMMSS names)
-python -m fpv3d tidy --apply    # do it
-```
-A rename moves the location file, the built scene, the simulator logs and the processed tracks, so you don't need to rebuild. A log inside `logs/` is renamed on disk too. A log elsewhere (e.g. in Downloads) is never touched: only its name inside fpv3d changes, and later rebuilds keep that name.
-
-## A new spot
-
-```bash
-python -m fpv3d new gantrisch --lat 46.712 --lon 7.444 --title "Gantrisch"
-# edit locations/gantrisch.yaml (pilot position, radio settings), then
-python -m fpv3d build locations/gantrisch.yaml
-```
-
-Things you'll want to edit in a location file:
-
-| key | meaning |
-|---|---|
-| `center`, `half_size_m` | map area (lat/lon or LV95 `e`/`n`) |
-| `pilot` | where you stand. Remove lat/lon to use the first GPS fix of the first log |
-| `terrain.surface` | `dtm` = bare ground. `dsm` = with trees and buildings (more realistic for 5.8 GHz, bigger download: 0.5 m tiles) |
-| `terrain.resolution_m` | 5 m is a good default. 2 m is sharper but heavier |
-| `analysis.los_agl_m` | heights above ground to precompute shadow maps for |
-| `links` | your radios: power, antenna gains, receiver sensitivity, fade margin |
-| `log_options.altitude_mode` | `auto`, `amsl` (GPS altitude), `relative` (baro, 0 at take-off), `agl` |
 
 ## Supported logs
 
@@ -494,58 +223,15 @@ Downloading again skips flights already added (`logs/blackbox/added.txt`). The d
 it. GPS must be among the logged fields (Configurator → Blackbox). Erase the flash in the Configurator when you want.
 Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GPL-3; 0.5.0 does not install with pip).
 
-## How the signal model works (and its limits)
+## More
 
-1. **Range sphere.** Radius = distance where `Ptx + Gtx + Grx − losses − FSPL(d) = sensitivity + fade margin`.
-2. **Line of sight.** For every map cell, a ray goes from your antenna to a drone hovering *N m* above that cell. The ray is sampled against the terrain, including earth curvature with a k = 4/3 refraction factor. The pipeline records the smallest clearance, and that clearance divided by the first-Fresnel-zone radius. Less than 60 % Fresnel clearance is shown amber. Blocked is shown dark.
-3. **Predicted margin.** This is FSPL plus a single knife-edge diffraction loss (ITU-R P.526). Black areas or red track samples mean the model expects the link to drop.
-
-It's a planning aid. Multipath, your body and goggles, antenna patterns and polarisation, interference and foliage all matter in reality. `dtm` ignores trees completely. Compare the predicted margin with the logged RSSI/LQ, then tune `fade_margin_db` until the two match for your gear.
-
-## Checks
-
-```bash
-python tests/run_all.py             # everything below (except the browser)
-python tests/run_all.py --browser   # + opens the pages in a hidden browser (needs: pip install playwright; python -m playwright install chromium)
-python tools/check.py               # the quick check: ruff + all Python tests (~10 s)
-python tests/run_quick.py           # the launcher's [run quick check]: one line per test
-```
-
-For development: `pip install -r requirements-dev.txt` (pytest, ruff, coverage, mypy), then `python -m pytest`
-(add `--cov` to see which code the tests reach), `ruff check .` (style and likely bugs) and `mypy` (types of the core
-modules). `python tools/install_hooks.py` runs `tools/check.py` before every `git commit`; `git commit --no-verify`
-skips it once. Settings for all of these are in `pyproject.toml`.
-
-- **Basics** (`test_basic.py`): coordinates, log readers, radio maths, the telemetry parser, blackbox reading, map tiles.
-- **Server** (`test_server.py`): the pages load, bad requests are refused, one build per location, cache cleaning keeps used tiles, the https certificate.
-- **Security** (`test_security.py`): other web pages open in your browser can't use Alpline (requests must be JSON from
-  Alpline's own address; a website's own name pointing at 127.0.0.1 is refused), only the pages and scenes are served
-  (never locations, logs, settings or code), names with `..` or `/` are refused, the phone needs the PIN everywhere
-  (10 wrong tries: one minute locked) and can't delete or rename. Names from files and the internet (OpenStreetMap
-  buildings, zones, locations, flights, serial ports) are shown as text, never run as code; a security policy lets
-  only Alpline's own scripts run and forbids other sites from showing Alpline in a frame; requests are limited to 20 MB.
-- **Battery** (`test_battery.py`): the analysis finds the resistance a simulated pack was given (2, 4.5 and 9 mΩ per
-  cell), mAh within 2 %, glitches like the real ones (32 V, 184 A) don't change the result, cells by Betaflight's rule,
-  radio-log columns, logs without a current sensor or too short; a blackbox with a GPS flight and a battery-only one
-  (both kept, the GPS one linked to its 3D track and path colours, kept by a rebuild, not added twice); packs, flags,
-  landing advice, the charger check's Betaflight scale, notes (a crash checked against the resistance before / after,
-  a swollen pack to retire); the battery API (the phone can't delete packs or notes).
-- **Your files** (`test_files.py`): safe saving keeps the old file when writing fails, the error log stays small,
-  clean-up deletes only the ticked kinds (never the program), backup → start fresh → restore gives everything back,
-  unsafe zip entries are refused, nothing is deleted while building, a build stops when the disk is too full.
-- **Robustness** (`test_robust.py`): hundreds of damaged inputs (cut, flipped bytes, junk) for the radio telemetry,
-  flight logs, blackbox files and location files: a clear error or a result, never a crash or a hang.
-- **Journeys** (`test_journeys.py`): the real commands in a fresh data folder against the fake swisstopo service:
-  build, add a log, rename the log and the location, delete, restore, empty the bin; rename never overwrites;
-  blackbox twice adds once; cache cleaning keeps what locations need; one broken location file doesn't stop the others.
-- **Snapshots** (`test_snapshots.py`): line of sight, blind-spot heights and radio range on a fixed test terrain,
-  compared with `tests/snapshots/signal.json`. When a change is meant to move them: `UPDATE_SNAPSHOTS=1 python -m pytest tests/test_snapshots.py`.
-- **Launcher** (`test_launcher.py`): USB detection (drone, radio, busy, unplugged during a download), map groups and
-  zoom levels, and the real window at its smallest size: panels inside and apart, long texts never resize it.
-- **Warnings:** 33 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
-- **Browser:** opens the checks page, the map, the share page, the packs page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
-
-Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. `drone.js` draws the drone icon (live link indicator, training box, build card, share page, empty pages). Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`. The logo animation (spin-up when a page opens, spinning while something loads or builds) is in `theme.css`; the launcher plays frames made from it by `tools/render_logo_frames.py` (run it again after changing the logo).
+| Guide | What is in it |
+| --- | --- |
+| [Live flight](docs/live.md) | the drone live on the map from the radio's telemetry, the line-of-sight and battery warnings, the pilot position |
+| [Battery analysis](docs/battery.md) | the battery tab, packs and their health, LiPo / Li-ion, notes, charger check |
+| [Training flight](docs/training.md) | the simulator: radio setup, flight model, collisions, recording |
+| [Locations, terrain and maps](docs/locations.md) | creating locations on the map, routes, terrain detail, buildings, no-fly zones, renaming, deleting |
+| [Development](docs/development.md) | how the signal model works, the tests and tools |
 
 ## Data
 

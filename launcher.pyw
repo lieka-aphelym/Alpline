@@ -69,8 +69,23 @@ def lan_addresses() -> list:
     try:
         from fpv3d.netinfo import lan_addresses as la
         return la()
-    except Exception:
+    except Exception as ex:
+        unexpected(ex)
         return []
+
+
+EXPECTED = (OSError, ImportError, ValueError, KeyError, TimeoutError, tk.TclError)
+
+
+def unexpected(ex):
+    """A fallback caught this error. Missing files, no network, a missing library or a damaged file are expected
+    there and stay quiet; anything else is probably a bug and goes to logs/errors.txt, instead of vanishing."""
+    if not isinstance(ex, EXPECTED):
+        try:
+            from fpv3d.errorlog import record_exception
+            record_exception("launcher (handled)", ex)
+        except Exception:                                      # noqa: BLE001 - never fail while reporting
+            pass
 
 
 def port_free(port: int) -> bool:
@@ -87,7 +102,8 @@ def port_free(port: int) -> bool:
 def load_settings() -> dict:
     try:
         return {"mode": "full", "port": 8000, **json.loads(SETTINGS.read_text(encoding="utf-8"))}
-    except Exception:
+    except Exception as ex:
+        unexpected(ex)
         return {"mode": "full", "port": 8000}
 
 
@@ -182,7 +198,8 @@ def flight_stats(name: str) -> dict:
     out["built"] = f.stat().st_mtime
     try:
         tracks = json.loads(f.read_text(encoding="utf-8")).get("tracks", [])
-    except Exception:
+    except Exception as ex:
+        unexpected(ex)
         return out
     for t in tracks:
         k = "sim" if is_sim(t) else "real"
@@ -425,6 +442,8 @@ class Launcher:
         self.set_mode(self.mode.get(), save=False)
         self.check_offline()
         self.start_device_watch()
+        self.root.after(1500, self.check_libraries)
+        self.root.after(4000, self.auto_backup)
         if self.cfg.get("share") and os.name == "nt":         # sharing was left on: check the phone can get in
             root.after(1200, lambda: self.check_phone_access(ask=True))
 
@@ -748,7 +767,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
     def share_info(self) -> dict:
         try:
             return json.loads(urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/share", timeout=1).read())
-        except Exception:
+        except Exception as ex:
+            unexpected(ex)
             return {}
 
     def show_qr(self):
@@ -875,6 +895,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
             col = ACC
         elif key == "checks" and (self.cfg.get("last_check") or {}).get("failed"):
             col = "#ff6b6b"                              # the last check found a problem
+        elif key == "checks" and getattr(self, "libs_diff", None):
+            col = "#ffb000"                              # libraries to update
         if col:
             r = S(3.5)
             x, y = S(21), S(3.5)
@@ -979,21 +1001,30 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.show_devices()
 
     def show_packs(self):
-        try:
-            from fpv3d import battery
-            o = battery.overview(ROOT)
-            none = sum(1 for f in o["flights"] if not f.get("pack"))
-            flagged = [p["name"] for p in o["packs"] if p["flags"] and not p.get("retired")]
-            self.packs_lab.set(f"{len(o['packs'])} pack(s) · {len(o['flights'])} flight(s) with battery data"
-                               + (f" · {none} without a pack" if none else "")
-                               + (f" · check: {', '.join(flagged)}" if flagged else ""))
-        except Exception as ex:                          # noqa: BLE001 - the page works without it
-            self.packs_lab.set(f"battery data not readable ({ex.__class__.__name__})")
+        """The line under BATTERY PACKS; read in the background (it grows with every flight)."""
+        def work():
+            try:
+                from fpv3d import battery
+                o = battery.overview(ROOT)
+                none = sum(1 for f in o["flights"] if not f.get("pack"))
+                flagged = [p["name"] for p in o["packs"] if p["flags"] and not p.get("retired")]
+                text = (f"{len(o['packs'])} pack(s) · {len(o['flights'])} flight(s) with battery data"
+                        + (f" · {none} without a pack" if none else "")
+                        + (f" · check: {', '.join(flagged)}" if flagged else ""))
+            except Exception as ex:                      # noqa: BLE001 - the page works without it
+                unexpected(ex)
+                text = f"battery data not readable ({ex.__class__.__name__})"
+            try:
+                self.root.after(0, lambda: self.packs_lab.set(text))
+            except Exception:                            # noqa: BLE001 - the window is closing
+                pass
+        threading.Thread(target=work, daemon=True).start()
 
     def start_device_watch(self):
         try:
             from serial.tools import list_ports  # noqa: F401
-        except Exception:
+        except Exception as ex:
+            unexpected(ex)
             self.drone_lab.set("USB detection needs the pyserial library (pip install pyserial)")
             self.bb_btn.configure(state="disabled"); self.live_btn.configure(state="disabled")
             return
@@ -1006,7 +1037,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
         from fpv3d.devices import Watcher
         try:
             from fpv3d.blackbox import probe
-        except Exception:
+        except Exception as ex:
+            unexpected(ex)
             probe = lambda dev: None
 
         def can_open(dev):
@@ -1016,7 +1048,8 @@ $r | ConvertTo-Json -Depth 4 -Compress
         while True:
             try:
                 ports = [(p.device, p.hwid or "", p.description or "") for p in list_ports.comports()]
-            except Exception:
+            except Exception as ex:
+                unexpected(ex)
                 ports = []
             changed, drones = w.update(ports, paused=self.bb_proc is not None)
             for d in drones:
@@ -1310,7 +1343,13 @@ $r | ConvertTo-Json -Depth 4 -Compress
         col = self.page_frame(parent, "CHECKS",
                               "Runs Alpline's own tests on this computer, about 20 seconds. Your locations and flights are "
                               "not touched: the tests work in a temporary folder with a fake swisstopo service.")
-        row = tk.Frame(col, bg=BG); row.pack(fill="x")
+        self.libs_row = tk.Frame(col, bg=BG2, padx=S(8), pady=S(6), highlightthickness=1, highlightbackground=ACC)
+        self.libs_lab = tk.Label(self.libs_row, text="", font=SANS, fg=FG, bg=BG2, justify="left", anchor="w", wraplength=S(460))
+        self.libs_lab.pack(side="left", fill="x", expand=True)
+        self.libs_btn = self.button(self.libs_row, "[update libraries]", self.update_libraries, primary=True)
+        self.libs_btn.pack(side="right")
+        self.libs_diff = []
+        self.check_top = row = tk.Frame(col, bg=BG); row.pack(fill="x")
         self.check_btn = self.button(row, "[run quick check]", self.run_checks, primary=True)
         self.check_btn.pack(side="left")
         self.copy_btn = self.button(row, "[copy report]", self.copy_check_report, small=True)
@@ -1344,6 +1383,59 @@ $r | ConvertTo-Json -Depth 4 -Compress
             self.check_status.set("the checks come with the source folder (PyCharm / Alpline.bat), not with the installed app")
         else:
             self.show_last_check()
+
+    # ------------------------------------------------------------ libraries (requirements.txt)
+    def check_libraries(self):
+        """After an update of Alpline a pinned library may have changed: compare what is installed in the project's
+        Python with requirements.txt (in the background) and offer one button to install the difference."""
+        if paths.FROZEN or not (APP / "requirements.txt").exists():
+            return
+
+        def work():
+            try:
+                r = subprocess.run([python_exe(), "-m", "fpv3d.deps", str(APP / "requirements.txt")], cwd=str(APP),
+                                   capture_output=True, text=True, timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                diff = json.loads(r.stdout or "[]") if r.returncode == 0 else []
+            except Exception as ex:                      # noqa: BLE001 - no check, no notice
+                unexpected(ex)
+                diff = []
+            self.root.after(0, lambda: self.show_libraries(diff))
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_libraries(self, diff):
+        self.libs_diff = diff
+        if not diff:
+            self.libs_row.pack_forget()
+            self.draw_badge("checks")
+            return
+        parts = [f"{d['name']} {d['have'] or 'missing'} → {d['want']}" for d in diff]
+        self.libs_lab.configure(text="Libraries to update: " + ", ".join(parts))
+        self.libs_row.pack(fill="x", pady=(0, S(10)), before=self.check_top)
+        self.say(f"{len(diff)} library update(s) waiting: see the checks page")
+        self.draw_badge("checks")
+
+    def update_libraries(self):
+        if self.server_alive():
+            self.stop()                                   # the server holds the libraries open while it runs
+        self.libs_btn.configure(state="disabled")
+        self.libs_lab.configure(text="installing… (needs internet, about a minute)")
+        self.logo.busy(True)
+
+        def work():
+            r = subprocess.run([python_exe(), "-m", "pip", "install", "-r", str(APP / "requirements.txt")], cwd=str(APP),
+                               capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+            def done():
+                self.logo.busy(False)
+                self.libs_btn.configure(state="normal")
+                if r.returncode == 0:
+                    self.say("libraries updated", "ok")
+                    self.check_libraries()
+                else:
+                    self.libs_lab.configure(text="could not install: " + ((r.stderr or r.stdout).strip().splitlines() or ["?"])[-1][:200])
+            self.root.after(0, done)
+        threading.Thread(target=work, daemon=True).start()
 
     def check_write(self, text, tag=None, clear=False):
         self.check_log.configure(state="normal")
@@ -1507,6 +1599,9 @@ $r | ConvertTo-Json -Depth 4 -Compress
         tk.Label(col, text="A backup holds your locations, flights, training flights and settings: keep it safe, or use it "
                            "to move everything to another PC. Restoring never deletes anything; files you already have are kept.",
                  font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(640)).pack(fill="x", pady=(S(4), 0))
+        self.auto_lab = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.auto_lab.pack(fill="x", pady=(S(6), 0))
+        self.show_auto_backup()
         self.disk_out = FitLabel(col, font=SANS, fg=FG2, bg=BG)
         self.disk_out.pack(fill="x", pady=(S(10), 0))
         self.disk_sizes = {}
@@ -1564,6 +1659,25 @@ $r | ConvertTo-Json -Depth 4 -Compress
                 r = ex
             self.root.after(0, lambda: (self.logo.busy(False), done(r), self.measure_disk()))
         threading.Thread(target=work, daemon=True).start()
+
+    def auto_backup(self):
+        """Once a week, at start: a small backup in backups/ (the five newest are kept)."""
+        def work():
+            try:
+                from fpv3d import housekeeping as hk
+                f = hk.auto_backup(ROOT)
+            except Exception as ex:                      # noqa: BLE001 - never in the way of starting
+                unexpected(ex)
+                return
+            if f:
+                self.root.after(0, lambda: (self.say(f"weekly backup saved: backups/{f.name}", "ok"), self.show_auto_backup()))
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_auto_backup(self):
+        from fpv3d import housekeeping as hk
+        have = hk.auto_backups(ROOT)
+        self.auto_lab.set("automatic weekly backup: " + (f"latest {have[-1].stem[len(hk.AUTO_PREFIX):]} "
+                          f"({hk.human(have[-1].stat().st_size)}), {len(have)} kept in backups/" if have else "none yet (made at the next start)"))
 
     def backup_name(self):
         return f"alpline_backup_{time.strftime('%Y-%m-%d_%H%M')}.zip"
@@ -2324,6 +2438,7 @@ class SwissMap:
             self.locs = sorted((l for l in list_locations(ROOT / "scenes") if "center" in l), key=lambda l: l["name"])
             self.hint = self.map_age()
         except Exception as ex:                     # missing libraries etc.: the map still works without them
+            unexpected(ex)
             self.locs = []
             self.hint = f"locations not shown ({ex.__class__.__name__})"
         self.info.set(self.hint)
@@ -2362,6 +2477,7 @@ class SwissMap:
             for k in list(self.src):                  # half size: used when zoomed out (4x fewer pixels to scale)
                 self.src[k + "_half"] = self.src[k].resize((full.size[0] // 2, full.size[1] // 2), Image.LANCZOS)
         except Exception as ex:                       # a damaged file: download again with [update map]
+            unexpected(ex)
             self.hint = f"map file not readable ({ex.__class__.__name__}): [update map]"
 
     def detail_zoom(self):
@@ -2445,7 +2561,8 @@ class SwissMap:
                 return
             t = self.tiles.get(*key)
             self.app.root.after(0, lambda: self._tile_arrived(key, t))
-        except Exception:
+        except Exception as ex:
+            unexpected(ex)
             now = time.monotonic()
             self.failed[key] = now + 60
             self.failed["net"] = now + 20             # offline: stop asking for a while
@@ -2522,7 +2639,8 @@ class SwissMap:
                     self.app.root.after(0, lambda: self.info.set(f"detail around your locations… {n}/{t}"))
             try:
                 _, failed = self.tiles.prefetch(pts, progress=prog)
-            except Exception:
+            except Exception as ex:
+                unexpected(ex)
                 failed = 1
             def fin():
                 self.prefetching = False
@@ -2547,7 +2665,8 @@ class SwissMap:
             try:
                 self.photo = self.view_image(W, H, fast)
                 cv.create_image(0, 0, image=self.photo, anchor="nw")
-            except Exception:
+            except Exception as ex:
+                unexpected(ex)
                 self.photo = None
         elif not self.downloading:
             cv.create_text(W / 2, H / 2, text="no map yet: [update map] when online", fill=FG2, font=MONO)

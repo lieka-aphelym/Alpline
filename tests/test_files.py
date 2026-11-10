@@ -154,6 +154,59 @@ def test_restore_refuses_unsafe_entries():
         pass
 
 
+def test_restore_refuses_oversized_entries():
+    root = make_data()
+    big = root / "big.zip"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(hk.BACKUP_TAG, json.dumps(dict(kinds=["flights"])))
+        z.writestr("logs/huge.csv", "0" * 5_000_000)
+        z.writestr("logs/small.csv", "ok")
+    old = hk.MAX_ENTRY
+    try:
+        hk.MAX_ENTRY = 1_000_000
+        out = hk.restore(big, root)
+    finally:
+        hk.MAX_ENTRY = old
+    assert out["restored"] == 1 and out["refused"] == 1
+    assert not (root / "logs" / "huge.csv").exists() and (root / "logs" / "small.csv").read_text() == "ok"
+    assert not list((root / "logs").glob(".*.tmp"))
+
+
+def test_error_log_hides_the_home_folder():
+    home = str(Path.home())
+    text = errorlog._private(f'File "{home}{os.sep}proj{os.sep}x.py", line 3')
+    assert home not in text and text.startswith('File "~')
+
+
+def test_weekly_backup_keeps_the_newest_five():
+    import time
+    root = make_data()
+    t0 = time.time()
+    made = []
+    for week in range(8):
+        f = hk.auto_backup(root, now=t0 + week * 7 * 86400 + 60)
+        assert f is not None, week
+        os.utime(f, (t0 + week * 7 * 86400 + 60,) * 2)            # as if made that week
+        made.append(f.name)
+    assert len(set(made)) == 8 and [f.name for f in hk.auto_backups(root)] == sorted(made)[-5:]
+    assert hk.auto_backup(root, now=t0 + 7 * 7 * 86400 + 3 * 86400) is None      # 3 days later: not yet
+    info = hk.read_backup(hk.auto_backups(root)[-1])
+    assert "scenes" not in info["kinds"] and any(n.startswith("locations/") for n in info["names"])
+    fresh = Path(tempfile.mkdtemp(prefix="alpline_fresh_"))
+    assert hk.auto_backup(fresh) is None                           # nothing of yours yet: no empty backup
+
+
+def test_library_check_reads_the_pins():
+    from fpv3d import deps
+    d = Path(tempfile.mkdtemp())
+    req = d / "requirements.txt"
+    req.write_text("# comment\nnumpy==0.0.1\nnot-a-real-lib==1.0   # optional: nothing\nalso-missing==2.0\n", encoding="utf-8")
+    diff = {x["name"]: x for x in deps.differences(req)}
+    assert diff["numpy"]["want"] == "0.0.1" and diff["numpy"]["have"] not in (None, "0.0.1")
+    assert "not-a-real-lib" not in diff and diff["also-missing"]["have"] is None
+    assert deps.differences(HERE.parent / "requirements.txt") is not None and deps.differences(d / "none.txt") == []
+
+
 def test_clear_refused_while_building():
     from fpv3d.buildlock import scene_lock
     root = make_data()

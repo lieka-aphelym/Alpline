@@ -102,12 +102,14 @@ def test_pin_for_other_devices():
         assert get("/viewer/?scene=x")[0] == 401                             # no PIN: the PIN form
         assert get("/viewer/?k=000000")[0] == 401                            # wrong PIN
         st, h = get("/viewer/?scene=x&k=123456")                             # right PIN: cookie + clean address
-        assert st == 302 and "alp_pin=123456" in h.get("set-cookie", "") and h["location"] == "/viewer/?scene=x"
-        assert get("/viewer/", {"Cookie": "alp_pin=123456"})[0] == 200
+        assert st == 302 and f"alp_pin={server.pin_cookie('123456')}" in h.get("set-cookie", "") and "HttpOnly" in h["set-cookie"] \
+            and "123456" not in h["set-cookie"] and h["location"] == "/viewer/?scene=x"
+        assert get("/viewer/", {"Cookie": f"alp_pin={server.pin_cookie('123456')}"})[0] == 200
         assert get("/api/ca.crt")[0] in (200, 404)                           # the CA is public (404 = no https set up)
         assert get("/viewer/manifest.webmanifest")[0] == 200                # the app manifest too (Chrome fetches it without cookies)
         c = http.client.HTTPConnection(ip, port, timeout=5)                  # deleting / renaming: only on the computer
-        c.request("POST", "/api/delete", body=b'{"name":"x"}', headers={"Cookie": "alp_pin=123456", "Content-Type": "application/json"})
+        c.request("POST", "/api/delete", body=b'{"name":"x"}',
+                  headers={"Cookie": f"alp_pin={server.pin_cookie('123456')}", "Content-Type": "application/json"})
         assert c.getresponse().status == 403
         c.close()
     except OSError:
@@ -201,3 +203,20 @@ if __name__ == "__main__":
                 fails += 1; print(f"  FAIL  {name}: {ex!r}")
     print("server checks:", "all passed" if not fails else f"{fails} failed")
     sys.exit(1 if fails else 0)
+
+
+def test_jobs_register_under_one_lock_and_old_ones_go():
+    from fpv3d import server
+    old = dict(server.JOBS)
+    try:
+        server.JOBS.clear()
+        a = server.new_job("one")
+        assert a and server.new_job("two") is None                 # a build is running: the second is refused
+        assert server.new_job("side", exclusive=False)             # (jobs that may run beside a build)
+        for j in server.JOBS.values():
+            j["status"] = "done"
+        for k in range(40):
+            server.JOBS[server.new_job(f"j{k}")]["status"] = "done"
+        assert len(server.JOBS) <= 22
+    finally:
+        server.JOBS.clear(); server.JOBS.update(old)

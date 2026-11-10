@@ -56,7 +56,11 @@ class Data:
                         FPV3D_OVERPASS_URL=f"http://127.0.0.1:{p}/api/interpreter")
 
     def run(self, *args, ok=True, input_text=None):
-        r = subprocess.run([sys.executable, "-m", "fpv3d", *args], cwd=self.dir, env=self.env, capture_output=True,
+        cmd = [sys.executable, "-m", "fpv3d"]
+        if os.environ.get("ALPLINE_COV"):               # tools/cover.py: also measure the code these commands run
+            cmd = [sys.executable, "-m", "coverage", "run", "--parallel-mode", f"--rcfile={ROOT / 'pyproject.toml'}",
+                   f"--data-file={ROOT / '.coverage'}", "-m", "fpv3d"]
+        r = subprocess.run([*cmd, *args], cwd=self.dir, env=self.env, capture_output=True,
                            text=True, encoding="utf-8", errors="replace", input=input_text, timeout=300)
         if ok:
             assert r.returncode == 0, f"fpv3d {' '.join(args)} failed:\n{r.stdout[-1500:]}\n{r.stderr[-1500:]}"

@@ -20,12 +20,22 @@ def log_file() -> Path:
     return DATA / "logs" / "errors.txt"
 
 
+def _private(text: str) -> str:
+    """Your home folder (it holds your user name) is written as ~: this file is sent along with problem reports."""
+    home = str(Path.home())
+    if len(home) < 4:
+        return text
+    for h in {home, home.replace("\\", "/"), home.replace("\\", "\\\\")}:
+        text = text.replace(h, "~")
+    return text
+
+
 def record(source: str, message: str, details: str = "") -> Path:
     """Add one entry; never raises (logging an error must not cause another one)."""
     f = log_file()
-    entry = f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}  {source}: {message.strip()[:500]}\n"
+    entry = f"--- {time.strftime('%Y-%m-%d %H:%M:%S')}  {source}: {_private(message.strip()[:500])}\n"
     if details.strip():
-        entry += details.rstrip()[:8000] + "\n"
+        entry += _private(details.rstrip()[:8000]) + "\n"
     try:
         with _LOCK:
             f.parent.mkdir(parents=True, exist_ok=True)

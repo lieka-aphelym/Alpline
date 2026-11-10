@@ -5,6 +5,7 @@ import { createWarner } from './warn.js';
 import { mountDrone } from './drone.js';
 import { createDroneMarker } from './marker.js';
 import { createPilotMarker, textSprite } from './pilotmark.js';
+import { pxPerUnit } from './screen.js';
 import { esc } from './esc.js';
 
 const $ = (id) => document.getElementById(id);
@@ -248,6 +249,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       D.loop(null); D.off(true); linkTxt('not connected'); hero('off'); $('liveStatus').textContent = 'pick the radio and connect'; return;
     }
     W.bat.reset(); batApply();
+    st.reconn = false;
     Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null,
       fixes: [], pilotLocked: false, rel: false, relBase: null, calibs: [] });
     if (!st.pilotManual) st.pilot = null;
@@ -335,6 +337,14 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (j.samples.length) st.seq = j.samples.at(-1).seq;
     st.gpsEvery = j.gps_every; st.frameEvery = j.frame_every;
     status(j);
+    // the radio's USB link dropped: the server keeps trying to reopen the port; say so (once, with a sound)
+    if (j.reconnecting && !st.reconn) {
+      st.reconn = true; W.notice('Radio unplugged, reconnecting');
+      $('liveMsg').textContent = 'Radio unplugged: check the USB cable. Reconnecting…'; $('liveMsg').className = 'small err';
+    } else if (!j.reconnecting && st.reconn) {
+      st.reconn = false; W.notice('Radio back');
+      $('liveMsg').textContent = 'Radio reconnected.'; $('liveMsg').className = 'small ok';
+    }
     // Signal lost = nothing at all from the drone for a while (link values included), measured against how often this
     // radio usually sends (some send GPS only every 3 s). A late GPS alone is not a loss: the position is estimated.
     const lostAfter = j.frame_every ? Math.max(2.5, 2 * j.frame_every + 0.5) : 5;   // 5 s until the rate is known
@@ -585,7 +595,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
       W.tick(now);
       if (ghostMark.visible) {
         ghostMark.update(null);
-        const ppu = (document.getElementById('view').clientHeight || 800) / (2 * Math.max(camera.position.distanceTo(pLinkTxt.position), 1e-3) * Math.tan(camera.fov * Math.PI / 360));
+        const ppu = pxPerUnit(camera, document.getElementById('view'), camera.position.distanceTo(pLinkTxt.position));
         const hs = 30 / ppu; pLinkTxt.scale.set(hs * pLinkTxt.userData.aspect, hs, 1);
         pLinkTxt.center.set(0.5, -0.6);                       // just above the dashed link
         pLink.material.dashSize = Math.max(2, camera.position.distanceTo(pLinkTxt.position) / 60); pLink.material.gapSize = pLink.material.dashSize * 0.7;

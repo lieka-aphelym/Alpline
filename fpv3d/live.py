@@ -47,7 +47,7 @@ class LiveLink:
 
     def reset(self):
         self.state = dict(status="idle", source=None, scene=None, error=None, frames=0, bad=0, gps_count=0,
-                          started=None, csv=None, bytes=0, port=None)
+                          started=None, csv=None, bytes=0, port=None, reconnecting=False, reconnects=0)
         self.opened = None         # when the port opened: "nothing for N s" needs to know how long we waited
         self.latest = {}
         self.samples = []          # one per GPS frame (merged with the latest other values)
@@ -125,13 +125,19 @@ class LiveLink:
         w.writerow(COLS)
         return f, w
 
+    RECONNECT_S = 30          # a dropped USB cable: keep trying to reopen the port this long before giving up
+
+    def _open_port(self, port):
+        import serial
+        return serial.Serial(port, 115200, timeout=0.1)        # USB CDC: the baud rate is ignored
+
     def _run_serial(self, port):
         try:
-            import serial
+            import serial  # noqa: F401
         except ImportError:
             return self._fail("the live link needs pyserial: pip install pyserial")
         try:
-            ser = serial.Serial(port, 115200, timeout=0.1)     # USB CDC: the baud rate is ignored
+            ser = self._open_port(port)
         except Exception as ex:
             return self._fail(f"cannot open {port}: {ex}")
         p, (fh, w) = crsf.Parser(), self._open_csv()
@@ -143,16 +149,45 @@ class LiveLink:
             while not self.stop_ev.is_set():
                 try:
                     data = ser.read(512)
-                except Exception as ex:
-                    return self._fail(f"radio disconnected ({ex})")
+                except Exception as ex:                    # cable pulled, radio switched off: try to get it back
+                    ser = self._reconnect(ser, port, ex)
+                    if ser is None:
+                        return
+                    continue
                 if data:
                     self._handle(p.feed(data), w, t0)
                     with self.lock:
                         self.state.update(frames=p.frames, bad=p.bad, bytes=self.state["bytes"] + len(data))
                     fh.flush()
         finally:
-            ser.close()
+            try:
+                ser and ser.close()
+            except Exception:                              # noqa: BLE001 - already gone
+                pass
             fh.close()
+
+    def _reconnect(self, ser, port, why):
+        """The port stopped answering. Keep the flight open (the recording, the map) and reopen the port every second;
+        returns the new port object, or None after RECONNECT_S seconds (the link then ends with an error) or on stop."""
+        try:
+            ser.close()
+        except Exception:                                  # noqa: BLE001
+            pass
+        since = time.monotonic()
+        with self.lock:
+            self.state.update(reconnecting=True, reconnects=self.state.get("reconnects", 0) + 1)
+        while not self.stop_ev.wait(1.0):
+            try:
+                new = self._open_port(port)
+            except Exception:                              # noqa: BLE001 - still unplugged
+                if time.monotonic() - since > self.RECONNECT_S:
+                    self._fail(f"radio disconnected ({why}); not back after {self.RECONNECT_S} s")
+                    return None
+                continue
+            with self.lock:
+                self.state.update(reconnecting=False)
+            return new
+        return None
 
     def _run_replay(self, track_file: Path, speed: float):
         """Turn a processed track (scene/tracks/*.json) back into CRSF frames, paced in real time."""

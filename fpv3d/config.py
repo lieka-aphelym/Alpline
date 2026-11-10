@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import yaml
 
@@ -89,15 +89,15 @@ class LocationConfig:
     logs: List[str]
     log_options: dict
     source_path: Path
-    corridor: Optional[object] = None      # fpv3d.corridor.Corridor for route-shaped locations
+    corridor: Optional[Any]    = None      # fpv3d.corridor.Corridor for route-shaped locations
 
     def ortho_res(self, grid=None) -> float:
         """Aerial photo resolution: the configured value, or for "auto" the sharpest valid one that
         keeps the image at most 2048 px wide (a light texture for the browser), never finer than 2 m."""
         r = self.terrain.ortho_resolution_m
         if r != "auto":
-            return float(r)
-        g = grid or self.grid(10)
+            return float(r)                          # type: ignore[arg-type]
+        g: Any = grid or self.grid(10)
         span = max(g.max_e - g.min_e, g.max_n - g.min_n)
         return next((v for v in VALID_RES if v >= 2 and span / v <= 2048), VALID_RES[-1])
 
@@ -151,7 +151,7 @@ class LocationConfig:
         base = path.parent
         logs = [str((base / p).resolve()) if not Path(p).is_absolute() else p for p in (raw.get("logs") or [])]
         from .corridor import Corridor
-        corridor = Corridor.from_raw(raw.get("corridor"))
+        corridor = Corridor.from_raw(raw.get("corridor"))  # type: ignore[arg-type]
         if corridor is not None:
             ce, cn = corridor.center()
             e0, n0, e1, n1 = corridor.bbox()

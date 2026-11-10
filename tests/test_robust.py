@@ -238,6 +238,65 @@ def test_list_locations_survives_broken_files():
     assert sum(1 for r in res if r.get("error")) == 2
 
 
+def test_live_link_reconnects_after_a_dropped_cable():
+    """The radio's USB link drops in flight: the session stays open, the port is reopened, data flows again.
+    If it never comes back, the link ends with a clear error."""
+    import tempfile
+    import time
+    from fpv3d import crsf, live
+
+    class Port:
+        def __init__(self, chunks):
+            self.chunks = list(chunks)
+
+        def read(self, n):
+            if not self.chunks:
+                time.sleep(0.01)
+                return b""
+            c = self.chunks.pop(0)
+            if c is None:
+                raise OSError("device disconnected")
+            return c
+
+        def close(self):
+            pass
+
+    frames = crsf.gps_frame(46.55, 7.03, 30, 90, 1500, 12) + crsf.battery_frame(22.2, 12, 100, 80)
+    opens = []
+
+    def run(ports, wait_for, reconnect_s=30):
+        link = live.LiveLink()
+        link.RECONNECT_S = reconnect_s
+        seq = list(ports)
+
+        def open_port(port):
+            opens.append(port)
+            p = seq.pop(0)
+            if p is None:
+                raise OSError("no such port")
+            return p
+        link._open_port = open_port
+        old = live.ROOT
+        live.ROOT = Path(tempfile.mkdtemp(prefix="alpline_live_"))
+        try:
+            link.start("001_test", "serial", port="COM9")
+            end = time.time() + 15
+            while time.time() < end and not wait_for(link.snapshot()):
+                time.sleep(0.05)
+            snap = link.snapshot()
+            link.stop()
+            return snap
+        finally:
+            live.ROOT = old
+
+    # dropped once, back at the second try
+    snap = run([Port([frames, frames, None]), None, Port([frames] * 3)], lambda s: s["gps_count"] >= 5 or s["status"] == "error")
+    assert snap["status"] == "live" and snap["gps_count"] >= 5 and snap["reconnects"] == 1 and not snap["reconnecting"], snap
+    # never back: a clear error after the waiting time
+    snap = run([Port([frames, None])] + [None] * 10, lambda s: s["status"] == "error", reconnect_s=1.5)
+    assert snap["status"] == "error" and "radio disconnected" in snap["error"], snap
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):

@@ -49,6 +49,7 @@ import http.server
 import os
 import json
 import re
+import secrets
 import socketserver
 import subprocess
 import sys
@@ -146,6 +147,24 @@ PROCS = {}       # job id -> running build process (kept out of JOBS, which is s
 def busy_job():
     """The build that is running now, if any: one build at a time (memory, disk and the same files)."""
     return next((j for j in JOBS.values() if j["status"] == "running"), None)
+
+
+JOBS_LOCK = threading.Lock()
+
+
+def new_job(name: str, exclusive=True, **extra):
+    """Register a background job, or return None when a build is running and this one needs to be alone. The check
+    and the registration happen under one lock (two clicks in the same instant start one build), and only the last
+    20 finished jobs are kept."""
+    with JOBS_LOCK:
+        if exclusive and busy_job():
+            return None
+        done = [k for k, j in JOBS.items() if j["status"] != "running"]
+        for k in done[:-20]:
+            del JOBS[k]
+        jid = uuid.uuid4().hex[:10]
+        JOBS[jid] = dict(id=jid, name=name, status="running", lines=[], **extra)
+        return jid
 
 
 def location_file_for_scene(scene: str):
@@ -284,7 +303,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return False
             pin = SHARE["pin"]
             cookies = dict(c.strip().split("=", 1) for c in (self.headers.get("Cookie") or "").split(";") if "=" in c)
-            if pin and hmac.compare_digest(cookies.get("alp_pin", ""), pin):
+            if pin and hmac.compare_digest(cookies.get("alp_pin", ""), pin_cookie(pin)):
                 return False
             q = urllib.parse.parse_qs(u.query)
             ip = self.client_address[0]
@@ -293,7 +312,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             if pin and hmac.compare_digest((q.get("k") or [""])[0], pin):   # right PIN in the link: remember it
                 rest = urllib.parse.urlencode({k: v[0] for k, v in q.items() if k != "k"})
                 self.send_response(302)
-                self.send_header("Set-Cookie", f"alp_pin={pin}; Path=/; Max-Age=31536000; SameSite=Lax"
+                # the cookie holds a token made from the PIN, not the PIN; page scripts can't read it (HttpOnly)
+                self.send_header("Set-Cookie", f"alp_pin={pin_cookie(pin)}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly"
                                  + ("; Secure" if SHARE["https_port"] and self.server.server_address[1] == SHARE["https_port"] else ""))
                 self.send_header("Location", u.path + (f"?{rest}" if rest else ""))
                 self.end_headers()
@@ -501,193 +521,11 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             try:
                 b = self._body()
                 m = re.match(r"^/api/jobs/([\w-]+)/cancel$", u.path)
-                if m:                            # stop a running build (the map page's [cancel])
-                    job, p = JOBS.get(m.group(1)), PROCS.get(m.group(1))
-                    if not job or job["status"] != "running" or p is None:
-                        return self._json(dict(error="no such running build"), 404)
-                    job["cancel"] = True
-                    job["lines"].append("cancelled by the user")
-                    p.terminate()
-                    return self._json(dict(ok=True))
-                if u.path == "/api/locations":
-                    out = write_location(
-                        b["name"], b.get("title") or b["name"], tuple(b["center"]), tuple(b.get("pilot") or b["center"]),
-                        float(b.get("half_size_m", 2500)), float(b.get("resolution_m", 5)), b.get("surface", "dtm"),
-                        float(b.get("antenna_height_m", 1.8)), b.get("radio_from") or None, bool(b.get("overwrite")),
-                        b.get("corridor") or None)
-                    return self._json(dict(ok=True, file=f"locations/{out.name}", name=out.stem))
-                if u.path == "/api/rename":
-                    # {"kind": "location", "old", "new", "title"} or {"kind": "log", "scene", "old", "new"}
-                    from . import rename as rn
-                    if any(j["status"] == "running" for j in JOBS.values()):
-                        return self._json(dict(error="wait for the running build to finish"), 409)
-                    try:
-                        if b.get("kind") == "location":
-                            name = rn.rename_location(b["old"], b.get("new") or b["old"], scenes_dir, title=b.get("title"), log=lambda *_: None)
-                            return self._json(dict(ok=True, name=name))
-                        name = rn.rename_track(b["scene"], b["old"], b["new"], scenes_dir, log=lambda *_: None)
-                        return self._json(dict(ok=True, name=name, file=f"tracks/{name}.json"))
-                    except (ValueError, FileExistsError, FileNotFoundError, KeyError) as ex:
-                        return self._json(dict(error=str(ex)), 400)
-                if u.path in ("/api/delete", "/api/restore"):
-                    from . import trash
-                    if any(j["status"] == "running" for j in JOBS.values()):
-                        return self._json(dict(error="wait for the running build to finish"), 409)
-                    try:
-                        if u.path == "/api/delete":
-                            return self._json(dict(ok=True, **trash.delete_location(b["name"], scenes_dir, log=lambda *_: None)))
-                        return self._json(dict(ok=True, **trash.restore_location(b["folder"], scenes_dir, log=lambda *_: None)))
-                    except (FileNotFoundError, FileExistsError, KeyError, OSError) as ex:
-                        return self._json(dict(error=str(ex)), 400)
-                if u.path == "/api/live/start":
-                    from .live import LINK
-                    scene = b.get("scene", "")
-                    if not re.match(r"^[\w-]+$", scene) or not (scenes_dir / scene / "scene.json").exists():
-                        return self._json(dict(error="unknown scene"), 400)
-                    if b.get("source") == "replay":
-                        tf = scenes_dir / scene / str(b.get("track", ""))
-                        if ".." in str(b.get("track", "")) or not tf.exists():
-                            return self._json(dict(error="pick a flight log to replay"), 400)
-                        LINK.start(scene, "replay", replay_file=tf, speed=float(b.get("speed", 1)))
-                    else:
-                        if not b.get("port"):
-                            return self._json(dict(error="pick the radio's serial port"), 400)
-                        LINK.start(scene, "serial", port=b["port"])
-                    return self._json(dict(ok=True))
-                if u.path == "/api/live/stop":
-                    from .live import LINK
-                    LINK.stop()
-                    st = LINK.snapshot(10 ** 9)
-                    out = dict(ok=True, gps_count=st["gps_count"], csv=st["csv"])
-                    if b.get("save") and st["csv"] and st["gps_count"] >= 10 and st.get("scene"):
-                        loc = location_file_for_scene(st["scene"])
-                        if loc is not None:
-                            r = subprocess.run(cli_cmd() + ["--scenes", str(scenes_dir), "--cache", str(cache_dir),
-                                                "add-log", str(loc.relative_to(ROOT)), st["csv"]],
-                                               cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
-                            stem = Path(st["csv"]).stem
-                            if r.returncode == 0 and (scenes_dir / st["scene"] / "tracks" / f"{stem}.json").exists():
-                                out.update(track=stem, file=f"tracks/{stem}.json")
-                            else:
-                                out["warning"] = "saved the CSV, but adding it to the scene failed: " + (r.stderr or r.stdout)[-300:]
-                    return self._json(out)
-                if u.path.startswith("/api/battery/"):    # packs: create / change, which pack flew, charger check
-                    from . import battery
-                    act = u.path.rsplit("/", 1)[1]
-                    if act == "pack":
-                        return self._json(dict(ok=True, pack=battery.save_pack(b)))
-                    if act == "assign":
-                        battery.assign(b["flights"], b.get("pack"))
-                        return self._json(dict(ok=True))
-                    if act == "charger":
-                        battery.set_charged(b["flight"], b.get("mah"))
-                        return self._json(dict(ok=True))
-                    if act == "note":
-                        return self._json(dict(ok=True, note=battery.add_note(b["pack"], b["kind"], b.get("text", ""),
-                                                                              b.get("when"), b.get("flight"))))
-                    if act == "delete-note":
-                        battery.delete_note(b["id"])
-                        return self._json(dict(ok=True))
-                    if act == "delete-pack":
-                        battery.delete_pack(b["id"])
-                        return self._json(dict(ok=True))
-                if u.path == "/api/client-error":   # the pages report their own errors (theme.js) to logs/errors.txt
-                    now = time.time()
-                    CLIENT_ERRORS[:] = [t for t in CLIENT_ERRORS if now - t < 60]
-                    if len(CLIENT_ERRORS) >= 30:                 # a page stuck in a loop must not fill the disk
-                        return self._json(dict(ok=False, error="too many reports"), 429)
-                    CLIENT_ERRORS.append(now)
-                    who = "viewer" if self._local() else "phone"
-                    record(f"{who} {str(b.get('page', ''))[:80]}", str(b.get("message", ""))[:500], str(b.get("stack", ""))[:4000])
-                    return self._json(dict(ok=True))
-                if u.path == "/api/simtrack":
-                    return self._json(*save_sim_track(scenes_dir, cache_dir, b))
-                if u.path == "/api/links":
-                    # save edited radio settings into the location file, then rebuild the scene's shadows
-                    from .locations import patch_links
-                    scene = b.get("scene", "")
-                    loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
-                    if loc is None:
-                        return self._json(dict(error=f"no location file for scene '{scene}'"), 400)
-                    if busy_job():
-                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
-                    changed = patch_links(loc, b.get("links") or [])
-                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build",
-                            str(loc.relative_to(ROOT)), "--reuse-terrain"]
-                    jid = uuid.uuid4().hex[:10]
-                    JOBS[jid] = dict(id=jid, name=scene, status="running", lines=[f"saved to {loc.name}: " + (", ".join(changed) or "no change")])
-                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
-                    return self._json(dict(job=jid, changed=changed, file=loc.name))
-                if u.path == "/api/refresh-all":
-                    if busy_job():
-                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
-                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "refresh-all"]
-                    if b.get("mode") == "buildings":
-                        args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "buildings"]
-                    elif b.get("mode") == "zones":
-                        args.append("--zones-only")
-                    if b.get("missing"):
-                        args.append("--missing")
-                    jid = uuid.uuid4().hex[:10]
-                    JOBS[jid] = dict(id=jid, name="(all scenes)", status="running", lines=[])
-                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
-                    return self._json(dict(job=jid))
-                if u.path == "/api/zones":       # fresh no-fly zones for one scene (viewer: [refresh zones])
-                    scene = b.get("scene", "")
-                    loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
-                    if loc is None:
-                        return self._json(dict(error="no location file for this scene"), 400)
-                    if busy_job():
-                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): try again when it is done"), 409)
-                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "zones", f"locations/{loc.name}"]
-                    jid = uuid.uuid4().hex[:10]
-                    JOBS[jid] = dict(id=jid, name=loc.stem, status="running", lines=[])
-                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
-                    return self._json(dict(job=jid))
-                if u.path == "/api/pilot":       # live flight: move the pilot point to the takeoff point, rebuild
-                    from .locations import set_pilot
-                    scene = b.get("scene", "")
-                    loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
-                    if loc is None:
-                        return self._json(dict(error="no location file for this scene"), 400)
-                    lat, lon = float(b["lat"]), float(b["lon"])
-                    if not (45.5 < lat < 48.0 and 5.8 < lon < 10.7):
-                        return self._json(dict(error="position outside Switzerland"), 400)
-                    if busy_job():
-                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it to finish"), 409)
-                    set_pilot(loc, lat, lon)
-                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{loc.name}"]
-                    jid = uuid.uuid4().hex[:10]
-                    JOBS[jid] = dict(id=jid, name=loc.stem, status="running", lines=[])
-                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
-                    return self._json(dict(job=jid))
-                if u.path == "/api/blackbox":    # flights tab: [download from the drone]
-                    from .live import LINK
-                    if busy_job():
-                        return self._json(dict(error=f"another job is running ({busy_job()['name']}): wait for it to finish"), 409)
-                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "blackbox"]
-                    scene = b.get("scene") or ""
-                    if b.get("only_here") and re.match(r"^[\w-]+$", scene):
-                        args += ["--location", scene]
-                    if LINK.thread and LINK.thread.is_alive() and LINK.state.get("port"):
-                        args += ["--skip", LINK.state["port"]]      # the radio of a running live flight
-                    jid = uuid.uuid4().hex[:10]
-                    JOBS[jid] = dict(id=jid, name="blackbox", status="running", lines=[], kind="blackbox")
-                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
-                    return self._json(dict(job=jid))
-                if u.path == "/api/build":
-                    name = b["name"]
-                    if not re.match(r"^[\w-]+$", name) or not (ROOT / "locations" / f"{name}.yaml").exists():
-                        return self._json(dict(error="unknown location"), 400)
-                    if busy_job():
-                        return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
-                    args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{name}.yaml"]
-                    if b.get("resolution"):
-                        args += ["--resolution", str(float(b["resolution"]))]
-                    jid = uuid.uuid4().hex[:10]
-                    JOBS[jid] = dict(id=jid, name=name, status="running", lines=[])
-                    threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
-                    return self._json(dict(job=jid))
+                if m:
+                    return self._post_job_cancel(b, u, m)
+                handler = self.POST.get(u.path)
+                if handler:
+                    return getattr(self, handler)(b, u)
             except FileExistsError as ex:
                 return self._json(dict(error=str(ex), exists=True), 409)
             except (KeyError, ValueError) as ex:
@@ -696,6 +534,255 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 record_exception(f"server {u.path}", ex)
                 return self._json(dict(error=str(ex)), 500)
             self._json(dict(error="not found"), 404)
+
+        def _post_job_cancel(self, b, u, m):   # stop a running build (the map page's [cancel])
+            job, p = JOBS.get(m.group(1)), PROCS.get(m.group(1))
+            if not job or job["status"] != "running" or p is None:
+                return self._json(dict(error="no such running build"), 404)
+            job["cancel"] = True
+            job["lines"].append("cancelled by the user")
+            p.terminate()
+            return self._json(dict(ok=True))
+
+        def _post_locations(self, b, u):
+            out = write_location(
+                b["name"], b.get("title") or b["name"], tuple(b["center"]), tuple(b.get("pilot") or b["center"]),
+                float(b.get("half_size_m", 2500)), float(b.get("resolution_m", 5)), b.get("surface", "dtm"),
+                float(b.get("antenna_height_m", 1.8)), b.get("radio_from") or None, bool(b.get("overwrite")),
+                b.get("corridor") or None)
+            return self._json(dict(ok=True, file=f"locations/{out.name}", name=out.stem))
+
+        def _post_rename(self, b, u):
+            # {"kind": "location", "old", "new", "title"} or {"kind": "log", "scene", "old", "new"}
+            from . import rename as rn
+            if any(j["status"] == "running" for j in JOBS.values()):
+                return self._json(dict(error="wait for the running build to finish"), 409)
+            try:
+                if b.get("kind") == "location":
+                    name = rn.rename_location(b["old"], b.get("new") or b["old"], scenes_dir, title=b.get("title"), log=lambda *_: None)
+                    return self._json(dict(ok=True, name=name))
+                name = rn.rename_track(b["scene"], b["old"], b["new"], scenes_dir, log=lambda *_: None)
+                return self._json(dict(ok=True, name=name, file=f"tracks/{name}.json"))
+            except (ValueError, FileExistsError, FileNotFoundError, KeyError) as ex:
+                return self._json(dict(error=str(ex)), 400)
+
+        def _post_delete_restore(self, b, u):
+            from . import trash
+            if any(j["status"] == "running" for j in JOBS.values()):
+                return self._json(dict(error="wait for the running build to finish"), 409)
+            try:
+                if u.path == "/api/delete":
+                    return self._json(dict(ok=True, **trash.delete_location(b["name"], scenes_dir, log=lambda *_: None)))
+                return self._json(dict(ok=True, **trash.restore_location(b["folder"], scenes_dir, log=lambda *_: None)))
+            except (FileNotFoundError, FileExistsError, KeyError, OSError) as ex:
+                return self._json(dict(error=str(ex)), 400)
+
+        def _post_live_start(self, b, u):
+            from .live import LINK
+            scene = b.get("scene", "")
+            if not re.match(r"^[\w-]+$", scene) or not (scenes_dir / scene / "scene.json").exists():
+                return self._json(dict(error="unknown scene"), 400)
+            if b.get("source") == "replay":
+                tf = scenes_dir / scene / str(b.get("track", ""))
+                if ".." in str(b.get("track", "")) or not tf.exists():
+                    return self._json(dict(error="pick a flight log to replay"), 400)
+                LINK.start(scene, "replay", replay_file=tf, speed=float(b.get("speed", 1)))
+            else:
+                if not b.get("port"):
+                    return self._json(dict(error="pick the radio's serial port"), 400)
+                LINK.start(scene, "serial", port=b["port"])
+            return self._json(dict(ok=True))
+
+        def _post_live_stop(self, b, u):
+            from .live import LINK
+            LINK.stop()
+            st = LINK.snapshot(10 ** 9)
+            out = dict(ok=True, gps_count=st["gps_count"], csv=st["csv"])
+            if b.get("save") and st["csv"] and st["gps_count"] >= 10 and st.get("scene"):
+                loc = location_file_for_scene(st["scene"])
+                if loc is not None:
+                    r = subprocess.run(cli_cmd() + ["--scenes", str(scenes_dir), "--cache", str(cache_dir),
+                                        "add-log", str(loc.relative_to(ROOT)), st["csv"]],
+                                       cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
+                    stem = Path(st["csv"]).stem
+                    if r.returncode == 0 and (scenes_dir / st["scene"] / "tracks" / f"{stem}.json").exists():
+                        out.update(track=stem, file=f"tracks/{stem}.json")
+                    else:
+                        out["warning"] = "saved the CSV, but adding it to the scene failed: " + (r.stderr or r.stdout)[-300:]
+            return self._json(out)
+
+        def _post_battery(self, b, u):   # packs: create / change, which pack flew, charger check
+            from . import battery
+            act = u.path.rsplit("/", 1)[1]
+            if act == "pack":
+                return self._json(dict(ok=True, pack=battery.save_pack(b)))
+            if act == "assign":
+                battery.assign(b["flights"], b.get("pack"))
+                return self._json(dict(ok=True))
+            if act == "flight-date":
+                battery.set_when(b["flight"], b.get("when"))
+                return self._json(dict(ok=True))
+            if act == "charger":
+                battery.set_charged(b["flight"], b.get("mah"))
+                return self._json(dict(ok=True))
+            if act == "note":
+                return self._json(dict(ok=True, note=battery.add_note(b["pack"], b["kind"], b.get("text", ""),
+                                                                      b.get("when"), b.get("flight"))))
+            if act == "delete-note":
+                battery.delete_note(b["id"])
+                return self._json(dict(ok=True))
+            if act == "delete-pack":
+                battery.delete_pack(b["id"])
+                return self._json(dict(ok=True))
+
+        def _post_client_error(self, b, u):   # the pages report their own errors (theme.js) to logs/errors.txt
+            now = time.time()
+            CLIENT_ERRORS[:] = [t for t in CLIENT_ERRORS if now - t < 60]
+            if len(CLIENT_ERRORS) >= 30:                 # a page stuck in a loop must not fill the disk
+                return self._json(dict(ok=False, error="too many reports"), 429)
+            CLIENT_ERRORS.append(now)
+            who = "viewer" if self._local() else "phone"
+            record(f"{who} {str(b.get('page', ''))[:80]}", str(b.get("message", ""))[:500], str(b.get("stack", ""))[:4000])
+            return self._json(dict(ok=True))
+
+        def _post_simtrack(self, b, u):
+            return self._json(*save_sim_track(scenes_dir, cache_dir, b))
+
+        def _post_links(self, b, u):
+            # save edited radio settings into the location file, then rebuild the scene's shadows
+            from .locations import patch_links
+            scene = b.get("scene", "")
+            loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
+            if loc is None:
+                return self._json(dict(error=f"no location file for scene '{scene}'"), 400)
+            if busy_job():
+                return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
+            changed = patch_links(loc, b.get("links") or [])
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build",
+                    str(loc.relative_to(ROOT)), "--reuse-terrain"]
+            jid = new_job(scene)
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            JOBS[jid]["lines"] += [f"saved to {loc.name}: " + (", ".join(changed) or "no change")]
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid, changed=changed, file=loc.name))
+
+        def _post_refresh_all(self, b, u):
+            if busy_job():
+                return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "refresh-all"]
+            if b.get("mode") == "buildings":
+                args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "buildings"]
+            elif b.get("mode") == "zones":
+                args.append("--zones-only")
+            if b.get("missing"):
+                args.append("--missing")
+            jid = new_job("(all scenes)")
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid))
+
+        def _post_zones(self, b, u):   # fresh no-fly zones for one scene (viewer: [refresh zones])
+            scene = b.get("scene", "")
+            loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
+            if loc is None:
+                return self._json(dict(error="no location file for this scene"), 400)
+            if busy_job():
+                return self._json(dict(error=f"another build is running ({busy_job()['name']}): try again when it is done"), 409)
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "zones", f"locations/{loc.name}"]
+            jid = new_job(loc.stem)
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid))
+
+        def _post_pilot(self, b, u):   # live flight: move the pilot point to the takeoff point, rebuild
+            from .locations import set_pilot
+            scene = b.get("scene", "")
+            loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
+            if loc is None:
+                return self._json(dict(error="no location file for this scene"), 400)
+            lat, lon = float(b["lat"]), float(b["lon"])
+            if not (45.5 < lat < 48.0 and 5.8 < lon < 10.7):
+                return self._json(dict(error="position outside Switzerland"), 400)
+            if busy_job():
+                return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it to finish"), 409)
+            set_pilot(loc, lat, lon)
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{loc.name}"]
+            jid = new_job(loc.stem)
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid))
+
+        def _post_blackbox(self, b, u):   # flights tab: [download from the drone]
+            from .live import LINK
+            if busy_job():
+                return self._json(dict(error=f"another job is running ({busy_job()['name']}): wait for it to finish"), 409)
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "blackbox"]
+            scene = b.get("scene") or ""
+            if b.get("only_here") and re.match(r"^[\w-]+$", scene):
+                args += ["--location", scene]
+            if LINK.thread and LINK.thread.is_alive() and LINK.state.get("port"):
+                args += ["--skip", LINK.state["port"]]      # the radio of a running live flight
+            jid = new_job("blackbox", kind="blackbox")
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid))
+
+        def _post_battery_rescan(self, b, u):   # packs page: [read battery from saved logs]
+            if busy_job():
+                return self._json(dict(error=f"another job is running ({busy_job()['name']}): wait for it to finish"), 409)
+            jid = new_job("saved blackbox logs", kind="blackbox")
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "blackbox", "--saved"]
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid))
+
+        def _post_build(self, b, u):
+            name = b["name"]
+            if not re.match(r"^[\w-]+$", name) or not (ROOT / "locations" / f"{name}.yaml").exists():
+                return self._json(dict(error="unknown location"), 400)
+            if busy_job():
+                return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it or cancel it"), 409)
+            args = ["--scenes", str(scenes_dir), "--cache", str(cache_dir), "build", f"locations/{name}.yaml"]
+            if b.get("resolution"):
+                args += ["--resolution", str(float(b["resolution"]))]
+            jid = new_job(name)
+            if jid is None:
+                return self._json(dict(error="another build has just started: wait for it to finish"), 409)
+            threading.Thread(target=run_build, args=(jid, args), daemon=True).start()
+            return self._json(dict(job=jid))
+
+        # address -> handler. Other devices (the phone) may look, fly and build; the LOCAL addresses (delete, rename)
+        # only answer this computer. A new address = one method above + one line here.
+        POST = {
+            "/api/locations": "_post_locations",
+            "/api/rename": "_post_rename",
+            "/api/delete": "_post_delete_restore",
+            "/api/restore": "_post_delete_restore",
+            "/api/live/start": "_post_live_start",
+            "/api/live/stop": "_post_live_stop",
+            "/api/client-error": "_post_client_error",
+            "/api/simtrack": "_post_simtrack",
+            "/api/links": "_post_links",
+            "/api/refresh-all": "_post_refresh_all",
+            "/api/zones": "_post_zones",
+            "/api/pilot": "_post_pilot",
+            "/api/blackbox": "_post_blackbox",
+            "/api/build": "_post_build",
+            "/api/battery/rescan": "_post_battery_rescan",
+            "/api/battery/pack": "_post_battery",
+            "/api/battery/assign": "_post_battery",
+            "/api/battery/charger": "_post_battery",
+            "/api/battery/flight-date": "_post_battery",
+            "/api/battery/note": "_post_battery",
+            "/api/battery/delete-note": "_post_battery",
+            "/api/battery/delete-pack": "_post_battery",
+        }
 
     return Handler
 
@@ -731,6 +818,12 @@ PIN_TRIES: dict = {}            # phone address -> (wrong PINs in a row, locked 
 
 
 SHARE = {"on": False, "pin": None, "port": None, "https_port": None}   # set by serve(lan=True)
+_COOKIE_KEY = secrets.token_bytes(32)                 # new at every start: old cookies stop working with the old PIN
+
+
+def pin_cookie(pin: str) -> str:
+    """What the phone's cookie holds once the PIN was typed: a token only this running server can make from it."""
+    return hmac.new(_COOKIE_KEY, str(pin).encode(), hashlib.sha256).hexdigest()[:40]
 
 
 def serve(port: int, scenes_dir: Path, cache_dir: Path, open_path: str = "/viewer/", open_browser=True, lan=False):

@@ -1,0 +1,25 @@
+# To use: copy this file to .github/workflows/checks.yml in the project (create the two folders), then push.
+# Runs Alpline's checks on every push, on Windows (where it is used) and Linux.
+# Nothing to set up: GitHub runs this by itself once the project is pushed to a (private) repository.
+name: checks
+on: [push, pull_request]
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python tools/check.py
+      - run: node tests/test_warn.mjs
+      - run: node tests/test_sim.mjs

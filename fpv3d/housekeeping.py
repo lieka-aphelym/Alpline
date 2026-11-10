@@ -15,6 +15,7 @@ from pathlib import Path
 from .paths import DATA
 from .safefile import write_atomic
 
+MAX_ENTRY = 4_000_000_000                   # largest single file a restore accepts (a 15 km scene's terrain is ~1 GB)
 BACKUP_TAG = "alpline_backup.json"           # inside every backup zip: what it holds and when it was made
 APP_LOG_FILES = ("server.log", "window.log", "errors.txt", "phone_check.txt", "phone_fix.txt")
 
@@ -181,6 +182,9 @@ def clear(kinds, root: Path = DATA) -> dict:
     if "settings" in kinds:
         (root / "launcher.json").unlink(missing_ok=True)
     _rebuild_index(root)
+    if "flights" in kinds:                               # flights whose battery series went leave the packs list
+        from .battery import forget_missing
+        forget_missing(root)
     after = sizes(root)
     return {k: max(0, before[k] - after[k]) for k in kinds}
 
@@ -279,9 +283,29 @@ def restore(src: Path, root: Path = DATA, replace=False) -> dict:
             if t.exists() and not replace:
                 kept += 1
                 continue
+            if zi.file_size > MAX_ENTRY:                 # a damaged or hostile zip claiming a huge file
+                refused += 1
+                continue
             t.parent.mkdir(parents=True, exist_ok=True)
-            with z.open(zi) as fin:
-                write_atomic(t, fin.read())
+            tmp = t.with_name(f".{t.name}.restore.tmp")
+            try:
+                with z.open(zi) as fin, open(tmp, "wb") as fout:   # in pieces: never the whole file in memory
+                    left = zi.file_size
+                    while True:
+                        chunk = fin.read(1 << 20)
+                        if not chunk:
+                            break
+                        left -= len(chunk)
+                        if left < 0:                     # more data than the zip declared
+                            raise ValueError("entry larger than declared")
+                        fout.write(chunk)
+                os.replace(tmp, t)
+            except (ValueError, zipfile.BadZipFile, OSError):
+                refused += 1
+                continue
+            finally:
+                if tmp.exists():
+                    tmp.unlink()
             n += 1
     _rebuild_index(root)
     return dict(restored=n, kept=kept, refused=refused)
@@ -312,3 +336,30 @@ def free_bytes(path: Path = DATA) -> int | None:
         return shutil.disk_usage(p).free
     except OSError:
         return None
+
+
+# -------------------------------------------------------------------------------------------- automatic backups
+AUTO_PREFIX, AUTO_EVERY_DAYS, AUTO_KEEP = "auto_", 7, 5
+
+
+def auto_backups(root: Path = DATA) -> list:
+    d = root / "backups"
+    return sorted(d.glob(f"{AUTO_PREFIX}*.zip")) if d.exists() else []
+
+
+def auto_backup(root: Path = DATA, now=None) -> Path | None:
+    """Once a week: a small backup (locations, flights, packs, settings; no scenes or maps) in backups/, named
+    auto_<date>.zip; the five newest are kept. Returns the new file, or None when the last one is recent enough or
+    there is nothing to save yet."""
+    now = now or time.time()
+    have = auto_backups(root)
+    if have and now - have[-1].stat().st_mtime < AUTO_EVERY_DAYS * 86400:
+        return None
+    kinds = backup_kinds()
+    if not any(True for k in kinds if k != "settings" for _ in _files(k, root)):
+        return None                                           # a fresh install: nothing of yours yet
+    dest = root / "backups" / f"{AUTO_PREFIX}{time.strftime('%Y-%m-%d', time.localtime(now))}.zip"
+    backup(dest, kinds, root)
+    for old in auto_backups(root)[:-AUTO_KEEP]:
+        old.unlink(missing_ok=True)
+    return dest

@@ -66,6 +66,12 @@
     </div>
   </div>
 
+  <div class="lbl">Older flights</div>
+  <div class="small"><p class="muted">Flights downloaded before the battery analysis have no battery data yet. The blackbox files of every
+    download are kept in <code>logs/blackbox/</code>: read them again, no drone needed.</p>
+    <button id="rescan">[read battery from saved logs]</button>
+    <div id="rescanLog" class="bbLog small hidden" style="margin-top:8px"></div></div>
+
   <div class="lbl">Charger check</div>
   <div id="charger" class="small"></div>
 </main>

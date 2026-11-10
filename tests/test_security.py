@@ -129,7 +129,7 @@ def test_phone_needs_pin_everywhere():
             assert phone("GET", path)[0] == 401, path
         st, _ = phone("POST", "/api/build", b'{"name":"x"}', {"Content-Type": "application/json"})
         assert st == 401
-        ok = {"Cookie": "alp_pin=424242"}
+        ok = {"Cookie": f"alp_pin={server.pin_cookie('424242')}"}
         assert phone("GET", "/api/state", headers=ok)[0] == 200
         st, _ = phone("POST", "/api/delete", b'{"name":"099_target"}', {**ok, "Content-Type": "application/json"})
         assert st == 403                                    # deleting only on the computer

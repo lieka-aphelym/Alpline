@@ -10,6 +10,8 @@
 //   m.group.position.copy(worldPos);            (S.drone = m.group: everything else keeps using its position)
 //   m.update({ vel, acc, color, groundY, agl, tail, attitude, now })   every frame it is drawn
 //   m.style({ ghost, faded, ping })             ghost = see-through compare drone, faded = estimated position
+import { pxPerUnit as ppu } from './screen.js';
+
 const SWITCH_M = 250;          // camera distance (m) where the quad becomes the badge
 const QUAD_PX = 56;            // the quad is drawn at least this wide on screen
 const BADGE_PX = 42;           // badge size on screen
@@ -96,7 +98,7 @@ export function createDroneMarker({ THREE, scene3, camera, viewEl, ghost = false
       tail.visible = show && !!pts?.length;
       if (!show) return;
       const p = group.position, camD = camera.position.distanceTo(p);
-      const pxPerUnit = viewEl ? viewEl.clientHeight / (2 * Math.max(camD, 0.01) * Math.tan(camera.fov * Math.PI / 360)) : 1;
+      const pxPerUnit = viewEl ? ppu(camera, viewEl, Math.max(camD, 0.01)) : 1;
       const far = camD > SWITCH_M;
       quad.visible = !far; badge.visible = chev.visible = far;
       if (color != null) { _c.set(color); ring.material.color.copy(_c); }

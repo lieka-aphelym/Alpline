@@ -55,3 +55,5 @@ table.pk.notes td.txt { color: var(--t-fg2); font-family: system-ui, sans-serif;
 table.pk.notes tr.lvl-retire td:first-child { border-left: 3px solid #ff2d55; }
 table.pk.notes tr.lvl-check td:first-child { border-left: 3px solid #ffb000; }
 .noteForm { margin-top: 8px; }
+button.ghost { border-color: transparent; background: transparent; color: var(--t-fg2); padding: 0 4px; }
+button.ghost:hover { color: var(--t-acc); }

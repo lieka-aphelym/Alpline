@@ -5,12 +5,7 @@ import { esc } from './esc.js';
 import { drawDischarge, drawSag, drawTrend, sparkline, fmtT } from './batchart.js';
 
 const $ = (id) => document.getElementById(id);
-const post = async (url, body) => {
-  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || r.status);
-  return j;
-};
+import { postJSON as post } from './net.js';
 const st = { o: null, pack: null, flight: null, filter: 'all', fdata: null };
 
 async function load() {
@@ -109,7 +104,7 @@ function renderFlights() {
   const rows = list.map((f) => {
     const s = f.summary, where = f.scene && f.track ? `<a href="index.html?scene=${encodeURIComponent(f.scene)}&track=${encodeURIComponent(f.track)}&tab=battery">${esc(f.scene)}</a>` : '<span class="muted">no GPS</span>';
     return `<tr class="click ${f.id === st.flight ? 'sel' : ''}" data-f="${esc(f.id)}">
-      <td>${esc(f.when || '')}</td><td class="hideS">${esc(f.craft || '')}</td><td>${where}</td>
+      <td>${f.when_approx ? '<span title="The drone had no clock in this log (no GPS fix): this is the download date. Click the pencil to correct it.">≈ </span>' : ''}${esc(f.when || '')} <button class="small ghost" data-date="${esc(f.id)}" title="Change the date of this flight">✎</button></td><td class="hideS">${esc(f.craft || '')}</td><td>${where}</td>
       <td><select data-assign="${esc(f.id)}" class="${f.pack ? '' : 'ask'}">${packOptions(f.pack)}</select></td>
       <td class="num">${fmtT(s.seconds)}</td><td class="num">${s.mah != null ? s.mah : '–'}</td>
       <td class="num ${s.min_cell < (s.low ?? 3.5) ? 'flag' : ''}" ${s.hint ? `title="${esc(s.hint)}"` : ''}>${s.min_cell.toFixed(2)}${s.hint ? ' ⚠' : ''}</td>
@@ -119,12 +114,22 @@ function renderFlights() {
   $('flights').innerHTML = `<div class="wrap"><table class="pk"><tr><th>when</th><th class="hideS">quad</th><th>where</th><th>pack</th><th>time</th>
     <th>mAh</th><th>min V/cell</th><th>mΩ/cell</th><th class="hideS">charger mAh</th></tr>${rows}</table></div>`;
   $('flights').querySelectorAll('tr[data-f]').forEach((tr) => tr.addEventListener('click', (e) => {
-    if (e.target.closest('select,input,a')) return;
+    if (e.target.closest('select,input,a,button')) return;
     showFlight(tr.dataset.f);
   }));
   $('flights').querySelectorAll('[data-assign]').forEach((sel) => sel.addEventListener('change', async () => {
     try { await post('/api/battery/assign', { flights: [sel.dataset.assign], pack: sel.value || null }); await load(); }
     catch (e) { window.alpOops?.(e.message); }
+  }));
+  $('flights').querySelectorAll('[data-date]').forEach((btn) => btn.addEventListener('click', () => {
+    const f = st.o.flights.find((x) => x.id === btn.dataset.date), td = btn.parentElement;
+    td.innerHTML = `<input type="datetime-local" value="${esc((f.when || '').replace(' ', 'T'))}">`;
+    const inp = td.firstChild; inp.focus();
+    inp.addEventListener('change', async () => {
+      try { await post('/api/battery/flight-date', { flight: f.id, when: inp.value }); await load(); }
+      catch (e) { window.alpOops?.(e.message); }
+    });
+    inp.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== inp) renderFlights(); }, 200));
   }));
   $('flights').querySelectorAll('[data-chg]').forEach((inp) => inp.addEventListener('change', async () => {
     try { await post('/api/battery/charger', { flight: inp.dataset.chg, mah: inp.value === '' ? null : +inp.value }); await load(); }
@@ -164,6 +169,25 @@ function renderCharger() {
         + `(now ${c.scale_now}). Check again after a few flights.</p>` : '<p>The current sensor needs calibrating (Betaflight → Power &amp; Battery → current scale).</p>')
     + how;
 }
+
+// ---------------------------------------------------------------- battery from the saved blackbox files
+$('rescan').onclick = async () => {
+  const box = $('rescanLog'), btn = $('rescan');
+  btn.disabled = true; box.classList.remove('hidden'); box.textContent = 'starting…'; window.alpBusy?.(true);
+  try {
+    const j = await post('/api/battery/rescan', {});
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 700));
+      const k = await (await fetch(`/api/jobs/${j.job}`)).json();
+      box.innerHTML = (k.lines || []).filter((l) => !/^(ADDED|BATTERY) /.test(l)).map((l) =>
+        `<div class="${/battery now kept|→ added/.test(l) ? 'ok' : ''}">${esc(l)}</div>`).join('');
+      box.scrollTop = box.scrollHeight;
+      if (k.status !== 'running') break;
+    }
+    await load();
+  } catch (e) { box.textContent = `could not start: ${e.message}`; }
+  finally { btn.disabled = false; window.alpBusy?.(false); }
+};
 
 // ---------------------------------------------------------------- pack form
 function editPack(p) {

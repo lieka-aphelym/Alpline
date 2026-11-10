@@ -23,10 +23,12 @@ import json
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 
+from .filelock import try_lock, unlock
 from .paths import DATA
 from .safefile import write_atomic
 
@@ -37,7 +39,7 @@ LOW_CELL = 3.5                    # LiPo "under load" level per cell (V); each c
 #   LiPo HV: the same at 4.35 V full.
 #   Li-ion (18650 / 21700 packs for long range): 4.20 V full, made to go much lower (about 3.0 V under load,
 #   2.5-2.8 V cut-off), more resistance (more sag), so other levels and other "healthy" numbers.
-CHEM = {
+CHEM: dict[str, dict] = {
     "lipo": dict(label="LiPo", full=4.20, low=3.5, warn_load=3.3, crit_rest=3.4, deep_rest=3.35, ir_good=6, ir_used=10),
     "lihv": dict(label="LiPo HV", full=4.35, low=3.5, warn_load=3.3, crit_rest=3.4, deep_rest=3.35, ir_good=6, ir_used=10),
     "liion": dict(label="Li-ion", full=4.20, low=3.0, warn_load=2.9, crit_rest=3.1, deep_rest=2.9, ir_good=20, ir_used=35),
@@ -102,7 +104,7 @@ def clean(t, v, i):
     return tb, np.bincount(b, v)[keep] / n[keep], np.bincount(b, i)[keep] / n[keep]
 
 
-def series(t, v, i, thr=None, cells=0, source="", meta=None, t0=0.0):
+def series(t, v, i, thr=None, cells=0, source="", meta=None, t0=0.0, cells_guessed=False):
     """A flight's battery series (0.1 s), with the cell count when known (else from the voltage)."""
     tb, vb, ib = clean(t, v, i)
     if len(tb) < 10:
@@ -114,7 +116,12 @@ def series(t, v, i, thr=None, cells=0, source="", meta=None, t0=0.0):
         if ok.sum() > 1:
             th = np.interp(tb, tt[ok], th_raw[ok])
     n0 = max(1, int(np.ceil(1.0 / BIN_S)))
-    cells = cells or cells_from_voltage(float(np.median(vb[:n0])))
+    v_start = float(np.median(vb[:n0]))
+    guessed = not cells or cells_guessed
+    cells = cells or cells_from_voltage(v_start)
+    meta = dict(meta or {})
+    if guessed and cells > 1 and v_start / (cells - 1) <= 4.40:
+        meta["cells_alt"] = cells - 1                      # a full LiPo HV pack with one cell fewer reads the same
     r = lambda a, d: [round(float(x), d) for x in a]  # noqa: E731
     out = dict(version=1, source=source, cells=cells, t=r(tb - t0, 2), v=r(vb, 3), i=r(ib, 2), meta=meta or {})
     if th is not None:
@@ -122,42 +129,61 @@ def series(t, v, i, thr=None, cells=0, source="", meta=None, t0=0.0):
     return out
 
 
-def from_blackbox(parser, t0_us=None):
-    """Battery series from an orangebox Parser (one log). t0_us: the time that is 0 in the flight's track (the first
-    GPS fix), so the battery and the 3D replay share the same clock. None when the log has no voltage."""
-    names = parser.field_names
-    if "vbatLatest" not in names:
-        return None
-    it, iv = names.index("time"), names.index("vbatLatest")
-    ia = names.index("amperageLatest") if "amperageLatest" in names else None
-    ith = names.index("rcCommand[3]") if "rcCommand[3]" in names else None
-    T, V, I, TH = [], [], [], []
-    for fr in parser.frames():
-        d = fr.data
+class BlackboxCollector:
+    """Gathers voltage, current and throttle while the caller walks a blackbox log's frames ONCE (the GPS reader in
+    blackbox.py walks the same frames; decoding is the slow part, about 18 s for a 5-minute flight)."""
+
+    def __init__(self, names):
+        self.ok = "vbatLatest" in names and "time" in names
+        if not self.ok:
+            return
+        self.it, self.iv = names.index("time"), names.index("vbatLatest")
+        self.ia = names.index("amperageLatest") if "amperageLatest" in names else None
+        self.ith = names.index("rcCommand[3]") if "rcCommand[3]" in names else None
+        self.T, self.V, self.I, self.TH = [], [], [], []
+
+    def add(self, d):
+        if not self.ok:
+            return
         try:
-            tt, vv = d[it], d[iv]
+            tt, vv = d[self.it], d[self.iv]
         except IndexError:
-            continue
+            return
         if tt in ("", None) or vv in ("", None):
-            continue
-        T.append(tt); V.append(vv / 100)
-        I.append((d[ia] / 100) if ia is not None and ia < len(d) and d[ia] not in ("", None) else 0.0)
-        TH.append(((d[ith] - 1000) / 1000) if ith is not None and ith < len(d) and d[ith] not in ("", None) else np.nan)
-    if len(T) < 20:
+            return
+        ia, ith = self.ia, self.ith
+        self.T.append(tt); self.V.append(vv / 100)
+        self.I.append((d[ia] / 100) if ia is not None and ia < len(d) and d[ia] not in ("", None) else 0.0)
+        self.TH.append(((d[ith] - 1000) / 1000) if ith is not None and ith < len(d) and d[ith] not in ("", None) else np.nan)
+
+    def result(self, headers, t0_us=None):
+        """The series, or None. t0_us: the time that is 0 in the flight's track (the first GPS fix), so the battery
+        and the 3D replay share the same clock."""
+        if not self.ok or len(self.T) < 20:
+            return None
+        h, V, I = headers, self.V, self.I
+        T = np.asarray(self.T, float) / 1e6
+        zero = (t0_us / 1e6) if t0_us is not None else T[0]
+        cellv = h.get("vbatcellvoltage")
+        cellv = cellv if isinstance(cellv, (list, tuple)) and len(cellv) >= 3 else [330, 350, 430]
+        v0 = float(np.median(np.asarray(V[: max(5, len(V) // 200)], float)))
+        sensor = h.get("currentSensor")
+        meta = dict(craft=str(h.get("Craft name", "") or ""), firmware=str(h.get("Firmware revision", "") or ""),
+                    current_sensor=list(sensor) if isinstance(sensor, (list, tuple)) else None,
+                    has_current=self.ia is not None and any(x > 0.5 for x in I), warn_cell=cellv[1] / 100)
+        # Betaflight's default full-cell voltage (4.3 V) can't tell a full HV pack from one more cell: flag the doubt
+        return series(T, V, I, self.TH, cells_from_voltage(v0, cellv[-1] / 100), "blackbox", meta, t0=zero,
+                      cells_guessed=cellv[-1] <= 430)
+
+
+def from_blackbox(parser, t0_us=None):
+    """Battery series from an orangebox Parser (one log), or None when the log has no voltage."""
+    c = BlackboxCollector(parser.field_names)
+    if not c.ok:
         return None
-    h = parser.headers
-    T = np.asarray(T, float) / 1e6
-    zero = (t0_us / 1e6) if t0_us is not None else T[0]
-    maxc = (h.get("vbatcellvoltage") or [330, 350, 430])
-    maxc = maxc[-1] / 100 if isinstance(maxc, (list, tuple)) and maxc else 4.3
-    v0 = float(np.median(np.asarray(V[: max(5, len(V) // 200)], float)))
-    sensor = h.get("currentSensor")
-    meta = dict(craft=str(h.get("Craft name", "") or ""), firmware=str(h.get("Firmware revision", "") or ""),
-                current_sensor=list(sensor) if isinstance(sensor, (list, tuple)) else None,
-                has_current=ia is not None and any(x > 0.5 for x in I),
-                warn_cell=(h.get("vbatcellvoltage") or [330, 350, 430])[1] / 100
-                if isinstance(h.get("vbatcellvoltage"), (list, tuple)) else 3.5)
-    return series(T, V, I, TH, cells_from_voltage(v0, maxc), "blackbox", meta, t0=zero)
+    for fr in parser.frames():
+        c.add(fr.data)
+    return c.result(parser.headers, t0_us)
 
 
 VOLT_KEYS = re.compile(r"^(rxbt|vbat|voltage|bat_?v|batt?_?volt)", re.I)
@@ -236,6 +262,9 @@ def summary(s: dict, capacity=None, cells=None, chemistry=None):
     if R:
         irc = R * 1000 / cells
         out["health"] = "good" if irc < ch["ir_good"] else "used" if irc < ch["ir_used"] else "tired"
+    alt = s.get("meta", {}).get("cells_alt")
+    if alt and not chemistry and not capacity:               # no pack chosen and the voltage fits two pack sizes
+        out["cells_unsure"] = f"counted as {cells}S; a fully charged {alt}S LiPo HV reads the same: pick the pack to be sure"
     # a LiPo (or a pack of unknown kind) discharged this deep: say so (fine for Li-ion, harmful for a LiPo)
     if chemistry != "liion" and rest_end < CHEM["lipo"]["deep_rest"]:
         out["hint"] = (f"landed at {rest_end:.2f} V/cell resting: "
@@ -265,6 +294,24 @@ def resample(s: dict, t_track):
 
 
 # ------------------------------------------------------------------------------------------- packs and flights
+@contextmanager
+def _locked(root: Path):
+    """One writer at a time for battery/packs.json, also across programs: the server, the launcher and a blackbox
+    download are three programs that all change it. A lock file is held around read - change - write."""
+    d = store_dir(root)
+    d.mkdir(parents=True, exist_ok=True)
+    with _LOCK, open(d / ".lock", "a+") as f:
+        end = time.monotonic() + 10
+        while not try_lock(f):
+            if time.monotonic() > end:
+                raise RuntimeError("the packs file is in use by another Alpline window: try again") from None
+            time.sleep(0.05)
+        try:
+            yield
+        finally:
+            unlock(f)
+
+
 def _load(root: Path | None = None) -> dict:
     root = Path(root) if root else DATA
     f = store_dir(root) / "packs.json"
@@ -289,9 +336,13 @@ def save_flight(fid: str, s: dict, when=None, scene=None, track=None, root: Path
     f = flight_file(fid, root)
     f.parent.mkdir(parents=True, exist_ok=True)
     write_atomic(f, json.dumps(s, separators=(",", ":")))
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         fl = d["flights"].get(fid, {})
+        if not when and not fl.get("when"):                  # the drone had no clock (no GPS fix): the date is a guess
+            fl["when_approx"] = True
+        elif when:
+            fl.pop("when_approx", None)
         fl.update(file=f"flights/{fid}.json", when=when or fl.get("when") or time.strftime("%Y-%m-%d %H:%M"),
                   cells=s.get("cells"), source=s.get("source"), craft=s.get("meta", {}).get("craft", ""))
         if scene:
@@ -307,7 +358,7 @@ def save_flight(fid: str, s: dict, when=None, scene=None, track=None, root: Path
 
 def link_track(fid: str, scene: str, track: str, root: Path | None = None):
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         if fid in d["flights"]:
             d["flights"][fid].update(scene=scene, track=track)
@@ -336,7 +387,7 @@ def load_flight(fid: str, root: Path | None = None):
 def save_pack(p: dict, root: Path | None = None) -> dict:
     """Create (no id) or change a pack: name, cells, capacity (mAh), chemistry (lipo, lihv, liion), retired, note."""
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         name = str(p.get("name") or "").strip()[:40]
         cells = int(p.get("cells") or 0)
@@ -383,7 +434,7 @@ def add_note(pid: str, kind: str, text: str = "", when=None, flight=None, root: 
     when = str(when or time.strftime("%Y-%m-%d"))[:10]
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", when):
         raise ValueError("the date is YYYY-MM-DD")
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         if not any(p["id"] == pid for p in d["packs"]):
             raise ValueError("unknown pack")
@@ -398,7 +449,7 @@ def add_note(pid: str, kind: str, text: str = "", when=None, flight=None, root: 
 
 def delete_note(nid: str, root: Path | None = None):
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         d["notes"] = [n for n in d["notes"] if n.get("id") != nid]
         _save(d, root)
@@ -406,7 +457,7 @@ def delete_note(nid: str, root: Path | None = None):
 
 def delete_pack(pid: str, root: Path | None = None):
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         d["packs"] = [p for p in d["packs"] if p["id"] != pid]
         d["notes"] = [n for n in d["notes"] if n.get("pack") != pid]
@@ -421,7 +472,7 @@ def delete_pack(pid: str, root: Path | None = None):
 def assign(fids, pid, root: Path | None = None):
     """Say which pack flew these flights (None: unknown)."""
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         if pid is not None and not any(p["id"] == pid for p in d["packs"]):
             raise ValueError("unknown pack")
@@ -435,10 +486,26 @@ def assign(fids, pid, root: Path | None = None):
         _save(d, root)
 
 
+def set_when(fid: str, when: str, root: Path | None = None):
+    """Correct a flight's date ("YYYY-MM-DD" or "YYYY-MM-DD HH:MM"): flights logged without a GPS fix carry the
+    download date, which puts them out of order in a pack's history."""
+    root = Path(root) if root else DATA
+    when = str(when or "").strip().replace("T", " ")[:16]
+    if not re.match(r"^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$", when):
+        raise ValueError("the date is YYYY-MM-DD or YYYY-MM-DD HH:MM")
+    with _locked(root):
+        d = _load(root)
+        if fid not in d["flights"]:
+            raise ValueError("unknown flight")
+        d["flights"][fid]["when"] = when if len(when) > 10 else when + " 12:00"
+        d["flights"][fid].pop("when_approx", None)
+        _save(d, root)
+
+
 def set_charged(fid: str, mah, root: Path | None = None):
     """What the charger put back in after this flight (mAh), for the current-sensor check. None clears it."""
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         if fid not in d["flights"]:
             raise ValueError("unknown flight")
@@ -459,7 +526,7 @@ def _resummarize(d, root, pack=None, flights=None):
 def forget_missing(root: Path | None = None):
     """Flights whose series file is gone (cleaned up) leave the list."""
     root = Path(root) if root else DATA
-    with _LOCK:
+    with _locked(root):
         d = _load(root)
         gone = [k for k in d["flights"] if not flight_file(k, root).exists()]
         for k in gone:
@@ -473,12 +540,31 @@ def _median(a):
     return float(np.median(a)) if len(a) else None
 
 
+_OVERVIEW: dict = {}             # (root, packs.json change time, flights folder change time) -> result
+
+
 def overview(root: Path | None = None) -> dict:
-    """Everything the packs page shows: packs with health, landing advice and their flights; the charger check."""
+    """Everything the packs page shows: packs with health, landing advice and their flights; the charger check.
+    Kept in memory until the packs file or the flights folder changes."""
     root = Path(root) if root else DATA
-    forget_missing(root)
+    try:
+        key = (str(root), (store_dir(root) / "packs.json").stat().st_mtime_ns,
+               (store_dir(root) / "flights").stat().st_mtime_ns if (store_dir(root) / "flights").exists() else 0)
+    except OSError:
+        key = None
+    if key and key in _OVERVIEW:
+        return json.loads(_OVERVIEW[key])                    # a copy: callers may change what they get
+    out = _overview(root)
+    if key:
+        _OVERVIEW.clear()
+        _OVERVIEW[key] = json.dumps(out)
+    return out
+
+
+def _overview(root: Path) -> dict:
     d = _load(root)
-    flights = [dict(id=k, **v) for k, v in d["flights"].items()]
+    have = {f.stem for f in (store_dir(root) / "flights").glob("*.json")} if (store_dir(root) / "flights").exists() else set()
+    flights = [dict(id=k, **v) for k, v in d["flights"].items() if k in have]   # (cleaned-up ones: forget_missing)
     flights.sort(key=lambda f: f.get("when") or "")
     packs = []
     for p in d["packs"]:

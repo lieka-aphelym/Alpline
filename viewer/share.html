@@ -61,7 +61,7 @@
       <div class="qr">${q.createSvgTag({ cellSize: 6, margin: 2, scalable: true })}</div>
       <div><div class="url">${main}</div>
         ${d.pin ? `<div class="alt" style="font-size:18px;margin-top:10px">PIN <b style="color:var(--t-fg);letter-spacing:3px">${d.pin}</b></div>` : ''}
-        ${d.https ? '' : '<div class="alt">plain http: the secure page needs the <i>cryptography</i> library (the launcher offers to install it)</div>'}
+        ${d.https ? '' : '<div class="alt off" style="margin-top:8px"><b>Not encrypted (plain http):</b> the PIN crosses the Wi-Fi in clear. Fine on your own hotspot; on a shared Wi-Fi anyone could read it. The secure page needs the <i>cryptography</i> library (the launcher offers to install it).</div>'}
         ${others.length ? `<div class="alt">other addresses of this computer (other networks):<br>${others.join('<br>')}</div>` : ''}
         <div class="alt">locations map: ${main}map.html</div></div></div>`;
   const ca = main.replace(/\/viewer\/$/, '/api/ca.crt');

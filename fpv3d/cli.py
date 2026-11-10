@@ -216,6 +216,9 @@ def cmd_add_log(a):
 
 def cmd_blackbox(a):
     from .blackbox import run
+    if a.saved:                                  # read the logs kept from earlier downloads again (battery data)
+        from .blackbox import rescan_saved
+        return rescan_saved(scenes=a.scenes)
     run(port=a.port, file=a.file, location=a.location, scenes=a.scenes, timeout=a.timeout, skip=a.skip or ())
 
 
@@ -367,6 +370,9 @@ def main(argv=None):
     bb.add_argument("--location", help="add the flights to this location (default: the one containing the take-off)")
     bb.add_argument("--timeout", type=float, default=60, help="seconds to wait for the USB drive")
     bb.add_argument("--skip", action="append", help="serial port to leave alone (e.g. the radio)")
+    bb.add_argument("--saved", action="store_true",
+                    help="read the blackbox files kept in logs/blackbox/ again: adds the battery data of flights added "
+                         "before the battery analysis (and any flight not added yet)")
     bb.set_defaults(func=cmd_blackbox)
 
     s = sub.add_parser("serve", help="open the viewer")

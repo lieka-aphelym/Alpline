@@ -232,6 +232,93 @@ def test_blackbox_battery_end_to_end():
     assert "cell_v" in json.loads(tf.read_text(encoding="utf-8"))
 
 
+def test_two_flights_in_the_same_minute_stay_two():
+    """Flights are named by their start minute: two logs 11 s apart must not overwrite each other."""
+    try:
+        import orangebox  # noqa: F401
+    except ImportError:
+        print("  (orangebox not installed: skipped)")
+        return
+    from make_bbl import make
+    from test_journeys import Data
+    d = Data()
+    d.location()
+    d.run("build", "locations/001_field.yaml")
+    bbl = d.dir / "LOG00003.BBL"
+    pack = dict(cells=6, r_cell=0.005, cap_mah=1300)
+    make(bbl, [dict(lat0=46.5553, lon0=7.0305, alt_m=1215, seconds=20, battery=pack, start="2026-11-07T15:40:31.194+00:00"),
+               dict(lat0=46.5553, lon0=7.0305, alt_m=1215, seconds=30, battery=pack, start="2026-11-07T15:40:42.519+00:00")])
+    out = d.run("blackbox", "--file", str(bbl)).stdout
+    assert "2 flight(s) added" in out, out
+    tracks = [t for t in d.scene("001_field")["tracks"] if "_bb_" in t["name"]]
+    assert len(tracks) == 2 and tracks[0]["name"] != tracks[1]["name"]
+    assert sorted(round(t["duration_s"]) for t in tracks) == [20, 30]
+    reg = json.loads((d.dir / "battery" / "packs.json").read_text(encoding="utf-8"))["flights"]
+    assert {t["battery"] for t in tracks} == set(reg) and len(reg) == 2
+    assert "0 flight(s) added" in d.run("blackbox", "--file", str(bbl)).stdout          # and again: nothing new
+    # the saved file read again (no drone): flights whose battery data was lost get it back, nothing is added twice
+    saved = d.dir / "logs" / "blackbox" / "2026-11-07_1700"
+    saved.mkdir(parents=True)
+    (saved / "btfl_001.bbl").write_bytes(bbl.read_bytes())
+    import shutil
+    shutil.rmtree(d.dir / "battery")
+    out = d.run("blackbox", "--saved").stdout
+    assert out.count("battery now kept") == 2 and "0 flight(s) added" in out, out
+    assert len(json.loads((d.dir / "battery" / "packs.json").read_text(encoding="utf-8"))["flights"]) == 2
+    assert len([t for t in d.scene("001_field")["tracks"] if "_bb_" in t["name"]]) == 2
+
+
+def test_packs_file_survives_two_programs():
+    """The server, the launcher and a download change packs.json from separate programs: no change may be lost."""
+    import subprocess
+    root = Path(tempfile.mkdtemp(prefix="alpline_lock_"))
+    pk = battery.save_pack(dict(name="pack 1", cells=6, capacity=1300), root)
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); from pathlib import Path; from fpv3d import battery\n"
+            "for i in range(40): battery.add_note(sys.argv[3], 'other', sys.argv[4] + str(i), root=Path(sys.argv[2]))")
+    procs = [subprocess.Popen([sys.executable, "-c", code, str(HERE.parent), str(root), pk["id"], tag]) for tag in "abc"]
+    assert all(p.wait(120) == 0 for p in procs)
+    notes = battery.overview(root)["packs"][0]["notes"]
+    assert len(notes) == 120 and len({n["id"] for n in notes}) == 120
+
+
+def test_cleaned_flights_leave_the_list_without_writing():
+    root = Path(tempfile.mkdtemp(prefix="alpline_gone_"))
+    t, v, i, thr = sim_flight(0.005, dur=60)
+    battery.save_flight("gone", battery.series(t, v, i, thr), root=root)
+    battery.flight_file("gone", root).unlink()
+    before = (root / "battery" / "packs.json").read_bytes()
+    assert battery.overview(root)["flights"] == []
+    assert (root / "battery" / "packs.json").read_bytes() == before          # reading never writes
+    battery.forget_missing(root)
+    assert "gone" not in battery._load(root)["flights"]
+
+
+def test_flight_dates_and_unsure_cell_count():
+    root = Path(tempfile.mkdtemp(prefix="alpline_when_"))
+    t, v, i, thr = sim_flight(0.005, dur=60)
+    s = battery.series(t, v, i, thr)
+    battery.save_flight("noclock", s, root=root)                              # no date: the drone had no clock
+    battery.save_flight("clock", s, when="2026-05-01 10:00", root=root)
+    fl = {f["id"]: f for f in battery.overview(root)["flights"]}
+    assert fl["noclock"].get("when_approx") and not fl["clock"].get("when_approx")
+    battery.set_when("noclock", "2026-04-20", root)
+    f = next(f for f in battery.overview(root)["flights"] if f["id"] == "noclock")
+    assert f["when"] == "2026-04-20 12:00" and not f.get("when_approx")
+    for bad in ("20.04.2026", "", "2026-13"):
+        try:
+            battery.set_when("noclock", bad, root)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    # 26.1 V at plug-in: 7 cells by the rule, but a full 6S HV reads the same -> said, until a pack is chosen
+    tt = np.arange(0, 30, 0.02)
+    hv = battery.series(tt, 26.1 - 0.01 * tt, 5 + 0 * tt)
+    assert hv["cells"] == 7 and hv["meta"]["cells_alt"] == 6
+    assert "6S LiPo HV" in battery.summary(hv)["cells_unsure"]
+    assert "cells_unsure" not in battery.summary(hv, capacity=1300, cells=6, chemistry="lihv")
+    assert "cells_alt" not in battery.series(tt, 22.2 - 0.01 * tt, 5 + 0 * tt)["meta"]   # 3.7 V/cell: no doubt
+
+
 def test_battery_api():
     from test_security import phone_port  # noqa: F401 - starts the phone server used below
     from test_server import req
@@ -260,7 +347,7 @@ def _api_checks(req, server, http, phone_port):
         server.SHARE.update(on=True, pin="424242")
         c = http.client.HTTPConnection("127.0.0.1", phone_port(), timeout=10)
         c.request("POST", "/api/battery/delete-pack", body=json.dumps(dict(id=pid)),
-                  headers={"Cookie": "alp_pin=424242", "Content-Type": "application/json"})
+                  headers={"Cookie": f"alp_pin={server.pin_cookie('424242')}", "Content-Type": "application/json"})
         assert c.getresponse().status == 403
     finally:
         server.SHARE.clear(); server.SHARE.update(old)
@@ -272,7 +359,7 @@ def _api_checks(req, server, http, phone_port):
         server.SHARE.update(on=True, pin="424242")
         c = http.client.HTTPConnection("127.0.0.1", phone_port(), timeout=10)
         c.request("POST", "/api/battery/delete-note", body=json.dumps(dict(id=nid)),
-                  headers={"Cookie": "alp_pin=424242", "Content-Type": "application/json"})
+                  headers={"Cookie": f"alp_pin={server.pin_cookie('424242')}", "Content-Type": "application/json"})
         assert c.getresponse().status == 403
     finally:
         server.SHARE.clear(); server.SHARE.update(old)

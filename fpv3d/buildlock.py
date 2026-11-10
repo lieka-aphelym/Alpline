@@ -41,6 +41,9 @@ def total_ram_gb():
         return None
 
 
+from .filelock import try_lock, unlock  # noqa: E402
+
+
 class Busy(RuntimeError):
     pass
 
@@ -50,30 +53,13 @@ def scene_lock(scenes_dir: Path, name: str):
     scenes_dir.mkdir(parents=True, exist_ok=True)
     path = scenes_dir / f".{name}.lock"
     f = open(path, "a+")
-    try:
-        if os.name == "nt":
-            import msvcrt
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    if not try_lock(f):
         f.close()
         raise Busy(f"'{name}' is already being built (another window or terminal). Wait for it to finish.") from None
     try:
         yield
     finally:
-        try:
-            if os.name == "nt":
-                import msvcrt
-                f.seek(0)
-                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(f, fcntl.LOCK_UN)
-        except OSError:
-            pass
+        unlock(f)
         f.close()
         try:
             path.unlink()

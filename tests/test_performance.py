@@ -94,7 +94,7 @@ def phone_get(path, accept="gzip, deflate"):
     try:
         server.SHARE.update(on=True, pin="424242")
         c = http.client.HTTPConnection("127.0.0.1", phone_port(), timeout=10)
-        c.request("GET", path, headers={"Cookie": "alp_pin=424242", "Accept-Encoding": accept})
+        c.request("GET", path, headers={"Cookie": f"alp_pin={server.pin_cookie('424242')}", "Accept-Encoding": accept})
         r = c.getresponse()
         out = r.status, r.read(), {k.lower(): v for k, v in r.getheaders()}
         c.close()

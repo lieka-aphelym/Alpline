@@ -13,11 +13,11 @@ export const COL = {
 export const fmtT = (s) => `${s < 0 ? '-' : ''}${Math.floor(Math.abs(s) / 60)}:${String(Math.floor(Math.abs(s) % 60)).padStart(2, '0')}`;
 
 /** a canvas sized to its box at the screen's resolution; returns the 2D context in CSS pixels */
-export function fit(cv, h) {
-  const w = Math.max(50, cv.clientWidth || cv.parentElement.clientWidth);
+export function fit(cv, h, width) {
+  const w = Math.max(50, width || cv.clientWidth || cv.parentElement.clientWidth);
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (h) cv.style.height = `${h}px`;
-  const hh = cv.clientHeight || h || 100;
+  const hh = (width ? h : cv.clientHeight) || h || 100;
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hh * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(hh * dpr); }
   const g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -36,7 +36,7 @@ export function cellSeries(d) {
 
 /** discharge chart. opts: { cursor (s), tStart, tEnd, compact, low (V/cell) } -> { tAt(x), xAt(t) } for clicks */
 export function drawDischarge(cv, d, opts = {}) {
-  const { g, w, h } = fit(cv, opts.height);
+  const { g, w, h } = fit(cv, opts.height, opts.width);
   const { cv: cell, rest } = cellSeries(d);
   const t = d.t, n = t.length;
   const t0 = opts.tStart ?? t[0], t1 = opts.tEnd ?? t[n - 1];
@@ -93,7 +93,30 @@ export function drawDischarge(cv, d, opts = {}) {
     g.strokeStyle = COL.fg; g.globalAlpha = 0.85; g.lineWidth = 1;
     g.beginPath(); g.moveTo(Math.round(x(opts.cursor)) + 0.5, m.t); g.lineTo(Math.round(x(opts.cursor)) + 0.5, m.t + H); g.stroke(); g.globalAlpha = 1;
   }
-  return { tAt: (px) => t0 + (px - m.l) / W * (t1 - t0), xAt: x, valueAt: (s) => valueAt(d, cell, s) };
+  return { tAt: (px) => t0 + (px - m.l) / W * (t1 - t0), xAt: x, valueAt: (s) => valueAt(d, cell, s), y0: m.t, y1: m.t + H, t0, t1 };
+}
+
+/** the same chart for the replay: the curves are drawn once to a hidden canvas; each frame only copies that picture
+ *  and moves the cursor line (redrawing ~3,000 points 60 times a second was wasted work, most of all on a phone) */
+const CACHE = new WeakMap();
+export function drawDischargeCursor(cv, d, opts = {}) {
+  const w = Math.max(50, cv.clientWidth || cv.parentElement.clientWidth), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const sig = [w, opts.height, dpr, d.id, d.pack, d.summary?.cells, opts.tStart, opts.tEnd, document.documentElement.dataset.theme].join('|');
+  let c = CACHE.get(cv);
+  if (!c || c.sig !== sig) {
+    const off = document.createElement('canvas');
+    c = { sig, off, api: drawDischarge(off, d, { ...opts, cursor: null, width: w }) };
+    CACHE.set(cv, c);
+  }
+  const { g, h } = fit(cv, opts.height);
+  g.drawImage(c.off, 0, 0, w, h);
+  const s = opts.cursor;
+  if (s != null && s >= c.api.t0 && s <= c.api.t1) {
+    const xx = Math.round(c.api.xAt(s)) + 0.5;
+    g.strokeStyle = COL.fg; g.globalAlpha = 0.85; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(xx, c.api.y0); g.lineTo(xx, c.api.y1); g.stroke(); g.globalAlpha = 1;
+  }
+  return c.api;
 }
 
 /** cell voltage, current, mAh at a time (s) */
@@ -101,8 +124,12 @@ export function valueAt(d, cell, s) {
   const t = d.t; let lo = 0, hi = t.length - 1;
   if (s < t[0] || s > t[hi]) return null;
   while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (t[mid] <= s) lo = mid; else hi = mid; }
-  let mah = 0; for (let k = 1; k <= lo; k++) mah += d.i[k] * Math.min(1, t[k] - t[k - 1]) / 3.6;
-  return { cell: cell[lo], amps: d.i[lo], mah };
+  if (!d._mah) {                                   // running mAh, added up once per flight (not on every frame)
+    const m = new Float32Array(t.length);
+    for (let k = 1; k < t.length; k++) m[k] = m[k - 1] + d.i[k] * Math.min(1, t[k] - t[k - 1]) / 3.6;
+    Object.defineProperty(d, '_mah', { value: m, enumerable: false });
+  }
+  return { cell: cell[lo], amps: d.i[lo], mah: d._mah[lo] };
 }
 
 /** sag vs current: each dot is how far the cell voltage dropped at that current; the line is the resistance */
