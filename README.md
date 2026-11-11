@@ -7,7 +7,9 @@ Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**
 - **Signal shadow ("dark zone")** is draped on the terrain. It marks every spot where a drone flying *N m above ground* has no direct line of sight to you, or where the Fresnel zone is obstructed. It is precomputed for several heights. In the viewer you can pick one, or let the overlay follow the drone's live height.
 - **Flight log replay** (EdgeTX/OpenTX telemetry, Betaflight/INAV blackbox CSV, GPX): the track can be coloured by LOS status, predicted link margin, height, or any telemetry column (RSSI, LQ, SNR…). The HUD compares *predicted* and *logged* signal.
 
-Moléson is set up as the first location. Nothing in the code is tied to it. Each place is just a YAML file in `locations/`.
+Moléson is set up as the first location. Nothing in the code is tied to it. Each place is just a YAML file in `data/locations/`.
+
+Your own files (locations, flights, built scenes, packs, downloads) all live in `data/`, so the top of the project shows only the program. A project from before this layout moves them there by itself at the first start. Commands such as `python -m fpv3d build locations/moleson.yaml` still work from the project folder: a path that is not found there is looked for in `data/`.
 
 ```
 fpv3d/
@@ -19,12 +21,16 @@ fpv3d/
 │  ├─ logs.py        flight-log readers (add new formats in READERS)
 │  ├─ scene.py       builds scenes/<name>/ for the viewer
 │  └─ cli.py         command line
-├─ viewer/           Three.js viewer (three.js bundled in viewer/vendor, works offline)
-├─ locations/        one YAML per flying spot (moleson.yaml)
-├─ logs/             put your flight logs here
-├─ scenes/           generated output (created by `build`)
-├─ cache/            downloaded swisstopo tiles (reused between builds)
-└─ tests/            checks (run_all.py), a mock STAC server, demo-log generator
+├─ launcher/         the launcher window, one file per page (launcher.pyw starts it)
+├─ viewer/           the pages: 3D viewer, map, packs, phone (three.js bundled in viewer/vendor, works offline)
+├─ tests/            checks (run_all.py), a mock STAC server, demo-log generator
+└─ data/             your files, never in git:
+   ├─ locations/     one YAML per flying spot (moleson.yaml)
+   ├─ logs/          your flight logs, blackbox downloads, live and training recordings
+   ├─ scenes/        built 3D scenes (created by `build`)
+   ├─ battery/       your packs and their history
+   ├─ cache/         downloaded swisstopo tiles (reused between builds)
+   └─ backups/, deleted/, launcher.json
 ```
 
 

@@ -327,3 +327,37 @@ if __name__ == "__main__":
             except Exception as ex:                         # noqa: BLE001
                 fails += 1; print(f"  FAIL  {name}: {ex!r}")
     sys.exit(1 if fails else 0)
+
+
+def test_older_project_moves_into_data(tmp_path):
+    """An older source folder kept your files next to the code: the first start moves them into data/, untouched."""
+    from fpv3d import paths
+    (tmp_path / "fpv3d").mkdir(); (tmp_path / "fpv3d" / "x.py").write_text("code")
+    (tmp_path / "locations").mkdir(); (tmp_path / "locations" / "001_a.yaml").write_text("loc")
+    (tmp_path / "logs" / "blackbox").mkdir(parents=True); (tmp_path / "logs" / "blackbox" / "f.bbl").write_text("bb")
+    (tmp_path / "launcher.json").write_text("{}")
+    data = paths._move_into_data(tmp_path)
+    assert data == tmp_path / "data"
+    assert (data / "locations" / "001_a.yaml").read_text() == "loc"
+    assert (data / "logs" / "blackbox" / "f.bbl").read_text() == "bb" and (data / "launcher.json").exists()
+    assert not (tmp_path / "locations").exists() and (tmp_path / "fpv3d" / "x.py").exists()
+    assert paths._move_into_data(tmp_path) == data                  # second start: nothing to do
+
+
+def test_move_into_data_rolls_back(tmp_path, monkeypatch):
+    """If one item cannot move, the ones already moved go back and the old place is used this time."""
+    from pathlib import Path
+
+    from fpv3d import paths
+    for n in ("locations", "scenes", "logs"):
+        (tmp_path / n).mkdir(); (tmp_path / n / "f").write_text(n)
+    real = Path.rename
+
+    def rename(self, target):
+        if self.name == "logs" and Path(target).parent.name == "data":
+            raise PermissionError("in use")
+        return real(self, target)
+    monkeypatch.setattr(Path, "rename", rename)
+    assert paths._move_into_data(tmp_path) == tmp_path
+    for n in ("locations", "scenes", "logs"):
+        assert (tmp_path / n / "f").read_text() == n

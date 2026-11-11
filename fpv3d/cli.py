@@ -340,6 +340,20 @@ def cmd_tidy(a):
     print("done - reload the viewer (Ctrl+F5)")
 
 
+def _in_data(a) -> None:
+    """File arguments written from the project folder still work now that your files live in data/:
+    `build locations/x.yaml` finds data/locations/x.yaml when there is no locations/x.yaml where you are."""
+    def fix(v):
+        if isinstance(v, list):
+            return [fix(x) for x in v]
+        if isinstance(v, str) and v and not Path(v).is_absolute() and not Path(v).exists() and (ROOT / v).exists():
+            return str(ROOT / v)
+        return v
+    for k in ("config", "logs", "log", "file"):
+        if hasattr(a, k):
+            setattr(a, k, fix(getattr(a, k)))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="fpv3d", description="3D FPV flight & signal visualiser for Swiss terrain")
     p.add_argument("--scenes", default=str(ROOT / "scenes"), help="output folder for scenes")
@@ -478,6 +492,7 @@ def main(argv=None):
     vc.set_defaults(func=cmd_video_convert)
 
     a = p.parse_args(argv)
+    _in_data(a)
     try:
         a.func(a)
     except (ValueError, FileNotFoundError) as ex:        # a broken location file, a missing file: the message, not a crash dump

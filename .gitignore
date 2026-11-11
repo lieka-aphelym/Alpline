@@ -1,24 +1,27 @@
-cache/
+# your data (source folder): everything under data/, never in git
+data/
+# older layout, before data/ (moved there at the first start)
+locations/
 scenes/
+logs/
+battery/
+backups/
+cache/
+deleted/
+launcher.json
+# python
 .venv/
 __pycache__/
 *.pyc
-deleted/
-# your data: shared by all branches, never switched with the code
-locations/
-logs/
 # editor
 .idea/
-launcher.json
-backups/
-battery/
 # app build (build_app.bat)
 build/
 dist/
 # development tools
 .coverage
+.coverage.*
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.coverage.*
 htmlcov/

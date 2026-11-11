@@ -1,11 +1,12 @@
 """Where Alpline lives and where your files go (standard library only: the launcher imports it first).
 
     APP   the program: code and the viewer/ pages (read only once installed)
-    DATA  your files: locations/, scenes/, cache/, logs/, deleted/, launcher.json
+    DATA  your files: locations/, scenes/, logs/, battery/, backups/, cache/, deleted/, launcher.json
 
-From the source folder (PyCharm, Alpline.bat) both are that folder, as before. The installed Windows app keeps
-DATA in Documents\\Alpline by default; the launcher asks the first time, so an existing project folder can be used.
-ALPLINE_DATA in the environment overrides both (tests, a second setup).
+From the source folder (PyCharm, Alpline.bat) DATA is the data/ folder inside the project, so the top of the project
+shows only the program. Projects from before keep their files at the top; the first start moves them into data/
+(see _move_into_data). The installed Windows app keeps DATA in Documents\\Alpline by default; the launcher asks the
+first time, so an existing folder can be used. ALPLINE_DATA in the environment overrides both (tests, a second setup).
 """
 from __future__ import annotations
 
@@ -39,11 +40,40 @@ POINTER = _named(_CONF, "data_folder.txt")
 DEFAULT_DATA = _named(Path.home() / "Documents")
 
 
+# what is yours at the top of an older project folder (everything else there is the program)
+DATA_ITEMS = ("locations", "scenes", "logs", "battery", "backups", "cache", "deleted", "launcher.json")
+
+
+def _move_into_data(project: Path) -> Path:
+    """An older project kept your files next to the code. Move them into project/data/ once: a rename on the same
+    disk, instant, nothing copied or deleted. If one of them cannot move (a file open in another program, say the
+    server of an older window still running), the ones already moved go back and the old place is used this time;
+    the next start tries again."""
+    data = project / "data"
+    old = [n for n in DATA_ITEMS if (project / n).exists() and not (data / n).exists()]
+    if not old:
+        return data
+    moved: list[str] = []
+    try:
+        data.mkdir(exist_ok=True)
+        for n in old:
+            (project / n).rename(data / n)
+            moved.append(n)
+    except OSError:
+        for n in reversed(moved):
+            try:
+                (data / n).rename(project / n)
+            except OSError:
+                pass
+        return project
+    return data
+
+
 def _data() -> Path:
     if os.environ.get("ALPLINE_DATA"):
         return Path(os.environ["ALPLINE_DATA"])
     if not FROZEN:
-        return APP
+        return _move_into_data(APP)
     try:
         p = Path(POINTER.read_text(encoding="utf-8").strip())
         if p.is_dir():
