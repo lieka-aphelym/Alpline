@@ -3,7 +3,7 @@
     python tools/render_logo_frames.py        (needs playwright + Pillow; only after changing the logo or its animation)
 
 Writes viewer/brand/anim-intro-<size>.png and anim-busy-<size>.png: one horizontal strip of square frames each.
-The launcher plays them (intro once at start, busy while it works). Frame timing is in FRAMES below and in launcher.pyw.
+The launcher plays them (intro once at start, busy while it works). Frame timing is in FRAMES below and in launcher/widgets.py (LogoAnim)w.
 """
 from pathlib import Path
 

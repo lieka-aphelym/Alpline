@@ -255,7 +255,7 @@ def test_app_name_in_one_place():
     import re
     bad = []
     keep = re.compile(r'Alpline\.exe|Alpline\.bat|Alpline \(phone\)|"Alpline"|^\s*#|alpline')
-    for f in [HERE.parent / "launcher.pyw", *sorted((HERE.parent / "fpv3d").glob("*.py"))]:
+    for f in [*sorted((HERE.parent / "launcher").glob("*.py")), *sorted((HERE.parent / "fpv3d").glob("*.py"))]:
         if f.name in ("brand.py",):
             continue
         doc = False

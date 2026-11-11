@@ -63,6 +63,30 @@ Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (r
 
 ## Where things are
 
+```
+fpv3d/            the Python side: building scenes, the server, logs, battery, radio maths
+launcher.pyw      starts the launcher window (and is Alpline.exe in the installed app)
+launcher/         the launcher, one file per page
+  app.py            the window and what the pages share (header, rail, selecting a location, keys)
+  map: mapview.py   drone.py   phone.py   checks.py   files.py   settings.py
+  server.py         starting / stopping the local server, opening Alpline windows
+  widgets.py        buttons, tooltips, pills, the logo animation;  style.py  colours, fonts, scaling
+  common.py         paths, settings, small helpers;  main.py  start-up
+viewer/           the pages (index = 3D viewer, map, packs, share, offline), sw.js, manifest
+  css/              one stylesheet per page + theme.css (the look) + mobile.css
+  js/core/          shared by every page: theme, tabs, text escaping, network, environment
+  js/view/          the 3D viewer: app.js, terrain, camera, markers, links, video
+  js/battery/ js/drone/ js/sim/ js/map/   one folder per topic
+  brand/ vendor/    logo and icons; three.js and leaflet (works offline)
+tests/  tools/  docs/  packaging/
+data/             your files (never in git)
+```
+
+The launcher's pages are mixins: `class Launcher(ServerMixin, PhonePage, DronePage, ...)`. Each page file holds a
+class with methods only; they all share the one launcher object (`self`), so a page can call any other part.
+The HTML pages stay at the top of `viewer/` on purpose: their addresses are in phone bookmarks and the installed
+phone app.
+
 - **Server addresses:** each `POST` address is one method `_post_<name>` in `fpv3d/server.py`, listed in the `POST`
   table at the end of the handler class. `LOCAL_ONLY` lists the ones the phone may not call. Background jobs are
   registered with `new_job()` (one build at a time, the last 20 finished jobs kept).

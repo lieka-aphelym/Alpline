@@ -31,7 +31,7 @@ select = ["E", "W", "F", "B"]
 ignore = ["E701", "E702", "E741", "E731", "B905"]
 
 [tool.ruff.lint.per-file-ignores]
-"launcher.pyw" = ["E501"]     # the PowerShell network check is kept as one readable block
+"launcher/phone.py" = ["E501"]     # the PowerShell network check is kept as one readable block
 
 [tool.mypy]
 python_version = "3.12"
