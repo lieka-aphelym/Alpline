@@ -1,7 +1,7 @@
 // Flights tab: [download from the drone]. Starts `fpv3d blackbox` on the server (POST /api/blackbox) and shows its
 // progress lines; flights added to this location are loaded right away, others get a link to their location.
-import { esc } from './esc.js';
-import { askPacks } from './battery.js';
+import { esc } from '../core/esc.js';
+import { askPacks } from '../battery/battery.js';
 
 export function initBlackbox({ S, $, onAdded }) {
   const btn = $('bbGet'), box = $('bbLog');

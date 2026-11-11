@@ -50,7 +50,8 @@ def jreq(method, path, body=None):
 
 # ------------------------------------------------------------ pages and API
 def test_pages_load():
-    for p in ("/viewer/", "/viewer/map.html", "/viewer/share.html", "/viewer/test/index.html", "/viewer/env.js", "/viewer/app.js",
+    for p in ("/viewer/", "/viewer/map.html", "/viewer/share.html", "/viewer/test/index.html",
+              "/viewer/js/core/env.js", "/viewer/js/view/app.js", "/viewer/css/theme.css",
               "/viewer/sw.js", "/viewer/offline.html", "/viewer/manifest.webmanifest"):
         st, body, h = req("GET", p)
         assert st == 200, (p, st)

@@ -2,12 +2,12 @@
 // warnings for the pilot, and the last known position + likely impact zone when the link is lost.
 import * as THREE from 'three';
 import { createWarner } from './warn.js';
-import { mountDrone } from './drone.js';
-import { createDroneMarker } from './marker.js';
-import { createPilotMarker, textSprite } from './pilotmark.js';
-import { pxPerUnit } from './screen.js';
-import { esc } from './esc.js';
-import { APP } from './env.js';
+import { mountDrone } from '../core/drone.js';
+import { createDroneMarker } from '../view/marker.js';
+import { createPilotMarker, textSprite } from '../view/pilotmark.js';
+import { pxPerUnit } from '../core/screen.js';
+import { esc } from '../core/esc.js';
+import { APP } from '../core/env.js';
 
 const $ = (id) => document.getElementById(id);
 function toLV95(lat, lon) {

@@ -1,4 +1,4 @@
-import { esc } from './esc.js';
+import { esc } from '../core/esc.js';
 // fpv3d — training-flight simulator.
 //
 // Fly over the real swisstopo terrain with your radio (USB joystick mode, read through the
@@ -63,7 +63,7 @@ export const PRESETS = {
   tinywhoop: { label: 'Tiny whoop', twr: 3, topSpeed: 45, response: 35, uptilt: 15, packMin: 4, rates: { center: 150, max: 600, expo: 0.3 } },
 };
 
-import { mountDrone } from './drone.js';
+import { mountDrone } from '../core/drone.js';
 import { createFlightModel, collide } from './simphysics.js';
 import { createMotorSound } from './simsound.js';
 
@@ -138,7 +138,7 @@ export function initSim(app) {
     };
   }
 
-  // ---------------------------------------------------------------- physics (viewer/simphysics.js)
+  // ---------------------------------------------------------------- physics (viewer/js/sim/simphysics.js)
   const _prev = new THREE.Vector3();
   function step(inp, dt) {
     windStep(dt);

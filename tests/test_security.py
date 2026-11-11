@@ -193,7 +193,7 @@ def test_names_are_escaped_in_pages():
     import re
     risky = re.compile(r"\$\{(?![^}]*(esc\(|===|!\w))[^}]*\b(name|title|file|description|device|error)\b[^}]*\}")   # not tests
     bad = []
-    for f in sorted((ROOT / "viewer").glob("*.js")):
+    for f in sorted((ROOT / "viewer" / "js").rglob("*.js")):
         lines = f.read_text(encoding="utf-8").splitlines()
         for i, line in enumerate(lines):
             if not risky.search(line):
@@ -212,7 +212,7 @@ def test_esc_in_javascript():
     if not node:
         print("  (Node not installed: skipped)")
         return
-    js = (f"import {{ esc }} from {json.dumps((ROOT / 'viewer' / 'esc.js').as_uri())};"
+    js = (f"import {{ esc }} from {json.dumps((ROOT / 'viewer' / 'js' / 'core' / 'esc.js').as_uri())};"
           "process.stdout.write(esc(`<img src=x onerror=\"alert(1)\"> & 'q'`) + '|' + esc(null) + '|' + esc(5));")
     out = subprocess.run([node, "--input-type=module", "-e", js], capture_output=True, text=True, timeout=30, check=True).stdout
     assert out == "&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#39;q&#39;||5", out

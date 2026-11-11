@@ -2,11 +2,11 @@
 // Summary, tiles, sag vs current, which pack flew it (and a new pack), landing advice for that pack, and a chart
 // under the playback bar with the replay cursor (click it to jump there). The data: GET /api/battery/flight
 // (series at 0.1 s on the track's clock) and /api/battery/packs; analysis in fpv3d/battery.py.
-import { esc } from './esc.js';
-import { APP } from './env.js';
+import { esc } from '../core/esc.js';
+import { APP } from '../core/env.js';
 import { drawDischargeCursor, drawSag, fmtT } from './batchart.js';
 
-import { postJSON as post, getJSON as get } from './net.js';
+import { postJSON as post, getJSON as get } from '../core/net.js';
 
 export function initBattery({ S, $, seek, onChange }) {
   const st = { d: null, fid: null, packs: null, chart: null, lastCursor: null, tab: false };

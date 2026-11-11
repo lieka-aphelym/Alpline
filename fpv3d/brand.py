@@ -1,7 +1,7 @@
 """The app's name, in ONE place. To rename the app, change APP_NAME here (and BY, the maker's name next to it).
 
 Everything a user sees takes the name from here: the launcher window, its texts, the Windows taskbar id, the desktop
-shortcut, the pages (the server hands the name to them, viewer/theme.js puts it in), the phone app's name, messages.
+shortcut, the pages (the server hands the name to them, viewer/js/core/theme.js puts it in), the phone app's name, messages.
 
 What deliberately keeps the first name, because users never see it and changing it would lose things:
   - the folder with your files and the note that says where it is: the folders of EARLIER_NAMES are still found,

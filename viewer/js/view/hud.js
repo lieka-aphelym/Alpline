@@ -1,4 +1,4 @@
-import { esc } from './esc.js';
+import { esc } from '../core/esc.js';
 // fpv3d viewer: the info box over the 3D view during a replay: status, distance / height / speed, one signal line
 // per radio link (margin bar + link quality from the log), the drone zone and the details under [more].
 // clean names for common telemetry columns (EdgeTX, simulator)

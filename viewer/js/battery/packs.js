@@ -1,12 +1,12 @@
 // fpv3d — the battery packs page: every pack with its health over time and landing advice, every flight with battery
 // data (which pack flew it, charger entry), one flight's discharge, and the current-sensor check.
 // Data: GET /api/battery/packs (computed in fpv3d/battery.py), /api/battery/flight?id=; changes: POST /api/battery/*.
-import { esc } from './esc.js';
-import { APP } from './env.js';
+import { esc } from '../core/esc.js';
+import { APP } from '../core/env.js';
 import { drawDischarge, drawSag, drawTrend, sparkline, fmtT } from './batchart.js';
 
 const $ = (id) => document.getElementById(id);
-import { postJSON as post } from './net.js';
+import { postJSON as post } from '../core/net.js';
 const st = { o: null, pack: null, flight: null, filter: 'all', fdata: null };
 
 async function load() {

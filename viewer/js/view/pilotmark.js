@@ -6,7 +6,7 @@
 // Distance rings (500 m / 1 km / 2 km, dashed, lying on the terrain) are a separate object: createRangeRings().
 // World frame as in app.js: X east, Z south, Y = height × exaggeration.
 
-import { pxPerUnit as ppuOf } from './screen.js';
+import { pxPerUnit as ppuOf } from '../core/screen.js';
 
 const SWITCH_M = 250;          // camera distance where the station gives way to the badge
 const BADGE_PX = 46, STATION_PX = 90, DISC_PX = 22, LABEL_PX = 15;

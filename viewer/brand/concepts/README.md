@@ -1,6 +1,6 @@
 # Logo concepts kept for later
 
-From the author's sketches (November 2026). The drone schema is now drawn by `viewer/drone.js` (bigger propellers, no second
+From the author's sketches (November 2026). The drone schema is now drawn by `viewer/js/core/drone.js` (bigger propellers, no second
 tail line) and used in the app: live link indicator, training box, build card, share page, empty pages. These
 files are the original concept drawings.
 

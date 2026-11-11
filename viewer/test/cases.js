@@ -3,11 +3,11 @@
 // same each time. Runs two ways:
 //   python tests/run_all.py            (uses Node when it is installed)
 //   http://localhost:8000/viewer/test/  (any browser, while the server runs)
-import { createWarner } from '../warn.js';
-import { linkBudget, rangeFor, presetIndex, presetKind, fsplDb } from '../links.js';
-import { slugify, noEmoji } from '../rename.js';
-import { telName } from '../hud.js';
-import { createBatteryWatch } from '../batwarn.js';
+import { createWarner } from '../js/drone/warn.js';
+import { linkBudget, rangeFor, presetIndex, presetKind, fsplDb } from '../js/view/links.js';
+import { slugify, noEmoji } from '../js/view/rename.js';
+import { telName } from '../js/view/hud.js';
+import { createBatteryWatch } from '../js/battery/batwarn.js';
 
 // ------------------------------------------------------------ fakes
 // Terrain flat at 1000 m. The scene is 2000 x 2000 m. East of x = 1000 a hill blocks the view: no line of sight

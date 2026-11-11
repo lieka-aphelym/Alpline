@@ -56,7 +56,7 @@ skips it once. Settings for all of these are in `pyproject.toml`.
   compared with `tests/snapshots/signal.json`. When a change is meant to move them: `UPDATE_SNAPSHOTS=1 python -m pytest tests/test_snapshots.py`.
 - **Launcher** (`test_launcher.py`): USB detection (drone, radio, busy, unplugged during a download), map groups and
   zoom levels, and the real window at its smallest size: panels inside and apart, long texts never resize it.
-- **Warnings:** 33 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/warn.js`.
+- **Warnings:** 33 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/js/drone/warn.js`.
 - **Browser:** opens the checks page, the map, the share page, the packs page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
 
 Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. `drone.js` draws the drone icon (live link indicator, training box, build card, share page, empty pages). Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`. The logo animation (spin-up when a page opens, spinning while something loads or builds) is in `theme.css`; the launcher plays frames made from it by `tools/render_logo_frames.py` (run it again after changing the logo).
@@ -66,8 +66,8 @@ Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (r
 - **Server addresses:** each `POST` address is one method `_post_<name>` in `fpv3d/server.py`, listed in the `POST`
   table at the end of the handler class. `LOCAL_ONLY` lists the ones the phone may not call. Background jobs are
   registered with `new_job()` (one build at a time, the last 20 finished jobs kept).
-- **Shared helpers:** `viewer/net.js` (`postJSON`, `getJSON`), `viewer/screen.js` (`pxPerUnit`: sizes that stay fixed
-  on screen), `viewer/esc.js` (text safe for HTML); `fpv3d/filelock.py` (a lock between programs),
+- **Shared helpers:** `viewer/js/core/net.js` (`postJSON`, `getJSON`), `viewer/js/core/screen.js` (`pxPerUnit`: sizes that stay fixed
+  on screen), `viewer/js/core/esc.js` (text safe for HTML); `fpv3d/filelock.py` (a lock between programs),
   `fpv3d/safefile.py` (writes that never leave half a file), `fpv3d/errorlog.py`.
 - **Types:** `mypy` checks eleven modules (see `pyproject.toml`); add a module there when it is clean.
 
@@ -75,7 +75,7 @@ Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (r
 
 The name is defined once, in `fpv3d/brand.py` (`APP_NAME`, and `BY` for the maker's name). The launcher, its texts,
 the taskbar id, the desktop shortcut, the server's messages and the pages all read it; the pages get it from the
-server and `viewer/theme.js` puts it into every text and title. After changing it:
+server and `viewer/js/core/theme.js` puts it into every text and title. After changing it:
 
 - your existing files are still found: the folders of `EARLIER_NAMES` are used when the new one does not exist
 - internal names stay (`ALPLINE_DATA`, `alpline-cli.exe`, backup file names, the firewall rule, the package `fpv3d`)
@@ -92,7 +92,7 @@ your home folder as `~`. Your locations, flights, scenes, settings and backups a
 
 ## The look, in one place
 
-The pages follow one style ("flight OSD"); the rules are at the end of `viewer/theme.css`.
+The pages follow one style ("flight OSD"); the rules are at the end of `viewer/css/theme.css`.
 
 - Text sizes: 10 (small capitals), 11 (notes), 12 (buttons and figures), 13 (sentences), 15 (titles), 19 (big numbers). No half pixels.
 - Square corners everywhere; only round things (dots, dials) are round.

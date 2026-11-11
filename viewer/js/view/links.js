@@ -1,4 +1,4 @@
-import { esc } from './esc.js';
+import { esc } from '../core/esc.js';
 // fpv3d viewer: the radio link editor (transmit power, antennas -> range). Changes apply right away to the range
 // spheres, the rings on the terrain, the signal-loss shadows, the track colours and the warnings; [save] writes
 // them into the location file and rebuilds the shadows. Unsaved edits stay in this browser (localStorage).

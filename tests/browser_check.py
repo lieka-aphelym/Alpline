@@ -3,7 +3,7 @@
     python tests/browser_check.py [--scene NAME] [--show]
 
 Needs playwright once:  pip install playwright   then   python -m playwright install chromium   (about 150 MB)
-Uses your own scenes folder (read only: nothing is built or changed). Screenshots go to logs/checks/.
+Uses your own scenes folder (read only: nothing is built or changed). Screenshots go to data/logs/checks/.
 """
 import argparse
 import os
@@ -56,7 +56,9 @@ def main():
             urllib.request.urlopen(base + "/api/mode.js", timeout=1); break
         except OSError:
             time.sleep(0.25)
-    out = ROOT / "logs" / "checks"; out.mkdir(parents=True, exist_ok=True)
+    sys.path.insert(0, str(ROOT))
+    from fpv3d.paths import DATA
+    out = DATA / "logs" / "checks"; out.mkdir(parents=True, exist_ok=True)
     pages = [("checks", "/viewer/test/index.html", None), ("map", "/viewer/map.html", "#map .leaflet-pane"),
              ("share", "/viewer/share.html", None), ("packs", "/viewer/packs.html", "#flights")]
     if scene:

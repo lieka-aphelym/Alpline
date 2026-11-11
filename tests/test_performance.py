@@ -50,7 +50,7 @@ def test_d16_in_javascript():
     f = _TMP / "d16.bin"
     f.write_bytes(data)
     js = f"""
-import {{ readTerrain }} from {json.dumps((HERE.parent / 'viewer' / 'terrain_codec.js').as_uri())};
+import {{ readTerrain }} from {json.dumps((HERE.parent / 'viewer' / 'js' / 'view' / 'terrain_codec.js').as_uri())};
 import {{ readFileSync }} from 'fs';
 const buf = readFileSync({json.dumps(str(f))});
 const hdr = {{ 'X-Enc': 'd16', 'X-Base': '{base}', 'X-Scale': '0.1', 'X-Cols': '{h.shape[1]}' }};
@@ -113,7 +113,7 @@ def test_phone_gets_compressed_files():
     assert st == 200 and h.get("content-encoding") == "gzip" and len(gzip.decompress(body)) == 120 * 150 * 2
     st, body, h = phone_get(f"/scenes/{name}/big.json", accept="identity")   # a browser that can't unpack: plain
     assert st == 200 and "content-encoding" not in h and body == plain
-    st, body, h = phone_get("/viewer/app.js")
+    st, body, h = phone_get("/viewer/js/view/app.js")
     assert st == 200 and h.get("content-encoding") == "gzip"
 
 

@@ -1,6 +1,6 @@
-// Flight model checks (viewer/simphysics.js):   node tests/test_sim.mjs    (run by tests/test_sim.py)
+// Flight model checks (viewer/js/sim/simphysics.js):   node tests/test_sim.mjs    (run by tests/test_sim.py)
 import * as THREE from '../viewer/vendor/three.module.js';
-import { createFlightModel, collide, throttleCurve, cellVolts, powerFactor, groundEffect, G } from '../viewer/simphysics.js';
+import { createFlightModel, collide, throttleCurve, cellVolts, powerFactor, groundEffect, G } from '../viewer/js/sim/simphysics.js';
 
 const M = createFlightModel(THREE);
 let fails = 0;

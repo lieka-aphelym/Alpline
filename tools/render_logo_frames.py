@@ -1,4 +1,4 @@
-"""Render the launcher's logo animation frames from the web logo (viewer/theme.js + theme.css), so both match.
+"""Render the launcher's logo animation frames from the web logo (viewer/js/core/theme.js + viewer/css/theme.css), so both match.
 
     python tools/render_logo_frames.py        (needs playwright + Pillow; only after changing the logo or its animation)
 
@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 BRAND = ROOT / "viewer" / "brand"
 SIZES = (24, 32, 40, 48, 64, 96)
 FRAMES = {"intro": (30, 60), "busy": (20, 70)}     # frames, ms per frame (intro 1.8 s once, busy 1.4 s loop)
-PAGE = """<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="{v}/theme.css"><script src="{v}/theme.js"></script>
+PAGE = """<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="{v}/css/theme.css"><script src="{v}/js/core/theme.js"></script>
 <style>html,body{{margin:0;padding:0;background:transparent!important}} svg.logo{{width:{n}px;height:{n}px;display:block;
 --t-fg:#ffffff;--t-acc:#ffd60a}}</style></head><body><span data-logo></span></body></html>"""
 

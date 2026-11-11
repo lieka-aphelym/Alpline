@@ -1,4 +1,4 @@
-import { esc } from './esc.js';
+import { esc } from '../core/esc.js';
 // fpv3d viewer: rename or delete the location, rename a flight log (clean ASCII file names; the server keeps the
 // NNN_ number of a location). Moves this browser's saved antenna edits and video sync along with the new name.
 export const slugify = (s) => s.normalize('NFKD').replace(/[^\x00-\x7f]/g, '').toLowerCase().replace(/[^a-z0-9-]+/g, '_').replace(/_+/g, '_').replace(/^[_-]+|[_-]+$/g, '').slice(0, 60);

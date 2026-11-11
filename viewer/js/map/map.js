@@ -1,12 +1,12 @@
 // fpv3d map page: Switzerland basemap, cached terrain tiles, existing locations,
 // and click-to-create new locations (pilot + area) with optional one-click build.
 /* global L */
-import { initTabs } from './tabs.js';
+import { initTabs } from '../core/tabs.js';
 import { createBuildProgress } from './buildprog.js';
 import { stripTiles, contextTiles, stripShapes, routeLength, stripArea, boxCells } from './corridor.js';
-import { LITE } from './env.js';
-import { mountDrone } from './drone.js';
-import { esc } from './esc.js';
+import { LITE } from '../core/env.js';
+import { mountDrone } from '../core/drone.js';
+import { esc } from '../core/esc.js';
 const $ = (id) => document.getElementById(id);
 const TILE = 1000;
 

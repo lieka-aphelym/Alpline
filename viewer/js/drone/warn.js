@@ -24,7 +24,7 @@
 // in mixed mode every 4th one is the spoken word "Climb".
 // Modes: 'mixed' (default: voice says the sentence once when the situation changes, then only the sound repeats),
 //        'sounds' (never speaks), 'voice' (sentences + the old plain beeps).
-import { createBatteryWatch } from './batwarn.js';
+import { createBatteryWatch } from '../battery/batwarn.js';
 
 const RANK = { ok: 0, link: 1, outside: 1.5, caution: 2, urgent: 3, blind: 4, lost: 5 };
 const COLORS = { ok: '#1f6f4a', link: '#9a6b00', outside: '#3d4654', caution: '#b07800', urgent: '#c0392b', blind: '#7d1d8c', lost: '#555' };

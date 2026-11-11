@@ -10,7 +10,7 @@ Flights are recorded while armed. **Save training flight** stores them in `logs/
 
 Set up the radio with *Radio setup*: detect or pick each axis, then invert if needed. Settings (rates, angle/acro, thrust-to-weight, camera tilt and FOV) are under *Drone and camera settings*.
 
-**How it flies** (`viewer/simphysics.js`, checked by `tests/test_sim.mjs`):
+**How it flies** (`viewer/js/sim/simphysics.js`, checked by `tests/test_sim.mjs`):
 - **What you see is what you hit:** the ground under the drone is the sharp terrain shown around it (with trees when
   the map shows the surface model), and the 3D buildings: land on a roof, or crash into a wall (a slow touch is a bump,
   more than ~15 km/h a crash). The sharp terrain follows the drone, loaded a little ahead in the direction of flight.

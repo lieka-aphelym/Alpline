@@ -10,7 +10,7 @@
 //   m.group.position.copy(worldPos);            (S.drone = m.group: everything else keeps using its position)
 //   m.update({ vel, acc, color, groundY, agl, tail, attitude, now })   every frame it is drawn
 //   m.style({ ghost, faded, ping })             ghost = see-through compare drone, faded = estimated position
-import { pxPerUnit as ppu } from './screen.js';
+import { pxPerUnit as ppu } from '../core/screen.js';
 
 const SWITCH_M = 250;          // camera distance (m) where the quad becomes the badge
 const QUAD_PX = 56;            // the quad is drawn at least this wide on screen

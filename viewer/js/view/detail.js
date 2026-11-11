@@ -3,7 +3,7 @@
 // The overview mesh is decimated (the browser can't draw 16 000 x 16 000 cells), so without this
 // patch a 0.5 m scene looks like a 2-8 m one.
 import * as THREE from 'three';
-import { LITE, PHONE } from './env.js';
+import { LITE, PHONE } from '../core/env.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 
 const N = PHONE ? 256 : LITE ? 384 : 768;   // cells per side (phone 256, Lite 384, Full 768)
