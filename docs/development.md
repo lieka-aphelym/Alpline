@@ -98,3 +98,4 @@ The pages follow one style ("flight OSD"); the rules are at the end of `viewer/t
 - Square corners everywhere; only round things (dots, dials) are round.
 - Buttons read `[lowercase]`. `.primary` is filled with the accent colour (the one thing to do next), `.danger` is outlined in red (it deletes).
 - Colours come from the variables at the top of `theme.css` (`--t-bg`, `--t-fg`, `--t-acc`, `--ok`, `--warn`, `--bad`, `--c-cur` for current). Do not write a colour code in a page; map markers and chart lines are the exception.
+- The launcher follows the same rules in Tkinter: every button comes from `Launcher.button()` (class `Btn`: normal, `primary=True`, `danger=True`; a switched-off button turns grey by itself), text sizes are `MONO_S` (9), `MONO` / `MONO_B` (10) and `SANS` for sentences, status colours are `OK`, `WARN`, `BAD`.

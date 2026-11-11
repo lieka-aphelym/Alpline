@@ -38,6 +38,9 @@ LOG = ROOT / "logs" / "server.log"
 # colours of the viewer's dark theme
 BG, BG2, BG3, FG, FG2, RULE, ACC = "#07090c", "#10141a", "#171c24", "#f2f5f8", "#a9b4c2", "#2a313c", "#ffd60a"
 MONO = ("Consolas", 10)
+MONO_S = ("Consolas", 9)                             # notes, pills, small buttons (the smallest text there is)
+MONO_B = ("Consolas", 10, "bold")
+OK, WARN, BAD = "#3ddc84", "#ffb000", "#ff6b6b"      # the same three status colours as the pages
 SANS = ("Segoe UI", 10)
 UI = 1.0                                             # screen scaling (1.5 on a 150 % Windows display), set at start
 
@@ -111,6 +114,34 @@ def load_settings() -> dict:
 
 GREY = "#7d8796"
 RULE2 = "#4a5462"                                     # control borders
+
+
+class Btn(tk.Button):
+    """A flat [button] in one of three kinds. A switched-off button always looks switched off (grey on dark), also a
+    primary one: Tk alone would keep it yellow with unreadable text."""
+    def __init__(self, parent, text, cmd, primary=False, small=False, danger=False):
+        self.kind = "primary" if primary else "danger" if danger else "normal"
+        super().__init__(parent, text=text, command=cmd, font=MONO_S if small else MONO, relief="flat", bd=0,
+                         padx=6 if small else 10, pady=1 if small else 4, disabledforeground=GREY,
+                         highlightthickness=1)
+        self._paint()
+
+    def _paint(self):
+        off = str(self["state"]) == "disabled"
+        bg, fg, edge = {"primary": (ACC, "#000", ACC), "danger": (BG2, BAD, BAD)}.get(self.kind, (BG2, FG, RULE2))
+        if off:
+            bg, edge = BG2, RULE
+        hover = ACC if self.kind == "primary" else BAD if self.kind == "danger" else BG3
+        super().configure(bg=bg, fg=fg, activebackground=bg if off else hover,
+                          activeforeground="#000" if self.kind == "primary" else "#fff" if self.kind == "danger" else FG,
+                          highlightbackground=edge, highlightcolor=edge, cursor="arrow" if off else "hand2")
+
+    def configure(self, cnf=None, **kw):
+        out = super().configure(cnf, **kw)
+        if "state" in kw:
+            self._paint()
+        return out
+    config = configure
 
 
 class Tip:
@@ -261,7 +292,7 @@ class Pill(tk.Frame):
         super().__init__(parent, bg=BG, highlightthickness=1, highlightbackground=RULE2)
         self.dot = tk.Canvas(self, width=S(10), height=S(10), bg=BG, highlightthickness=0)
         self.dot.pack(side="left", padx=(S(7), S(4)))
-        self.lab = tk.Label(self, font=("Consolas", 9), fg=FG2, bg=BG, width=chars, anchor="w")
+        self.lab = tk.Label(self, font=MONO_S, fg=FG2, bg=BG, width=chars, anchor="w")
         self.lab.pack(side="left", padx=(0, S(6)), pady=S(2))
         if tip:
             Tip(self, tip)
@@ -361,7 +392,7 @@ class Launcher:
             self.logo.label.pack_configure(padx=(S(14), S(8)))
         tk.Label(top, text=APP_NAME.upper(), font=("Consolas", 15, "bold"), fg=FG, bg=BG).pack(side="left",
                  padx=(0 if self.logo.label else S(14), 0))
-        tk.Label(top, text=f"by {BY}", font=("Consolas", 9), fg=FG2, bg=BG).pack(side="left", padx=(S(6), 0), pady=(S(5), 0))
+        tk.Label(top, text=f"by {BY}", font=MONO_S, fg=FG2, bg=BG).pack(side="left", padx=(S(6), 0), pady=(S(5), 0))
         b = self.button(top, "[locations map]", lambda: self.open("/viewer/map.html"))
         b.pack(side="right", padx=(S(6), S(14)))
         Tip(b, f"The map page in {APP_NAME}: search places, create and build locations, drone zones.")
@@ -407,7 +438,7 @@ class Launcher:
             bar = tk.Frame(it, bg=BG, width=S(3)); bar.pack(side="left", fill="y")
             inner = tk.Frame(it, bg=BG); inner.pack(side="left", fill="x", expand=True, pady=S(6))
             cv = tk.Canvas(inner, width=S(24), height=S(20), bg=BG, highlightthickness=0); cv.pack()
-            lab = tk.Label(inner, text=label, font=("Consolas", 8), fg=FG2, bg=BG); lab.pack()
+            lab = tk.Label(inner, text=label, font=MONO_S, fg=FG2, bg=BG); lab.pack()
             for w in (it, inner, cv, lab):
                 w.bind("<Button-1>", lambda e, k=key: self.show_page(k))
             Tip(it, tip)
@@ -471,7 +502,7 @@ class Launcher:
         st.configure("L.Treeview", background=BG2, fieldbackground=BG2, foreground=FG, font=MONO, rowheight=S(21),
                      borderwidth=0, relief="flat")
         st.map("L.Treeview", background=[("selected", ACC)], foreground=[("selected", "#000")])
-        st.configure("L.Treeview.Heading", background=BG, foreground=FG2, font=("Consolas", 8, "bold"), relief="flat",
+        st.configure("L.Treeview.Heading", background=BG, foreground=FG2, font=("Consolas", 9, "bold"), relief="flat",
                      borderwidth=0)
         st.map("L.Treeview.Heading", background=[("active", BG3)])
         st.layout("L.Treeview", [("L.Treeview.treearea", {"sticky": "nswe"})])
@@ -485,12 +516,10 @@ class Launcher:
         tk.Frame(f, bg=RULE, height=1).pack(side="left", fill="x", expand=True, padx=(8, 0), pady=(2, 0))
         return lab
 
-    def button(self, parent, text, cmd, primary=False, small=False):
-        return tk.Button(parent, text=text, command=cmd, font=("Consolas", 9 if small else 10), relief="flat", bd=0,
-                         cursor="hand2", padx=6 if small else 10, pady=1 if small else 4,
-                         bg=ACC if primary else BG2, fg="#000" if primary else FG,
-                         activebackground=ACC if primary else BG3, activeforeground="#000" if primary else FG)
-
+    def button(self, parent, text, cmd, primary=False, small=False, danger=False):
+        """Every button of the launcher. Normal, primary (filled: the next thing to do) or danger (red: it deletes).
+        small is only for the header and the map's own controls; a row of a page never mixes sizes."""
+        return Btn(parent, text, cmd, primary, small, danger)
 
     # ------------------------------------------------------------ mode
     MODE_TEXT = {"full": "Full: the whole 3D at full quality. New locations: 2 m terrain, 2 m photo, "
@@ -798,7 +827,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.draw_badge("phone")
         if self.server_alive():
             note = "" if self.running_mode == self.mode.get() else f" →{self.mode.get()}"
-            self.server_pill.set(f"server {self.running_mode} :{self.port}{note}", "#3ddc84")
+            self.server_pill.set(f"server {self.running_mode} :{self.port}{note}", OK)
             self.stop_btn.configure(state="normal")
         else:
             self.server_pill.set(f"server off · {self.mode.get()}", None)
@@ -845,7 +874,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
             except Exception:
                 ok = False
             self.online = ok
-            self.root.after(0, lambda: self.net_pill.set("online" if ok else "offline", "#3ddc84" if ok else "#ff9f43"))
+            self.root.after(0, lambda: self.net_pill.set("online" if ok else "offline", OK if ok else WARN))
             if ok and "map" in self.map.src:          # new locations: their detail tiles, quietly
                 self.root.after(3000, self.map.prefetch)
         threading.Thread(target=net, daemon=True).start()
@@ -891,13 +920,13 @@ $r | ConvertTo-Json -Depth 4 -Compress
         col = None
         if key == "drone":
             kinds = {d.get("kind") for d in self.devices.values()}
-            col = "#3ddc84" if "drone" in kinds else (ACC if "radio" in kinds else None)
+            col = OK if "drone" in kinds else (ACC if "radio" in kinds else None)
         elif key == "phone" and self.cfg.get("share"):
             col = ACC
         elif key == "checks" and (self.cfg.get("last_check") or {}).get("failed"):
-            col = "#ff6b6b"                              # the last check found a problem
+            col = BAD                              # the last check found a problem
         elif key == "checks" and getattr(self, "libs_diff", None):
-            col = "#ffb000"                              # libraries to update
+            col = WARN                              # libraries to update
         if col:
             r = S(3.5)
             x, y = S(21), S(3.5)
@@ -916,7 +945,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
 
     def say(self, text, kind="info"):
         """A message for a few seconds over the bottom right corner (errors stay longer; click to close)."""
-        col = {"info": ACC, "ok": "#3ddc84", "bad": "#ff6b6b"}.get(kind, ACC)
+        col = {"info": ACC, "ok": OK, "bad": BAD}.get(kind, ACC)
         self.toast.configure(text=text, fg=col, highlightbackground=col)
         self.toast.bind("<Button-1>", lambda e: self.toast.place_forget())      # (an error notice opens its file instead)
         self.toast.place(relx=1, rely=0, x=-S(16), y=S(66), anchor="ne")      # top right of the page: free on every page
@@ -959,9 +988,9 @@ $r | ConvertTo-Json -Depth 4 -Compress
                               f"Plug the drone in with its USB cable (no battery needed). {APP_NAME} finds a Betaflight flight "
                               "controller by itself and can copy its blackbox: every flight with GPS is added to the location "
                               "where it took off. Close Betaflight Configurator first (it holds the port).")
-        self.drone_lab = FitLabel(col, font=("Consolas", 10, "bold"), fg=FG2, bg=BG)
+        self.drone_lab = FitLabel(col, font=MONO_B, fg=FG2, bg=BG)
         self.drone_lab.pack(fill="x")
-        self.drone_info = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.drone_info = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
         self.drone_info.pack(fill="x", pady=(S(2), S(8)))
         row = tk.Frame(col, bg=BG); row.pack(fill="x")
         self.bb_btn = self.button(row, "[download blackbox]", self.download_blackbox, primary=True)
@@ -972,19 +1001,19 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.bb_here_cb.pack(side="left", padx=(S(12), 0))
         Tip(self.bb_here_cb, "Off: each flight goes to the location whose map contains its take-off point.")
         box = tk.Frame(col, bg=RULE, padx=1, pady=1); box.pack(fill="x", pady=(S(10), 0))
-        self.bb_log = tk.Text(box, height=9, font=("Consolas", 9), fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
+        self.bb_log = tk.Text(box, height=9, font=MONO_S, fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
                               padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
         self.bb_log.pack(fill="x")
-        self.bb_log.tag_configure("ok", foreground="#3ddc84")
-        self.bb_log.tag_configure("bad", foreground="#ff6b6b")
+        self.bb_log.tag_configure("ok", foreground=OK)
+        self.bb_log.tag_configure("bad", foreground=BAD)
         self.bb_log.insert("end", "The download's progress shows here.")
         self.bb_log.configure(state="disabled")
 
         tk.Frame(col, bg=BG, height=S(18)).pack()
         self.section("RADIO ON USB", col)
-        self.radio_lab = FitLabel(col, font=("Consolas", 10, "bold"), fg=FG2, bg=BG)
+        self.radio_lab = FitLabel(col, font=MONO_B, fg=FG2, bg=BG)
         self.radio_lab.pack(fill="x")
-        self.radio_info = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.radio_info = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
         self.radio_info.pack(fill="x", pady=(S(2), S(8)))
         row = tk.Frame(col, bg=BG); row.pack(fill="x")
         self.live_btn = self.button(row, "[live flight in 3d]", self.open_live)
@@ -1073,7 +1102,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         if drones:
             from fpv3d.devices import drone_text
             title, detail = drone_text(drones[0])
-            self.drone_lab.set(title, fg="#3ddc84")
+            self.drone_lab.set(title, fg=OK)
             self.drone_info.set(detail)
         else:
             self.drone_lab.set("○ no drone on USB", fg=FG2)
@@ -1169,7 +1198,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         w.transient(self.root)
         w.resizable(False, False)
         f = tk.Frame(w, bg=BG, padx=S(16), pady=S(14)); f.pack(fill="both")
-        tk.Label(f, text=f"Which pack did you fly? ({len(fids)} flight(s) with battery data)", font=("Consolas", 10, "bold"),
+        tk.Label(f, text=f"Which pack did you fly? ({len(fids)} flight(s) with battery data)", font=MONO_B,
                  fg=FG, bg=BG, anchor="w").pack(fill="x")
         tk.Label(f, text=f"{APP_NAME} then follows each pack's health and how long it lasts. You can change it per flight on the packs page.",
                  font=SANS, fg=FG2, bg=BG, anchor="w", justify="left", wraplength=S(420)).pack(fill="x", pady=(S(2), S(8)))
@@ -1184,7 +1213,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         chems = list(battery.CHEM)
         chem_v = tk.StringVar(value=battery.CHEM["lipo"]["label"])
         ttk.Combobox(newf, textvariable=chem_v, values=[battery.CHEM[k]["label"] for k in chems], state="readonly", width=8).pack(side="left")
-        msg = tk.Label(f, text="", font=SANS, fg="#ff6b6b", bg=BG, anchor="w")
+        msg = tk.Label(f, text="", font=SANS, fg=BAD, bg=BG, anchor="w")
 
         def sync(*_):
             newf.pack(anchor="w", pady=(S(8), 0)) if choice.get().startswith("+") else newf.pack_forget()
@@ -1236,7 +1265,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         grid.columnconfigure(1, weight=1)
         self.phone_vals = {}
         for i, (k, label) in enumerate((("addr", "address"), ("pin", "PIN"), ("state", "state"))):
-            tk.Label(grid, text=label, font=("Consolas", 9), fg=FG2, bg=BG, width=10, anchor="w").grid(row=i, column=0, sticky="w", pady=S(2))
+            tk.Label(grid, text=label, font=MONO_S, fg=FG2, bg=BG, width=10, anchor="w").grid(row=i, column=0, sticky="w", pady=S(2))
             e = tk.Entry(grid, font=("Consolas", 11, "bold"), fg=FG, bg=BG, bd=0, relief="flat", readonlybackground=BG,
                          highlightthickness=0, insertbackground=FG)
             e.grid(row=i, column=1, sticky="ew", pady=S(2))
@@ -1260,7 +1289,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         seg = tk.Frame(r, bg=RULE, padx=1, pady=1); seg.pack(anchor="w")
         self.mode_btns = {}
         for m in ("full", "lite"):
-            b = tk.Button(seg, text=m, font=("Consolas", 10, "bold"), width=6, relief="flat", bd=0, cursor="hand2",
+            b = tk.Button(seg, text=m, font=MONO_B, width=6, relief="flat", bd=0, cursor="hand2",
                           command=lambda m=m: self.set_mode(m))
             b.pack(side="left")
             self.mode_btns[m] = b
@@ -1270,7 +1299,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         seg = tk.Frame(r, bg=RULE, padx=1, pady=1); seg.pack(anchor="w")
         self.where_btns = {}
         for k, label in (("window", f"{APP_NAME} window"), ("browser", "my browser")):
-            b = tk.Button(seg, text=label, font=("Consolas", 10, "bold"), relief="flat", bd=0, cursor="hand2", padx=S(10),
+            b = tk.Button(seg, text=label, font=MONO_B, relief="flat", bd=0, cursor="hand2", padx=S(10),
                           command=lambda k=k: self.set_open_in(k))
             b.pack(side="left")
             self.where_btns[k] = b
@@ -1280,13 +1309,13 @@ $r | ConvertTo-Json -Depth 4 -Compress
         r = row("DESKTOP")
         self.button(r, "[add a desktop shortcut]", self.make_shortcut).pack(anchor="w")
         r = row("YOUR FILES")
-        self.data_lab = FitLabel(r, font=("Consolas", 9), fg=FG, bg=BG)
+        self.data_lab = FitLabel(r, font=MONO_S, fg=FG, bg=BG)
         self.data_lab.set(str(ROOT))
         self.data_lab.pack(fill="x")
         br = tk.Frame(r, bg=BG); br.pack(anchor="w", pady=(S(4), 0))
-        self.button(br, "[open folder]", self.open_data_folder, small=True).pack(side="left")
+        self.button(br, "[open folder]", self.open_data_folder).pack(side="left")
         if paths.FROZEN:
-            ch = self.button(br, "[change…]", self.change_data_folder, small=True)
+            ch = self.button(br, "[change…]", self.change_data_folder)
             ch.pack(side="left", padx=(S(6), 0))
             Tip(ch, f"Use another folder for locations, flights and maps (e.g. an existing project folder). Restarts {APP_NAME}.")
         r = row("ABOUT")
@@ -1295,7 +1324,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         except Exception:
             ver = "?"
         tk.Label(r, text=f"{APP_NAME} {ver} · {'installed app' if paths.FROZEN else 'from the source folder'}",
-                 font=("Consolas", 9), fg=FG2, bg=BG, anchor="w").pack(fill="x")
+                 font=MONO_S, fg=FG2, bg=BG, anchor="w").pack(fill="x")
 
     def set_open_in(self, k, save=True):
         if save:
@@ -1353,10 +1382,10 @@ $r | ConvertTo-Json -Depth 4 -Compress
         self.check_top = row = tk.Frame(col, bg=BG); row.pack(fill="x")
         self.check_btn = self.button(row, "[run quick check]", self.run_checks, primary=True)
         self.check_btn.pack(side="left")
-        self.copy_btn = self.button(row, "[copy report]", self.copy_check_report, small=True)
+        self.copy_btn = self.button(row, "[copy report]", self.copy_check_report)
         self.copy_btn.pack(side="left", padx=(S(8), 0))
         Tip(self.copy_btn, "Copy the results, to paste them in a message when something fails.")
-        self.check_status = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.check_status = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
         self.check_status.pack(fill="x", pady=(S(8), S(4)))
         self.check_bar = tk.Canvas(col, height=S(6), bg=BG2, highlightthickness=0)
         self.check_bar.pack(fill="x", pady=(0, S(10)))
@@ -1364,18 +1393,18 @@ $r | ConvertTo-Json -Depth 4 -Compress
         grid.columnconfigure(1, weight=1)
         self.check_rows = {}
         for i, (key, label, desc) in enumerate(self.CHECK_GROUPS):
-            tk.Label(grid, text=label, font=("Consolas", 10, "bold"), fg=FG, bg=BG, width=14, anchor="w").grid(row=i, column=0, sticky="w", pady=S(2))
+            tk.Label(grid, text=label, font=MONO_B, fg=FG, bg=BG, width=17, anchor="w").grid(row=i, column=0, sticky="w", pady=S(2))
             d = FitLabel(grid, font=SANS, fg=FG2, bg=BG); d.set(desc); d.grid(row=i, column=1, sticky="ew", padx=(0, S(8)))
             res = tk.Label(grid, text="–", font=("Consolas", 10), fg=FG2, bg=BG, width=13, anchor="e")
             res.grid(row=i, column=2, sticky="e")
             self.check_rows[key] = res
         box = tk.Frame(col, bg=RULE, padx=1, pady=1); box.pack(fill="x", pady=(S(12), 0))
-        self.check_log = tk.Text(box, height=9, font=("Consolas", 9), fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
+        self.check_log = tk.Text(box, height=9, font=MONO_S, fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
                                  padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
         self.check_log.pack(fill="x")
-        self.check_log.tag_configure("bad", foreground="#ff6b6b")
+        self.check_log.tag_configure("bad", foreground=BAD)
         self.check_log.tag_configure("skip", foreground=ACC)
-        self.check_log.tag_configure("ok", foreground="#3ddc84")
+        self.check_log.tag_configure("ok", foreground=OK)
         self.check_proc, self.check_results = None, []
         self.check_runner = APP / "tests" / "run_quick.py"
         self.check_write("Failures and skipped checks show here, with what went wrong.", clear=True)
@@ -1452,14 +1481,14 @@ $r | ConvertTo-Json -Depth 4 -Compress
             self.check_status.set("not run yet on this computer")
             return
         self.check_status.set(f"last run {lc['when']} · {lc['ok']} ok · {lc['failed']} failed · {lc['skipped']} skipped"
-                              f" ({lc['seconds']:.0f} s)", fg="#ff6b6b" if lc["failed"] else FG2)
+                              f" ({lc['seconds']:.0f} s)", fg=BAD if lc["failed"] else FG2)
 
     def draw_check_bar(self, done, total, bad):
         c = self.check_bar
         c.delete("all")
         w = c.winfo_width() or S(600)
         if total:
-            c.create_rectangle(0, 0, w * done / total, S(6), fill="#ff6b6b" if bad else "#3ddc84", outline="")
+            c.create_rectangle(0, 0, w * done / total, S(6), fill=BAD if bad else OK, outline="")
 
     def run_checks(self):
         if self.check_proc is not None:
@@ -1507,7 +1536,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         lab = self.check_rows.get(group)
         if lab:
             lab.configure(text=f"{nbad} failed" if nbad else f"{nok} ok" + (f", {len(mine) - nok} skip" if len(mine) > nok else ""),
-                          fg="#ff6b6b" if nbad else "#3ddc84")
+                          fg=BAD if nbad else OK)
         nice = name[5:].replace("_", " ") if name.startswith("test_") else name
         if state == "fail":
             self.check_write(f"✗ {group} · {nice}\n", "bad")
@@ -1524,7 +1553,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         ok, bad, skip = (sum(r["state"] == s for r in res) for s in ("ok", "fail", "skip"))
         if not res:
             self.check_write("the checks did not run (is the project's .venv complete? pip install -r requirements.txt)\n", "bad")
-            self.check_status.set("the checks did not run", fg="#ff6b6b")
+            self.check_status.set("the checks did not run", fg=BAD)
             return
         self.check_log.see("1.0")                         # the first problem on top
         if not bad:
@@ -1562,7 +1591,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         col = self.page_frame(parent, "YOUR FILES",
                               f"What {APP_NAME} keeps on this computer. Tick what to delete: a backup zip is made first "
                               "unless you untick it. Ticking everything starts fresh, like a new install.")
-        self.disk_free = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.disk_free = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
         self.disk_free.pack(fill="x", pady=(0, S(8)))
         grid = tk.Frame(col, bg=BG); grid.pack(fill="x")
         grid.columnconfigure(1, weight=1)
@@ -1577,17 +1606,16 @@ $r | ConvertTo-Json -Depth 4 -Compress
             self.disk_labels[key].grid(row=i, column=2, sticky="e")
             self.disk_vars[key] = v
         sel = tk.Frame(col, bg=BG); sel.pack(fill="x", pady=(S(6), 0))
-        self.button(sel, "[all: start fresh]", lambda: self.disk_select(True), small=True).pack(side="left")
-        self.button(sel, "[none]", lambda: self.disk_select(False), small=True).pack(side="left", padx=(S(6), 0))
+        self.button(sel, "[all: start fresh]", lambda: self.disk_select(True)).pack(side="left")
+        self.button(sel, "[none]", lambda: self.disk_select(False)).pack(side="left", padx=(S(6), 0))
         self.disk_sel_total = tk.Label(sel, text="", font=MONO, fg=FG2, bg=BG, anchor="e")
         self.disk_sel_total.pack(side="right")
         act = tk.Frame(col, bg=BG); act.pack(fill="x", pady=(S(10), 0))
         self.disk_backup_first = tk.BooleanVar(value=True)
         self.check(act, "make a backup first", self.disk_backup_first).pack(side="left")
-        self.disk_del_btn = self.button(act, "[delete selected]", self.disk_clear)
-        self.disk_del_btn.configure(fg="#ff6b6b")
+        self.disk_del_btn = self.button(act, "[delete selected]", self.disk_clear, danger=True)
         self.disk_del_btn.pack(side="right")
-        b1 = self.button(act, "[clean unused tiles]", self.disk_prune, small=True); b1.pack(side="right", padx=(0, S(8)))
+        b1 = self.button(act, "[clean unused tiles]", self.disk_prune); b1.pack(side="right", padx=(0, S(8)))
         Tip(b1, "Deletes only the downloaded tiles that none of your location files uses. Your locations still build offline.")
         tk.Frame(col, bg=BG, height=S(14)).pack(fill="x")
         self.section("BACKUP", col)
@@ -1600,7 +1628,7 @@ $r | ConvertTo-Json -Depth 4 -Compress
         tk.Label(col, text="A backup holds your locations, flights, training flights and settings: keep it safe, or use it "
                            "to move everything to another PC. Restoring never deletes anything; files you already have are kept.",
                  font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(640)).pack(fill="x", pady=(S(4), 0))
-        self.auto_lab = FitLabel(col, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.auto_lab = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
         self.auto_lab.pack(fill="x", pady=(S(6), 0))
         self.show_auto_backup()
         self.disk_out = FitLabel(col, font=SANS, fg=FG2, bg=BG)
@@ -2021,9 +2049,9 @@ class Card:
                           cursor="hand2", bg=BG, fg=FG2, activebackground=BG3, activeforeground=FG, padx=S(4), pady=0)
         close.pack(side="right")
         Tip(close, "Close: no location selected (Esc, or click an empty spot on the map)")
-        self.title = FitLabel(top, font=("Consolas", 10, "bold"), fg=FG, bg=BG); self.title.pack(side="left", fill="x", expand=True)
-        self.info = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.info.pack(fill="x", pady=(S(3), 0))
-        self.stats = FitLabel(inner, font=("Consolas", 9), fg=FG2, bg=BG); self.stats.pack(fill="x", pady=(S(1), S(8)))
+        self.title = FitLabel(top, font=MONO_B, fg=FG, bg=BG); self.title.pack(side="left", fill="x", expand=True)
+        self.info = FitLabel(inner, font=MONO_S, fg=FG2, bg=BG); self.info.pack(fill="x", pady=(S(3), 0))
+        self.stats = FitLabel(inner, font=MONO_S, fg=FG2, bg=BG); self.stats.pack(fill="x", pady=(S(1), S(8)))
         row = tk.Frame(inner, bg=BG); row.pack(fill="x")
         self.open_btn = app.button(row, "[open in 3d]", lambda: app.open_location(app.map.current()), primary=True)
         self.open_btn.pack(side="left")
@@ -2135,7 +2163,7 @@ class SwissMap:
         self.filter = tk.Entry(self.list_body, font=("Consolas", 10), fg=FG, bg=BG2, insertbackground=FG, bd=0, relief="flat",
                                highlightthickness=1, highlightbackground=RULE2, highlightcolor=ACC)
         self.filter.pack(fill="x", pady=(S(6), S(6)), ipady=S(3))
-        self.placeholder = tk.Label(self.filter, text="filter  (Ctrl+F)", font=("Consolas", 9), fg=GREY, bg=BG2)
+        self.placeholder = tk.Label(self.filter, text="filter  (Ctrl+F)", font=MONO_S, fg=GREY, bg=BG2)
         self.placeholder.place(x=S(6), rely=0.5, anchor="w")
         self.placeholder.bind("<Button-1>", lambda e: self.filter.focus_set())
         self.filter.bind("<KeyRelease>", self.on_filter)
@@ -2144,7 +2172,7 @@ class SwissMap:
         self.filter.bind("<Return>", lambda e: self.filter_enter())
         self.table = Table(app, self.list_body)
         self.table.box.pack(fill="both", expand=True)
-        self.list_foot = FitLabel(self.list_body, font=("Consolas", 8), fg=FG2, bg=BG)
+        self.list_foot = FitLabel(self.list_body, font=MONO_S, fg=FG2, bg=BG)
         self.list_foot.pack(fill="x", pady=(S(6), 0))
         self.open_ = True
 
@@ -2174,7 +2202,7 @@ class SwissMap:
         up = app.button(bi, "[update map]", lambda: self.download(force=True), small=True)
         up.pack(side="left", padx=(S(8), 0))
         Tip(up, "Download the map, the relief and the latest drone zones again (needs internet; kept for offline use).")
-        self.info = FitLabel(bi, font=("Consolas", 9), fg=FG2, bg=BG)
+        self.info = FitLabel(bi, font=MONO_S, fg=FG2, bg=BG)
         self.info.pack(side="left", fill="x", expand=True, padx=(S(10), 0))
         self.hint = ""
 
