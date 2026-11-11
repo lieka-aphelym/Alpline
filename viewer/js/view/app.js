@@ -1,4 +1,5 @@
-// fpv3d viewer — Three.js scene for swisstopo terrain, signal shadows, range spheres and flight logs.
+// Alpline 3D viewer: the scene (terrain, pilot, flight path, signal shadows), loading a location and a flight, playback.
+// The parts with their own topic are in the files imported below (path colours: colouring.js, flight maths: trackmath.js).
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/OrbitControls.js';
 import { initVideo } from './video.js';
@@ -22,12 +23,16 @@ import { createDroneMarker } from './marker.js';
 import { createPilotMarker, createRangeRings } from './pilotmark.js';
 import { esc } from '../core/esc.js';
 import { initBattery } from '../battery/battery.js';
-import { loadZones, restrictionInfo, isActive, fmtLimits, RESTRICTIONS } from './geozones.js';
+import { loadZones, restrictionInfo, isActive, fmtLimits } from './geozones.js';
+import { terrainVS, terrainFS } from './terrain_shaders.js';
+import * as COL from './colouring.js';
+import { fmtTime, fmtDist, lerp, computeKinematics, trackStats } from './trackmath.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const SCENES = '../scenes/';
 const MAX_LINKS = 4;
+const TERRAIN_FS = terrainFS(MAX_LINKS);
 
 // ------------------------------------------------------------------ Full / Lite mode
 // decided once in theme.js (see env.js). A phone always gets the light settings, even in Full mode: a 0.5 m
@@ -95,12 +100,6 @@ const loadTex = (url) => new Promise((ok, err) => new THREE.TextureLoader().load
   t.anisotropy = renderer.capabilities.getMaxAnisotropy(); ok(t);
 }, undefined, err));
 
-function fmtTime(s) {
-  s = Math.max(0, s); const m = Math.floor(s / 60);
-  return `${m}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-}
-const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
-const lerp = (a, b, t) => a + (b - a) * t;
 
 function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coords
   const v = S.view, d = S.dem;
@@ -136,71 +135,6 @@ async function loadOverview(which) {
 }
 
 // ------------------------------------------------------------------ terrain
-const terrainVS = /* glsl */`
-  #include <common>
-  #include <logdepthbuf_pars_vertex>
-  attribute float aH;
-  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH;
-  uniform vec2 uSize;
-  void main() {
-    vUv = uv; vNormal = normalize(normal); vH = aH;
-    vReal = vec3(position.x, aH, position.z);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    #include <logdepthbuf_vertex>
-  }`;
-const terrainFS = /* glsl */`
-  #include <logdepthbuf_pars_fragment>
-  uniform sampler2D uOrtho; uniform sampler2D uLos; uniform sampler2D uZones; uniform float uZonesOn;
-  uniform float uUseOrtho, uLosOn, uLosOpacity, uHMin, uHMax;
-  uniform vec4 uOrthoRect; uniform vec4 uHole;
-  uniform vec2 uCor[64]; uniform int uCorN; uniform float uCorW;   // route corridor (world x/z)
-  float corDist(vec2 p) {
-    float d = 1e9;
-    for (int i = 0; i < 63; i++) {
-      if (i >= uCorN - 1) break;
-      vec2 a = uCor[i], ab = uCor[i + 1] - a;
-      float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0);
-      d = min(d, length(p - (a + t * ab)));
-    }
-    return d;
-  }
-  uniform vec3 uPilot; uniform vec4 uRanges; uniform vec3 uColors[${MAX_LINKS}]; uniform vec4 uRangeOn;
-  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH;
-  vec3 hypso(float t) {
-    vec3 a = vec3(0.36,0.52,0.30), b = vec3(0.62,0.66,0.45), c = vec3(0.62,0.55,0.46), d = vec3(0.95,0.95,0.97);
-    return t < .4 ? mix(a,b,t/.4) : t < .8 ? mix(b,c,(t-.4)/.4) : mix(c,d,(t-.8)/.2);
-  }
-  void main() {
-    #include <logdepthbuf_fragment>
-    if (vReal.x > uHole.x && vReal.x < uHole.z && vReal.z > uHole.y && vReal.z < uHole.w) discard;  // sharp close-up drawn there
-    float cd = uCorN > 1 ? corDist(vReal.xz) : -1.0;
-    if (cd > uCorW) discard;                      // outside the route strip
-    vec3 sun = normalize(vec3(-0.5, 0.8, 0.35));
-    float ndl = max(dot(normalize(vNormal), sun), 0.0);
-    vec3 col = uUseOrtho > 0.5 ? texture2D(uOrtho, (vUv - uOrthoRect.xy) / (uOrthoRect.zw - uOrthoRect.xy)).rgb : hypso(clamp(vH / max(uHMax - uHMin, 1.0), 0.0, 1.0));
-    col *= (uUseOrtho > 0.5 ? 0.75 + 0.45 * ndl : 0.45 + 0.75 * ndl);
-    if (uLosOn > 0.5) { vec4 l = texture2D(uLos, vUv); col = mix(col, l.rgb, l.a * uLosOpacity); }
-    if (uZonesOn > 0.5) {                       // drone geozones: diagonal hatching
-      vec4 z = texture2D(uZones, vUv);
-      float hatch = 0.45 + 0.55 * step(0.5, fract((gl_FragCoord.x - gl_FragCoord.y) / 14.0));
-      col = mix(col, z.rgb, z.a * hatch);
-    }
-    float d = distance(vReal, uPilot);
-    float fw = max(fwidth(d), 0.5);
-    for (int i = 0; i < ${MAX_LINKS}; i++) {
-      if (uRangeOn[i] < 0.5) continue;
-      float r = uRanges[i];
-      float ring = 1.0 - smoothstep(0.0, 2.5 * fw, abs(d - r));
-      col = mix(col, uColors[i], ring * 0.95);
-      if (d > r) col = mix(col, col * 0.55 + uColors[i] * 0.12, 0.6);   // outside free-space range
-    }
-    if (cd >= 0.0) {                              // strip edge + the route line itself
-      float fc = max(fwidth(cd), 0.3);
-      col = mix(col, vec3(1.0), 0.55 * (1.0 - smoothstep(0.0, 2.0 * fc, uCorW - cd)));
-      col = mix(col, vec3(1.0, 0.62, 0.1), 0.85 * (1.0 - smoothstep(fc, 2.5 * fc, cd)));
-    }
-    gl_FragColor = vec4(col, 1.0);   // all colour maths done directly in sRGB space
-  }`;
 
 function buildTerrain() {
   const { grid: g, step, cols, rows } = S.view;
@@ -226,7 +160,7 @@ function buildTerrain() {
   geo.computeVertexNormals();
   const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1); blank.needsUpdate = true;
   S.terrainMat = new THREE.ShaderMaterial({
-    vertexShader: terrainVS, fragmentShader: terrainFS,
+    vertexShader: terrainVS, fragmentShader: TERRAIN_FS,
     uniforms: {
       uOrtho: { value: blank }, uLos: { value: blank }, uUseOrtho: { value: 0 }, uLosOn: { value: 1 },
       uLosOpacity: { value: 0.85 }, uZones: { value: blank }, uZonesOn: { value: 0 }, uHMin: { value: 0 }, uHMax: { value: S.meta.elevation.max - S.hBase },
@@ -317,61 +251,14 @@ function updateRangeUniforms() {
 }
 
 // ------------------------------------------------------------------ track
-const C_OK = new THREE.Color(0x3ddc84), C_FRES = new THREE.Color(0xffb000),
-  C_BLOCK = new THREE.Color(0xff7a1a), C_LOST = new THREE.Color(0xff2d55);
-
-function statusOf(i) {
-  const tr = S.track, prim = S.meta.links[S.meta.primary_link].name;
-  const m = tr.margin[prim]?.[i];
-  if (m != null && m < 0) return { c: C_LOST, label: 'SIGNAL PROBABLY LOST', css: '#ff2d55' };
-  if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'HIDDEN BY TERRAIN', css: '#ff7a1a' };
-  return { c: C_OK, label: 'IN SIGHT', css: '#3ddc84' };
-}
-
-const RAMP = [[0, '#d7263d'], [0.35, '#f49d37'], [0.6, '#f6e05e'], [1, '#3ddc84']];
-const rampColor = (t, out = new THREE.Color()) => {
-  t = Math.min(Math.max(t, 0), 1);
-  for (let i = 1; i < RAMP.length; i++) if (t <= RAMP[i][0]) {
-    const [a, ca] = RAMP[i - 1], [b, cb] = RAMP[i];
-    return out.set(ca).lerp(new THREE.Color(cb), (t - a) / (b - a));
-  }
-  return out.set(RAMP[RAMP.length - 1][1]);
-};
+// colouring of the path: colouring.js (these three keep the short names used below)
+const statusOf = (i) => COL.statusOf(S, i);
+const colorModes = () => COL.colorModes(S);
+const trackColors = () => COL.trackColors(S, $('colorMode').value, $('colorLegend'));
 
 // ------------------------------------------------------------------ kinematics (1st / 2nd derivative)
-const G = 9.80665;
 const C_VEL = 0x22d3ee, C_ACC = 0xc084fc;
 
-// position at time t, linearly interpolated between log samples
-function sampleAt(tr, keyX, keyY, keyZ, t) {
-  const a = tr.t, n = a.length;
-  if (t <= a[0]) return [tr[keyX][0], tr[keyY][0], tr[keyZ][0]];
-  if (t >= a[n - 1]) return [tr[keyX][n - 1], tr[keyY][n - 1], tr[keyZ][n - 1]];
-  let lo = 0, hi = n - 1;
-  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (a[m] <= t) lo = m; else hi = m; }
-  const f = (t - a[lo]) / Math.max(a[hi] - a[lo], 1e-9);
-  return [lerp(tr[keyX][lo], tr[keyX][hi], f), lerp(tr[keyY][lo], tr[keyY][hi], f), lerp(tr[keyZ][lo], tr[keyZ][hi], f)];
-}
-
-// Central differences over a time window: GPS updates at ~5-10 Hz and has
-// metre-level noise, so differentiating sample-to-sample would be pure noise.
-// v(t) = [p(t+h) - p(t-h)] / 2h,  a(t) = [v(t+h) - v(t-h)] / 2h,  h = window / 2
-function computeKinematics(tr, windowS) {
-  const n = tr.n, h = windowS / 2, t0 = tr.t[0], t1 = tr.t[n - 1];
-  const deriv = (kx, ky, kz, outX, outY, outZ) => {
-    tr[outX] = new Float32Array(n); tr[outY] = new Float32Array(n); tr[outZ] = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const ta = Math.max(t0, tr.t[i] - h), tb = Math.min(t1, tr.t[i] + h), dt = tb - ta;
-      if (dt < 1e-3) continue;
-      const pa = sampleAt(tr, kx, ky, kz, ta), pb = sampleAt(tr, kx, ky, kz, tb);
-      tr[outX][i] = (pb[0] - pa[0]) / dt; tr[outY][i] = (pb[1] - pa[1]) / dt; tr[outZ][i] = (pb[2] - pa[2]) / dt;
-    }
-  };
-  deriv('x', 'y', 'z', 'vx', 'vy', 'vz');
-  deriv('vx', 'vy', 'vz', 'ax', 'ay', 'az');
-  tr.speed = Array.from(tr.vx, (_, i) => Math.hypot(tr.vx[i], tr.vy[i], tr.vz[i]) * 3.6);   // km/h
-  tr.accG = Array.from(tr.ax, (_, i) => Math.hypot(tr.ax[i], tr.ay[i], tr.az[i]) / G);      // g
-}
 
 const velScale = () => 2 * +$('vecScale').value;   // arrow = where the drone is in 2 s
 const accScale = () => 4 * +$('vecScale').value;   // 4 m of arrow per m/s²
@@ -435,71 +322,6 @@ function buildCombs() {
   if ($('accOn').checked) S.accComb = make('ax', 'ay', 'az', accScale(), C_ACC);
 }
 
-function colorModes() {
-  const modes = [{ id: 'status', label: 'In sight / hidden / signal lost' }];
-  for (const l of S.meta.links) modes.push({ id: 'margin:' + l.name, label: `Signal strength · ${l.name}`, lo: -10, hi: 20, unit: 'dB' });
-  modes.push({ id: 'agl', label: 'Height above ground', lo: 0, hi: null, unit: 'm', invert: false });
-  modes.push({ id: 'speed', label: 'Speed', lo: 0, hi: null, unit: 'km/h' });
-  modes.push({ id: 'accel', label: 'Acceleration', lo: 0, hi: null, unit: 'g', dec: 1 });
-  if (S.zones) modes.push({ id: 'zones', label: 'No-fly zones' });
-  if (S.track?.cell_v) {
-    modes.push({ id: 'cellv', label: 'Battery: cell voltage', lo: 3.3, hi: 4.2, unit: 'V', dec: 2 });
-    if (S.track.amps?.some((a) => a > 0.5)) modes.push({ id: 'amps', label: 'Battery: current', lo: 0, hi: null, unit: 'A' });
-  }
-  for (const k of Object.keys(S.track?.telemetry || {})) modes.push({ id: 'tel:' + k, label: `Log: ${k}`, unit: '' });
-  return modes;
-}
-
-function seriesFor(mode) {
-  const tr = S.track;
-  if (mode.startsWith('margin:')) return tr.margin[mode.slice(7)];
-  if (mode === 'agl') return tr.agl;
-  if (mode === 'speed') return tr.speed;
-  if (mode === 'accel') return tr.accG;
-  if (mode.startsWith('tel:')) return tr.telemetry[mode.slice(4)];
-  if (mode === 'cellv') return tr.cell_v;
-  if (mode === 'amps') return tr.amps;
-  return null;
-}
-
-function trackColors() {
-  const tr = S.track, n = tr.n, mode = $('colorMode').value || 'status';
-  const cols = new Float32Array(n * 3), c = new THREE.Color();
-  const leg = $('colorLegend');
-  if (mode === 'zones' && tr.zoneSev) {
-    const cz = [new THREE.Color('#3ddc84'), new THREE.Color(RESTRICTIONS.CONDITIONAL.color), new THREE.Color(RESTRICTIONS.REQ_AUTHORISATION.color), new THREE.Color(RESTRICTIONS.PROHIBITED.color)];
-    for (let i = 0; i < n; i++) cz[Math.max(0, tr.zoneSev[i])].toArray(cols, i * 3);
-    leg.className = 'legend gradient cat';
-    leg.innerHTML = [['#3ddc84', 'Outside no-fly zones'], [RESTRICTIONS.CONDITIONAL.color, 'Conditions apply'], [RESTRICTIONS.REQ_AUTHORISATION.color, 'Permission needed'], [RESTRICTIONS.PROHIBITED.color, 'Forbidden']]
-      .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
-    return cols;
-  }
-  if (mode === 'status') {
-    for (let i = 0; i < n; i++) statusOf(i).c.toArray(cols, i * 3);
-    leg.className = 'legend gradient cat';
-    leg.innerHTML = [['#3ddc84', 'In sight'], ['#ff7a1a', 'Hidden by terrain'], ['#ff2d55', 'Signal probably lost']]
-      .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
-    return cols;
-  }
-  const s = seriesFor(mode), m = colorModes().find((x) => x.id === mode) || {};
-  const finite = s.filter((v) => v != null && isFinite(v));
-  let lo = m.lo ?? Math.min(...finite), hi = m.hi ?? Math.max(...finite);
-  if (hi - lo < 1e-6) hi = lo + 1;
-  for (let i = 0; i < n; i++) {
-    const v = s[i];
-    if (v == null) c.set(0x888888);
-    else if (mode === 'speed' || mode === 'accel' || mode === 'amps') c.setHSL(0.62 - 0.62 * Math.min(Math.max((v - lo) / (hi - lo), 0), 1), 0.85, 0.55);
-    else rampColor((v - lo) / (hi - lo), c);
-    c.toArray(cols, i * 3);
-  }
-  leg.className = 'gradient';
-  leg.style.background = (mode === 'speed' || mode === 'accel' || mode === 'amps')
-    ? 'linear-gradient(90deg, hsl(223,85%,55%), hsl(112,85%,55%), hsl(0,85%,55%))'
-    : `linear-gradient(90deg, ${RAMP.map(([p, k]) => `${k} ${p * 100}%`).join(',')})`;
-  const dp = m.dec ?? 0;
-  leg.innerHTML = `<span style="left:0">${lo.toFixed(dp)} ${m.unit || ''}</span><span style="right:0">${hi.toFixed(dp)} ${m.unit || ''}</span>`;
-  return cols;
-}
 
 function buildTrackObjects() {
   for (const o of [S.trackObj, S.curtain]) if (o) { scene3.remove(o); o.geometry.dispose(); }
@@ -950,30 +772,11 @@ const V = initVideo({
 });
 
 // ------------------------------------------------------------------ compare two flights (e.g. training vs real)
-function trackStats(tr) {
-  const n = tr.n, prim = S.meta.links[S.meta.primary_link]?.name, m = tr.margin?.[prim] || [];
-  const fin = (a) => a.filter((v) => v != null && isFinite(v));
-  const pick = (re) => { const k = Object.keys(tr.telemetry || {}).find((x) => re.test(x)); return k ? fin(tr.telemetry[k]) : null; };
-  const rssi = pick(/^1RSS|RSSI/i), lq = pick(/RQly|(^|_)LQ/i);
-  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
-  return {
-    'Duration': fmtTime(tr.t[n - 1] - tr.t[0]),
-    'Max distance': fmtDist(Math.max(...fin(tr.dist))),
-    'Max height AGL': `${Math.max(...fin(tr.agl)).toFixed(0)} m`,
-    'Max speed': tr.speed ? `${Math.max(...tr.speed).toFixed(0)} km/h` : '–',
-    'Time without LOS': `${(100 * tr.clearance.filter((c) => c < 0).length / n).toFixed(0)} %`,
-    'Time in restricted zones': tr.zoneSev ? `${(100 * tr.zoneSev.filter((v) => v >= 2).length / n).toFixed(0)} %` : '–',
-    'Time predicted loss': m.length ? `${(100 * fin(m).filter((v) => v < 0).length / n).toFixed(0)} %` : '–',
-    'Worst predicted margin': m.length ? `${Math.min(...fin(m)).toFixed(1)} dB` : '–',
-    'Logged RSSI min / avg': rssi?.length ? `${Math.min(...rssi).toFixed(0)} / ${mean(rssi).toFixed(0)}` : '–',
-    'Logged LQ min': lq?.length ? `${Math.min(...lq).toFixed(0)} %` : '–',
-  };
-}
 
 function renderCompare() {
   const el = $('cmpTable');
   if (!S.track || !S.cmp) { el.innerHTML = ''; return; }
-  const a = trackStats(S.track), b = trackStats(S.cmp);
+  const a = trackStats(S.track, S.meta), b = trackStats(S.cmp, S.meta);
   el.innerHTML = `<table class="cmp"><tr><th></th><th>${esc(S.track.name)}</th><th style="color:#e6e6e6">${esc(S.cmp.name)}</th></tr>` +
     Object.keys(a).map((k) => `<tr><td>${k}</td><td>${a[k]}</td><td>${b[k]}</td></tr>`).join('') + '</table>' +
     '<p class="muted small">White dashed line + ghost = compared flight (ghost at the same elapsed time).</p>';
@@ -1154,7 +957,7 @@ async function loadScene(name) {
     S.terrainMat.uniforms.uOrtho.value = t; S.terrainMat.uniforms.uUseOrtho.value = 1;
   }
   try { S.bld = await loadBuildings({ S, scene3 }); } catch (e) { console.warn('buildings', e); S.bld = null; }
-  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api: S.view.api, which: S.view.which });
+  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS: TERRAIN_FS, api: S.view.api, which: S.view.which });
   buildPilot();
   initUI();
   await pickLosLayer();

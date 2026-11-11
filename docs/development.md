@@ -75,7 +75,8 @@ launcher/         the launcher, one file per page
 viewer/           the pages (index = 3D viewer, map, packs, share, offline), sw.js, manifest
   css/              one stylesheet per page + theme.css (the look) + mobile.css
   js/core/          shared by every page: theme, tabs, text escaping, network, environment
-  js/view/          the 3D viewer: app.js, terrain, camera, markers, links, video
+  js/view/          the 3D viewer: app.js (scene, loading, playback), trackmath.js (speed, times),
+                    colouring.js (path colours), terrain_shaders.js, camera, markers, links, video
   js/battery/ js/drone/ js/sim/ js/map/   one folder per topic
   brand/ vendor/    logo and icons; three.js and leaflet (works offline)
 tests/  tools/  docs/  packaging/
