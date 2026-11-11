@@ -152,7 +152,7 @@ function openRename(li, l) {
   const box = document.createElement('div'); box.className = 'renbox';
   box.innerHTML = `<label class="row small">Title <input class="rt"></label>
     <label class="row small">File name <input class="rn" spellcheck="false"></label>
-    <div class="row"><button class="primary go">Rename</button><button class="no">Cancel</button><span class="small m"></span></div>`;
+    <div class="row"><button class="primary go">[rename]</button><button class="no">[cancel]</button><span class="small m"></span></div>`;
   li.after(box);
   box.scrollIntoView({ block: 'nearest' });
   const rt = box.querySelector('.rt'), rn = box.querySelector('.rn'), m = box.querySelector('.m');
@@ -185,7 +185,7 @@ function openDelete(li, l) {
   const box = document.createElement('div'); box.className = 'renbox delbox';
   box.innerHTML = `<div class="small">Delete <b>${esc(l.title)}</b>? Its location file${l.built ? ', 3D scene' : ''} and training flights
     move to the <code>deleted/</code> folder; you can restore them. Cached terrain and your own logs are kept.</div>
-    <div class="row"><button class="danger go">Delete</button><button class="no">Cancel</button><span class="small m"></span></div>`;
+    <div class="row"><button class="danger go">[delete]</button><button class="no">[cancel]</button><span class="small m"></span></div>`;
   li.after(box);
   box.scrollIntoView({ block: 'nearest' });
   box.querySelector('.no').onclick = () => box.remove();

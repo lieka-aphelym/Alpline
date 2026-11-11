@@ -40,8 +40,8 @@
   <section data-tab="new">
     <h2>Shape</h2>
     <div class="shape" id="shapePick">
-      <button data-shape="square" class="on" title="A square around a centre point">Square</button>
-      <button data-shape="route" title="A strip along a line: pilot → summit, along a ridge…">Route</button>
+      <button data-shape="square" class="on" title="A square around a centre point">[square]</button>
+      <button data-shape="route" title="A strip along a line: pilot → summit, along a ridge…">[route]</button>
     </div>
     <h2>Click on the map sets</h2>
     <div class="seg" id="clickMode">
@@ -53,7 +53,7 @@
     <p class="muted small sq">Drag [pilot] and [+] (area centre) to adjust.</p>
     <div class="rt hidden">
       <p class="muted small">Click to add points along the route (the first one is also the pilot until you move [pilot]). Drag the white dots to adjust.</p>
-      <div class="row btns"><button id="bUndoPt">Undo point</button><button id="bClearRt">Clear route</button></div>
+      <div class="row btns"><button id="bUndoPt">[undo point]</button><button id="bClearRt">[clear route]</button></div>
     </div>
   </section>
 
@@ -91,8 +91,8 @@
     </table>
     <label class="row"><input type="checkbox" id="fOverwrite"> overwrite if the name exists</label>
     <div class="row btns">
-      <button id="bSave">Save location</button>
-      <button id="bBuild" class="primary">Save &amp; build</button>
+      <button id="bSave">[save location]</button>
+      <button id="bBuild" class="primary">[save &amp; build]</button>
     </div>
     <div id="msg" class="small"></div>
     <div id="prog" class="prog hidden">
@@ -133,9 +133,9 @@
   <section data-tab="locs">
     <h2>Update all scenes</h2>
     <div class="row btns">
-      <button id="bRefreshAll" class="primary" title="Rebuild every scene with the latest features, zones and your tracks (terrain reused)">Refresh all</button>
-      <button id="bZonesAll" title="Only re-download the drone zones for every scene (fastest)">Zones only</button>
-      <button id="bBldAll" title="Add the 3D buildings to every scene that has none yet (or whose download failed)">Buildings</button>
+      <button id="bRefreshAll" class="primary" title="Rebuild every scene with the latest features, zones and your tracks (terrain reused)">[refresh all]</button>
+      <button id="bZonesAll" title="Only re-download the drone zones for every scene (fastest)">[zones only]</button>
+      <button id="bBldAll" title="Add the 3D buildings to every scene that has none yet (or whose download failed)">[buildings]</button>
     </div>
     <label class="row"><input type="checkbox" id="fMissing"> also build locations never built</label>
     <div id="allMsg" class="small"></div>

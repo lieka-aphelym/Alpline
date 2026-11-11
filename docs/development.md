@@ -89,3 +89,12 @@ Scene files store each log's place relative to your Alpline folder (`logs/sim/x.
 would hold your Windows user name; older scene files are rewritten when the launcher starts. `logs/errors.txt` writes
 your home folder as `~`. Your locations, flights, scenes, settings and backups are not part of the git repository
 (`.gitignore`).
+
+## The look, in one place
+
+The pages follow one style ("flight OSD"); the rules are at the end of `viewer/theme.css`.
+
+- Text sizes: 10 (small capitals), 11 (notes), 12 (buttons and figures), 13 (sentences), 15 (titles), 19 (big numbers). No half pixels.
+- Square corners everywhere; only round things (dots, dials) are round.
+- Buttons read `[lowercase]`. `.primary` is filled with the accent colour (the one thing to do next), `.danger` is outlined in red (it deletes).
+- Colours come from the variables at the top of `theme.css` (`--t-bg`, `--t-fg`, `--t-acc`, `--ok`, `--warn`, `--bad`, `--c-cur` for current). Do not write a colour code in a page; map markers and chart lines are the exception.

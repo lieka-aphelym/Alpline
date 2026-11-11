@@ -2,7 +2,7 @@
 
 [← back to the README](../README.md)
 
-In the 3D viewer: *[fly] → Start training flight*. You fly over the real swisstopo terrain with your radio, plugged in by USB in **Joystick** mode, or with the keyboard. The link to your pilot position is computed live with the same model as the build, and shown in an OSD (margin, RSSI and LQ estimate, line of sight). With *Simulate link loss* on:
+In the 3D viewer: *[fly] → [start training flight]*. You fly over the real swisstopo terrain with your radio, plugged in by USB in **Joystick** mode, or with the keyboard. The link to your pilot position is computed live with the same model as the build, and shown in an OSD (margin, RSSI and LQ estimate, line of sight). With *Simulate link loss* on:
 - the video gets blocky, then freezes on "NO SIGNAL"
 - losing the control link triggers failsafe (stage 1, then the quad drops)
 

@@ -122,7 +122,7 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
     }).join('');
     box.innerHTML = `<p class="muted small">Pick your setup: the range, the colours on the map and the warnings follow right away.</p>${setups}
       <div id="lnkDirty" class="small hidden"><span style="color:var(--warn)">Changed, not saved yet.</span> <span id="lnkShadowNote"></span></div>
-      <div class="row btns"><button id="lnkReset">Undo changes</button><button id="lnkSave" class="primary">Save for this location</button></div>
+      <div class="row btns"><button id="lnkReset">[undo changes]</button><button id="lnkSave" class="primary">[save for this location]</button></div>
       <div id="lnkMsg" class="small muted"></div>
       <details class="adv" id="lnkAdv"><summary>Advanced: exact radio values</summary>${exact}
         <p class="muted small">Legal limits in Switzerland / EU (EIRP): 25 mW at 5.8 GHz, 100 mW at 2.4 GHz.</p></details>`;

@@ -40,9 +40,9 @@ export function initBattery({ S, $, seek, onChange }) {
       it.push([`${sm.wh} Wh`, 'energy', sm.seconds > 5 ? `${Math.round(sm.wh / (sm.seconds / 3600))} W average` : '']);
     }
     it.push([`${sm.min_cell.toFixed(2)} V`, 'lowest cell', sm.below_low_s > 0 ? `under ${sm.low} V for ${sm.below_low_s} s` : `under load, never below ${sm.low} V`]);
-    it.push([`${sm.end_rest_cell.toFixed(2)} V`, 'cell at landing', `resting · took off at ${sm.start_cell.toFixed(2)} V`]);
-    if (sm.ir_cell_mohm) it.push([`${sm.ir_cell_mohm} mΩ`, 'resistance / cell', `${sm.ir_pack_mohm} mΩ pack · ${sm.health}${sm.chem_label ? ` for ${sm.chem_label}` : ''}`]);
-    if (sm.worst_sag_cell) it.push([`−${sm.worst_sag_cell.toFixed(2)} V`, 'worst sag / cell', `at ${sm.peak_a} A`]);
+    it.push([`${sm.end_rest_cell.toFixed(2)} V`, 'at landing', `resting · took off at ${sm.start_cell.toFixed(2)} V`]);
+    if (sm.ir_cell_mohm) it.push([`${sm.ir_cell_mohm} mΩ`, 'mΩ per cell', `${sm.ir_pack_mohm} mΩ pack · ${sm.health}${sm.chem_label ? ` for ${sm.chem_label}` : ''}`]);
+    if (sm.worst_sag_cell) it.push([`−${sm.worst_sag_cell.toFixed(2)} V`, 'worst cell sag', `at ${sm.peak_a} A`]);
     it.push([fmtT(sm.seconds), 'logged', sm.landing_t != null ? `${sm.landing_mah} mAh (80 %) at ${fmtT(sm.landing_t)}` : '']);
     return it.map(([v, l, s]) => `<div class="batTile"><b>${esc(v)}</b><span>${esc(l)}</span><div>${esc(s)}</div></div>`).join('');
   }
@@ -165,7 +165,7 @@ export async function askPacks(box, fids) {
   const opts = packs.packs.filter((p) => !p.retired)
     .map((p) => `<option value="${esc(p.id)}" ${p.id === packs.last_pack ? 'selected' : ''}>${esc(p.name)} · ${p.cells}S ${p.capacity} ${p.chem_label}</option>`).join('');
   div.innerHTML = `<b>Which pack did you fly?</b> <span class="muted">(${fids.length} flight${fids.length > 1 ? 's' : ''} with battery data)</span>
-    <div class="row"><select>${opts}<option value="+">+ new pack…</option><option value="">not now</option></select><button class="primary">save</button></div>
+    <div class="row"><select>${opts}<option value="+">+ new pack…</option><option value="">not now</option></select><button class="primary">[save]</button></div>
     <div class="row hidden newp"><input placeholder="name" value="pack ${packs.packs.length + 1}"> <select class="c">${[2, 3, 4, 5, 6, 8].map((c) => `<option ${c === 6 ? 'selected' : ''}>${c}</option>`).join('')}</select>S
       <input class="cap" type="number" value="1300" min="100" step="50" style="width:70px"> mAh <select class="chem"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
     <div class="small msg"></div>`;

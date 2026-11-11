@@ -88,13 +88,13 @@
     <div class="row"><span id="locNameShow" class="small"></span><span><button id="locRenBtn" class="iconbtn" title="Rename this location">[rename]</button> <button id="locDelBtn" class="iconbtn" title="Delete this location (restorable)">[delete]</button></span></div>
     <div id="locDel" class="renbox hidden">
       <div class="small">Delete this location? Its file, 3D scene and training flights move to the <code>deleted/</code> folder; you can restore them from the map page ([saved]).</div>
-      <div class="row"><button id="locDelOk" class="danger">Delete</button><button id="locDelCancel">Cancel</button><span id="locDelMsg" class="small"></span></div>
+      <div class="row"><button id="locDelOk" class="danger">[delete]</button><button id="locDelCancel">[cancel]</button><span id="locDelMsg" class="small"></span></div>
     </div>
     <div id="locRen" class="renbox hidden">
       <label class="row small">Title <input id="locRenTitle" placeholder="Moléson east ridge"></label>
       <label class="row small">File name <input id="locRenName" spellcheck="false" placeholder="moleson_east"></label>
       <div class="row"><span class="muted small">file name: lowercase, digits, _ and -. Title: anything but emoji.</span></div>
-      <div class="row"><button id="locRenOk" class="primary">Rename</button><button id="locRenCancel">Cancel</button><span id="locRenMsg" class="small"></span></div>
+      <div class="row"><button id="locRenOk" class="primary">[rename]</button><button id="locRenCancel">[cancel]</button><span id="locRenMsg" class="small"></span></div>
     </div>
   </section>
 
@@ -110,7 +110,7 @@
     </div>
     <label class="row"><input type="checkbox" id="vol3d"> Show it in 3D (fly above the coloured lid)</label>
     <p id="volMissing" class="muted small hidden">The 3D view needs an update of this scene: <code>python -m fpv3d refresh-all</code></p>
-    <button id="profBtn" class="hidden wide" title="Side view along the route: where you lose sight and how high to fly">Side view along the route</button>
+    <button id="profBtn" class="hidden wide" title="Side view along the route: where you lose sight and how high to fly">[side view along the route]</button>
     <details class="adv"><summary>Advanced</summary>
       <label class="row">Colour strength on the map</label>
       <input type="range" id="losOpacity" min="0" max="1" step="0.05" value="0.85">
@@ -143,7 +143,7 @@
     <div id="trkRen" class="renbox hidden">
       <input id="trkRenName" spellcheck="false" placeholder="e.g. teysachaux_2026-10-11_ridge">
       <div class="row"><span class="muted small">letters, digits, _ and - (accents and emoji are removed)</span></div>
-      <div class="row"><button id="trkRenOk" class="primary">Rename</button><button id="trkRenCancel">Cancel</button><span id="trkRenMsg" class="small"></span></div>
+      <div class="row"><button id="trkRenOk" class="primary">[rename]</button><button id="trkRenCancel">[cancel]</button><span id="trkRenMsg" class="small"></span></div>
     </div>
     <p id="trackInfo" class="summary"></p>
     <div class="bbBox">
@@ -186,7 +186,7 @@
         <div class="row"><select id="batNewCells"><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select> cells ·
           <input id="batNewCap" type="number" min="100" max="30000" step="50" value="1300" style="width:80px"> mAh ·
           <select id="batNewChem" title="LiPo: 4.2 V full, keep above 3.5 V · LiPo HV: 4.35 V full · Li-ion (18650 / 21700): goes down to about 3.0 V"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
-        <div class="row"><button id="batNewOk" class="primary">Add the pack</button><button id="batNewCancel">Cancel</button></div>
+        <div class="row"><button id="batNewOk" class="primary">[add the pack]</button><button id="batNewCancel">[cancel]</button></div>
       </div>
       <div id="batMsg" class="small bad"></div>
       <div id="batTiles" class="batTiles"></div>
@@ -202,7 +202,7 @@
       <details id="batNoteBox" class="help"><summary>+ a note about this pack (crash, puffing…)</summary>
         <div class="row"><select id="batNoteKind"><option value="crash">Crash / hard landing</option><option value="puffed">Puffed / swollen</option><option value="damage">Damaged wrap, leads or plug</option><option value="deep">Over-discharged</option><option value="hot">Came back hot</option><option value="cold">Flown in the cold</option><option value="storage">Left full / not at storage</option><option value="repair">Repaired (plug, wrap)</option><option value="other">Other</option></select></div>
         <div class="row"><input id="batNoteText" maxlength="500" placeholder="what happened" style="width:100%"></div>
-        <div class="row"><button id="batNoteAdd" class="primary">Add (dated this flight)</button><span id="batNoteMsg" class="small"></span></div>
+        <div class="row"><button id="batNoteAdd" class="primary">[add (dated this flight)]</button><span id="batNoteMsg" class="small"></span></div>
       </details>
       <a class="navlink" href="packs.html" title="Every pack: health over time, flights, charger check">[all packs and their health]</a>
     </div>
@@ -212,7 +212,7 @@
     <h2>Training flight</h2>
     <p class="summary">Practise over this terrain before the real flight, with your radio (plugged in by USB, joystick mode) or the keyboard. The signal is simulated with the same model.</p>
     <div id="simInput" class="small"></div>
-    <div class="row btns"><button id="simStart" class="primary">Start training flight</button><button id="simMapBtn">Radio setup</button></div>
+    <div class="row btns"><button id="simStart" class="primary">[start training flight]</button><button id="simMapBtn">[radio setup]</button></div>
     <details class="simset"><summary class="small">Drone and camera settings</summary>
       <label class="row">Quad <select id="simPreset"></select></label>
       <label class="row">Top speed <output id="simTopOut"></output> km/h</label><input type="range" id="simTop" min="30" max="250" step="5">
@@ -251,10 +251,10 @@
     <div id="videoTools" class="hidden">
       <div id="vSync" class="muted small"></div>
       <div class="row btns">
-        <button data-nudge="-1">−1 s</button><button data-nudge="-0.1">−0.1</button>
-        <button data-nudge="0.1">+0.1</button><button data-nudge="1">+1 s</button>
+        <button data-nudge="-1">[−1 s]</button><button data-nudge="-0.1">[−0.1]</button>
+        <button data-nudge="0.1">[+0.1]</button><button data-nudge="1">[+1 s]</button>
       </div>
-      <div class="row btns"><button id="vReset">Reset sync</button><button id="vShow">Show player</button></div>
+      <div class="row btns"><button id="vReset">[reset sync]</button><button id="vShow">[show player]</button></div>
       <label class="row"><input type="checkbox" id="srtOn" checked> Show .srt data on video</label>
       <div id="srtInfo" class="muted small"></div>
       <details class="help"><summary>How to sync</summary><p class="muted small">To sync: click <b>Linked</b> to unlink, pause the video on a clear event (props starting at arm, a sharp flip), move the timeline to the same moment in the log, then <b>Sync here</b>. A 2nd point later in the flight also corrects drift.</p></details>
@@ -365,7 +365,7 @@
   <div id="videoHead">
     <span id="vName" class="muted"></span>
     <button id="vLink" title="Link / unlink video and log">[linked]</button>
-    <button id="vSyncHere" title="This video frame = current log time" disabled>Sync here</button>
+    <button id="vSyncHere" title="This video frame = current log time" disabled>[sync here]</button>
     <button id="vSwap" title="Swap: video full screen / 3D full screen">[swap]</button>
     <button id="vClose" title="Hide player">[x]</button>
   </div>
@@ -383,9 +383,9 @@
   <div class="droneRow"><span id="simDrone"></span><b id="simDroneTxt">waiting: arm to take off</b></div>
   <p class="muted small">Arm with your arm switch (or <b>Enter</b>), throttle up and fly. <b>R</b> reset · <b>V</b> FPV / chase view · <b>Esc</b> exit.
     Keyboard: W/S throttle, A/D yaw, arrows pitch/roll.</p>
-  <div class="row btns"><button id="simReset">Reset (R)</button><button id="simExit">Exit (Esc)</button></div>
+  <div class="row btns"><button id="simReset">[reset (R)]</button><button id="simExit">[exit (Esc)]</button></div>
   <label class="row">Save as <input id="simName" placeholder="training 1" style="flex:1;min-width:0"></label>
-  <div class="row btns"><button id="simSave" class="primary">Save training flight</button></div>
+  <div class="row btns"><button id="simSave" class="primary">[save training flight]</button></div>
   <div id="simMsg" class="small muted"></div>
   </div>
 </div>
@@ -398,7 +398,7 @@
     <p class="small muted">Plug your radio in by USB and choose <b>Joystick</b> (EdgeTX/OpenTX: “USB Joystick (HID)”). Move each stick or switch and press <b>detect</b>, or pick the axis by hand. Use <b>invert</b> if a bar moves the wrong way (throttle low = bar left, stick right/up = bar right).</p>
     <div id="simMapPad" class="small"></div>
     <table id="simMapRows" class="maptbl"></table>
-    <div class="row btns"><button id="simMapClose" class="primary">Done</button></div>
+    <div class="row btns"><button id="simMapClose" class="primary">[done]</button></div>
   </div>
 </div>
 

@@ -29,7 +29,7 @@
   --ok: #0a8a3a; --warn: #a86400; --bad: #8c0a16;   /* danger is a darker crimson so it never looks like 'selected' */
 }
 
-:root { --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace; font-size: 13.5px; }
+:root { --c-cur: #4cc9f0; --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace; font-size: 13px; }
 
 /* ---------- surfaces: opaque, square ---------- */
 #panel, #hud, #timeline, #pick, #profile, #simLive, #videoHead, #vTimes, .leaflet-tooltip.tip {
@@ -62,7 +62,7 @@ output, .r, #lnkRange0, #lnkRange1, #lnkRange2, #lnkRange3, #clock { font-family
 
 /* ---------- summary = readout ---------- */
 .summary { background: var(--t-bg2) !important; border: 1px solid var(--t-rule) !important; border-left: 3px solid var(--t-acc) !important;
-  border-radius: 0 !important; color: var(--t-fg) !important; font-size: 12.5px; }
+  border-radius: 0 !important; color: var(--t-fg) !important; font-size: 13px; }
 .summary b { font-family: var(--mono); font-weight: 700; color: var(--t-acc); }
 :root[data-theme="dark"] .summary b, :root:not([data-theme]) .summary b { color: var(--t-acc); }
 
@@ -74,21 +74,20 @@ output, .r, #lnkRange0, #lnkRange1, #lnkRange2, #lnkRange3, #clock { font-family
 #panel select:hover, #panel button:hover { background: var(--t-bg3) !important; }
 #panel button, #timeline button, #hud button { font-family: var(--mono); font-size: 12px; }
 #panel button.primary, .mappage button.primary { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }
-#panel button.danger { background: var(--bad) !important; color: #fff !important; border-color: var(--bad) !important; }
 .rail button { font-family: inherit; }
 input[type=checkbox], input[type=radio] { accent-color: var(--t-acc); width: 15px; height: 15px; }
 input[type=range] { accent-color: var(--t-acc); }
 :focus-visible { outline: 2px solid var(--t-acc) !important; outline-offset: 1px; }
 a, .navlink { color: var(--t-acc) !important; font-family: var(--mono); }
 details.adv { border-top: 1px dashed var(--t-rule) !important; }
-details.adv > summary { font: 600 10.5px var(--mono) !important; color: var(--t-fg2) !important; letter-spacing: .8px; }
+details.adv > summary { font: 600 11px var(--mono) !important; color: var(--t-fg2) !important; letter-spacing: .8px; }
 details.help summary { font-family: var(--mono); }
 .filebtn { background: var(--t-bg2) !important; border: 1px dashed var(--t-rule2) !important; border-radius: 0 !important; font-family: var(--mono); }
 .linkedit details.lnk, #zoneDetail, .renbox, .zonelist li:hover { background: var(--t-bg2) !important; border-radius: 0 !important; }
 
 /* legend swatches: small squares */
 .chips i, .legend i, .sw, .sw3, .linkedit .setup .sw, .linkedit summary .sw { border-radius: 0 !important; }
-.chips { font-family: var(--mono); font-size: 10.5px !important; color: var(--t-fg2) !important; }
+.chips { font-family: var(--mono); font-size: 11px !important; color: var(--t-fg2) !important; }
 
 /* ---------- flight info box: instrument readout ---------- */
 #hud { font-family: var(--mono); }
@@ -97,15 +96,15 @@ details.help summary { font-family: var(--mono); }
 #hud .tile { background: none !important; border-right: 1px solid var(--t-rule); text-align: left !important; padding: 5px 7px !important; }
 #hud .tile:last-child { border-right: 0; }
 #hud .tile b { font: 700 19px var(--mono) !important; }
-#hud .tile span { font: 600 9.5px var(--mono) !important; letter-spacing: .8px; color: var(--t-fg2) !important; }
-#hud .sig .h { font-size: 11.5px; }
+#hud .tile span { font: 600 10px var(--mono) !important; letter-spacing: .8px; color: var(--t-fg2) !important; }
+#hud .sig .h { font-size: 12px; }
 #hud .sig .bar { background: var(--t-bg3) !important; height: 4px !important; }
 #hud table td { border-bottom: 1px solid var(--t-rule); padding: 2px 0 !important; }
 #hud table td:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
 #hud button.more { border: 1px solid var(--t-rule) !important; background: none !important; color: var(--t-fg2) !important; }
 
 /* tables, compare */
-#cmpTable table, .livevals { font-family: var(--mono); font-size: 11.5px; }
+#cmpTable table, .livevals { font-family: var(--mono); font-size: 12px; }
 .livevals div { border-bottom: 1px solid var(--t-rule) !important; }
 
 /* timeline + profile */
@@ -114,13 +113,12 @@ details.help summary { font-family: var(--mono); }
 
 /* header switch */
 .themeSw { display: inline-flex; border: 1px solid var(--t-rule2); }
-#panel .themeSw button, .themeSw button { border: 0 !important; padding: 1px 6px !important; font: 600 10.5px var(--mono) !important; background: none !important; color: var(--t-fg2) !important; }
+#panel .themeSw button, .themeSw button { border: 0 !important; padding: 1px 6px !important; font: 600 11px var(--mono) !important; background: none !important; color: var(--t-fg2) !important; }
 #panel .themeSw button.on, .themeSw button.on { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; }
 
 /* light theme: a few hard-coded dark bits */
 :root[data-theme="light"] #panel .rail button.on { background: var(--t-bg) !important; }
 :root[data-theme="light"] .summary b { color: var(--t-fg); }          /* red is for selection; figures stay black */
-:root[data-theme="light"] #panel button.danger { background: #fff !important; color: var(--bad) !important; border: 1px solid var(--bad) !important; }
 :root[data-theme="light"] #warnBox { box-shadow: var(--t-shadow); }
 :root[data-theme="light"] .lite { background: none; }
 :root[data-theme="light"] .mappage #map { background: #dfe3e8; }
@@ -162,13 +160,13 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 
 /* warning sound board */
 .soundboard { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; margin: 6px 0; }
-.soundboard label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; border-bottom: 1px solid var(--t-rule); padding: 2px 0; }
+.soundboard label { display: flex; align-items: center; gap: 6px; font-size: 13px; border-bottom: 1px solid var(--t-rule); padding: 2px 0; }
 .soundboard label:has(input:not(:checked)) { color: var(--t-fg2); text-decoration: line-through; }
 .soundboard span { display: flex; gap: 3px; justify-content: flex-end; }
 #panel .soundboard button { padding: 2px 6px !important; font-size: 11px !important; white-space: nowrap; }
 
 /* app name: ALPLINE by lieka */
-#panel h1 .by { text-transform: none; font: 400 10.5px var(--mono); letter-spacing: 0; color: var(--t-fg2); margin-left: 2px; }
+#panel h1 .by { text-transform: none; font: 400 11px var(--mono); letter-spacing: 0; color: var(--t-fg2); margin-left: 2px; }
 
 /* training flight box: foldable to one line (H) */
 #simLive .simhead { display: flex; align-items: center; gap: 8px; }
@@ -326,12 +324,12 @@ svg.drn.l-hover .dr { animation: drn-hover 2.4s ease-in-out infinite; }
 .lvHero > div { min-width: 0; }
 .lvHero b { display: block; font: 700 13px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 .lvHero[data-state="lost"] b { color: var(--bad); }
-.lvHero #liveStatus { display: block; font-size: 11.5px; color: var(--t-fg2); line-height: 1.35; }
+.lvHero #liveStatus { display: block; font-size: 12px; color: var(--t-fg2); line-height: 1.35; }
 .lvLbl { font: 700 11px var(--mono); color: var(--t-fg2); letter-spacing: .08em; text-transform: uppercase; margin: 2px 0 4px; }
 #liveConnectBox { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 #liveConnectBox > select { width: 100%; }
 #panel button.lvWide, button.lvWide { width: 100%; padding: 7px; }
-.lvNote { font-size: 11.5px; color: var(--t-fg2); background: var(--t-bg2); border-left: 3px solid var(--t-acc); padding: 6px 8px; }
+.lvNote { font-size: 12px; color: var(--t-fg2); background: var(--t-bg2); border-left: 3px solid var(--t-acc); padding: 6px 8px; }
 .lvTiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 0 0 8px; transition: opacity .3s; }
 .lvTiles > div { background: var(--t-bg2); border: 1px solid var(--t-rule); padding: 6px 2px; text-align: center; min-width: 0; }
 .lvTiles b { display: block; font: 700 16px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -340,9 +338,9 @@ svg.drn.l-hover .dr { animation: drn-hover 2.4s ease-in-out infinite; }
 .lvTiles.dim { opacity: .5; }
 .lvLost { background: color-mix(in srgb, var(--bad) 16%, var(--t-bg)); border: 1px solid var(--bad); padding: 8px; margin: 0 0 8px;
   display: flex; flex-direction: column; gap: 4px; }
-.lvLost > b { color: var(--bad); font: 700 12.5px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+.lvLost > b { color: var(--bad); font: 700 13px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 html[data-theme="dark"] .lvLost > b, html:not([data-theme]) .lvLost > b { color: #ff4d5e; }
-.lvConn { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 11.5px var(--mono); color: var(--t-fg2);
+.lvConn { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 12px var(--mono); color: var(--t-fg2);
   border-top: 1px solid var(--t-rule); padding: 6px 0 2px; margin-bottom: 4px; }
 details.lvFold { border-top: 1px dashed var(--t-rule); padding: 6px 0 2px; }
 details.lvFold > summary { cursor: pointer; font: 12px var(--mono); list-style: none; }
@@ -378,7 +376,7 @@ body.sim-on .droneAgl { display: none !important; }
 .batTiles { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 8px 0; }
 .batTile { background: var(--t-bg2); border: 1px solid var(--t-rule); padding: 5px 7px; min-width: 0; }
 .batTile b { display: block; font: 700 15px var(--mono); color: var(--t-fg); }
-.batTile span { font: 9.5px var(--mono); color: var(--t-fg2); text-transform: uppercase; letter-spacing: .5px; }
+.batTile span { font: 10px var(--mono); color: var(--t-fg2); text-transform: uppercase; letter-spacing: .5px; }
 .batTile div { font-size: 11px; line-height: 1.3; color: var(--t-fg2); }
 .batCanvas { display: block; width: 100%; height: 120px; }
 .batH { font: 700 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; margin: 10px 0 4px; }
@@ -389,10 +387,39 @@ body.sim-on .droneAgl { display: none !important; }
 #batStrip { flex: 1 0 100%; width: 100%; height: 74px; cursor: crosshair; }
 .batAt { font: 11px var(--mono); color: var(--t-fg2); white-space: nowrap; padding-right: 4px; }
 #timeline:not(.withBat) .batAt { display: none; }
-.batAt .volt { color: var(--t-acc); } .batAt .cur { color: #4cc9f0; }
+.batAt .volt { color: var(--t-acc); } .batAt .cur { color: var(--c-cur); }
 .warnTxt { color: var(--warn, #ffb000); }
 .batAsk { margin-top: 8px; padding: 8px; border: 1px solid var(--t-acc); background: var(--t-bg2); }
 .batAsk .row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 body:has(#timeline.withBat:not(.hidden)) #profile { bottom: 150px; }
-#liveTiles .batLow b, #liveTiles .batLow span { color: var(--bad, #ff2d55); }
+#liveTiles .batLow b, #liveTiles .batLow span { color: var(--bad); }
 .batWarn { border-top: 1px solid var(--t-rule); margin-top: 8px; padding-top: 6px; }
+
+/* ---------------------------------------------------------------- one look for every page ("tidy flight OSD")
+   Sizes: 10 small capitals, 11 notes, 12 controls and figures, 13 sentences, 15 titles, 19 big numbers. No half pixels.
+   Corners are square everywhere (only round things are round). Buttons read [lowercase] and come in three kinds:
+   normal, .primary (filled with the accent: the one thing to do next) and .danger (outlined in red: it deletes). */
+button, select, input, textarea { border-radius: 0; }
+button { font-family: var(--mono); font-size: 12px; }
+button { cursor: pointer; }
+button { padding: 4px 8px; }
+select { padding: 4px 6px; }
+.mappage .row > label { min-width: 0; flex: 0 1 auto; }
+.mappage .row > label select, .mappage .row > label input { min-width: 0; flex: 1 1 auto; }
+.mappage .row > label:has(input[type=number]), .mappage .row > label:has(#fRes) { flex: none; }
+.mappage .row > label input[type=number] { flex: none; }
+button:disabled { cursor: default; }
+button.primary, #panel button.primary, .mappage button.primary, .packsPage button.primary, #simLive button.primary, #simMapDlg button.primary {
+  background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }
+button.danger, #panel button.danger, .packsPage button.danger {
+  background: none !important; color: var(--bad) !important; border: 1px solid var(--bad) !important; }
+button.danger:hover, #panel button.danger:hover { background: var(--bad) !important; color: #fff !important; }
+:root[data-theme="dark"] button.danger, :root:not([data-theme]) button.danger { --bad: #ff6b6b; }
+#simMapDlg .dlg { background: var(--t-bg); border: 1px solid var(--t-rule2); }
+#simMapDlg button, #simMapDlg select { background: var(--t-bg2); color: var(--t-fg); border: 1px solid var(--t-rule2); }
+/* tiles: the label stays on one line, the note under it is a sentence */
+.batTile span, .lvTiles span, #hud .tile span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.batTile b { font-size: 16px; }
+/* the same gap between the blocks of a tab */
+#pbody section { padding-top: 12px; margin-top: 8px; }
+#pbody section > .row, #pbody section > label.row { margin: 6px 0; }

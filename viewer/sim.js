@@ -447,7 +447,7 @@ export function initSim(app) {
     const p = pad();
     $('simInput').innerHTML = p ? `[radio] <b>${p.id.slice(0, 40)}</b> (${p.axes.length} axes)` :
       'Using the keyboard. No radio found yet: plug it in (<b>Joystick</b> mode) and move a stick.';
-    $('simStart').textContent = 'Start training flight';
+    $('simStart').textContent = '[start training flight]';
     $('simLive').classList.toggle('hidden', !st.active);
   }
   // the training-flight box can be folded to one line (button or H): it covers less of the FPV view
@@ -526,7 +526,7 @@ export function initSim(app) {
     $('simMapRows').innerHTML = fns.map((f) => `<tr data-f="${f}"><td>${f}${f === 'arm' ? ' switch' : f === 'mode' ? ' switch <span class="muted">(acro/angle)</span>' : ''}</td>
         <td><select>${opts(cfg.map[f].axis)}</select></td>
         <td><label><input type="checkbox" ${cfg.map[f].inv ? 'checked' : ''}> invert</label></td>
-        <td><button class="det">detect</button></td><td class="barcell"><div class="vbar"><i></i></div></td></tr>`).join('');
+        <td><button class="det">[detect]</button></td><td class="barcell"><div class="vbar"><i></i></div></td></tr>`).join('');
     $('simMapRows').querySelectorAll('tr').forEach((tr) => {
       const f = tr.dataset.f, sel = tr.querySelector('select'), inv = tr.querySelector('input');
       sel.onchange = () => { cfg.map[f].axis = +sel.value; saveSettings(); };
