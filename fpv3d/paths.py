@@ -143,10 +143,12 @@ def _venv(name: str) -> str:
 
 
 def cli_cmd(unbuffered: bool = False) -> list:
-    """Command that runs `fpv3d <args>`: a build, the server, cache cleaning..."""
+    """Command that runs `fpv3d <args>`: a build, the server, cache cleaning... It finds the program wherever it is
+    started from: callers run it inside your data folder (data/), where `python -m fpv3d` alone would not find it."""
     if FROZEN:
         return [str(EXE_DIR / ("alpline-cli.exe" if os.name == "nt" else "alpline-cli"))]
-    return [_venv("python"), *(["-u"] if unbuffered else []), "-m", "fpv3d"]
+    boot = f"import sys; sys.path.insert(0, {str(APP)!r}); from fpv3d.cli import main; main()"
+    return [_venv("python"), *(["-u"] if unbuffered else []), "-c", boot]
 
 
 def app_browser() -> str | None:

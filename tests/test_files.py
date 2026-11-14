@@ -378,3 +378,13 @@ def test_quick_check_can_run_every_test():
                 if len(a.args) > len(a.defaults):
                     bad.append(f"{f.name}: {n.name}")
     assert not bad, bad
+
+
+def test_commands_start_from_the_data_folder():
+    """The launcher starts the server and builds inside your data folder (data/): the command must still find the
+    program there (it once said 'No module named fpv3d' after the move into data/)."""
+    import subprocess
+    from fpv3d import paths
+    d = Path(tempfile.mkdtemp(prefix="alpline_cwd_"))
+    r = subprocess.run(paths.cli_cmd() + ["--help"], cwd=str(d), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0 and "usage: fpv3d" in r.stdout, r.stderr[-500:]
