@@ -329,35 +329,52 @@ if __name__ == "__main__":
     sys.exit(1 if fails else 0)
 
 
-def test_older_project_moves_into_data(tmp_path):
+def test_older_project_moves_into_data():
     """An older source folder kept your files next to the code: the first start moves them into data/, untouched."""
     from fpv3d import paths
-    (tmp_path / "fpv3d").mkdir(); (tmp_path / "fpv3d" / "x.py").write_text("code")
-    (tmp_path / "locations").mkdir(); (tmp_path / "locations" / "001_a.yaml").write_text("loc")
-    (tmp_path / "logs" / "blackbox").mkdir(parents=True); (tmp_path / "logs" / "blackbox" / "f.bbl").write_text("bb")
-    (tmp_path / "launcher.json").write_text("{}")
-    data = paths._move_into_data(tmp_path)
-    assert data == tmp_path / "data"
+    root = Path(tempfile.mkdtemp(prefix="alpline_move_"))
+    (root / "fpv3d").mkdir(); (root / "fpv3d" / "x.py").write_text("code")
+    (root / "locations").mkdir(); (root / "locations" / "001_a.yaml").write_text("loc")
+    (root / "logs" / "blackbox").mkdir(parents=True); (root / "logs" / "blackbox" / "f.bbl").write_text("bb")
+    (root / "launcher.json").write_text("{}")
+    data = paths._move_into_data(root)
+    assert data == root / "data"
     assert (data / "locations" / "001_a.yaml").read_text() == "loc"
     assert (data / "logs" / "blackbox" / "f.bbl").read_text() == "bb" and (data / "launcher.json").exists()
-    assert not (tmp_path / "locations").exists() and (tmp_path / "fpv3d" / "x.py").exists()
-    assert paths._move_into_data(tmp_path) == data                  # second start: nothing to do
+    assert not (root / "locations").exists() and (root / "fpv3d" / "x.py").exists()
+    assert paths._move_into_data(root) == data                      # second start: nothing to do
 
 
-def test_move_into_data_rolls_back(tmp_path, monkeypatch):
+def test_move_into_data_rolls_back():
     """If one item cannot move, the ones already moved go back and the old place is used this time."""
-    from pathlib import Path
-
     from fpv3d import paths
+    root = Path(tempfile.mkdtemp(prefix="alpline_move_"))
     for n in ("locations", "scenes", "logs"):
-        (tmp_path / n).mkdir(); (tmp_path / n / "f").write_text(n)
+        (root / n).mkdir(); (root / n / "f").write_text(n)
     real = Path.rename
 
     def rename(self, target):
         if self.name == "logs" and Path(target).parent.name == "data":
             raise PermissionError("in use")
         return real(self, target)
-    monkeypatch.setattr(Path, "rename", rename)
-    assert paths._move_into_data(tmp_path) == tmp_path
+    Path.rename = rename                                            # one folder "in use" (like a file open in Windows)
+    try:
+        assert paths._move_into_data(root) == root
+    finally:
+        Path.rename = real
     for n in ("locations", "scenes", "logs"):
-        assert (tmp_path / n / "f").read_text() == n
+        assert (root / n / "f").read_text() == n
+
+
+def test_quick_check_can_run_every_test():
+    """The launcher's [run quick check] calls each test with no arguments (no pytest helpers such as tmp_path):
+    a test that needs one would fail there while passing under pytest."""
+    import ast
+    bad = []
+    for f in sorted(HERE.glob("test_*.py")):
+        for n in ast.parse(f.read_text(encoding="utf-8")).body:
+            if isinstance(n, ast.FunctionDef) and n.name.startswith("test_"):
+                a = n.args
+                if len(a.args) > len(a.defaults):
+                    bad.append(f"{f.name}: {n.name}")
+    assert not bad, bad
