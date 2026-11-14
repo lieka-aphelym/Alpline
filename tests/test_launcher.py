@@ -96,34 +96,42 @@ try:
     app.start_device_watch = lambda: None
     root.geometry("980x600+0+0"); app.show_page("map")
     def check():
-        root.update()
-        W0, H0 = root.winfo_width(), root.winfo_height()
-        m = app.map
-        cw, ch = m.cv.winfo_width(), m.cv.winfo_height()
-        boxes = {}
-        for name, w in (("list", m.listp), ("bar", m.bar), ("zoom", m.zbox)):
-            boxes[name] = (w.winfo_x(), w.winfo_y(), w.winfo_x() + w.winfo_width(), w.winfo_y() + w.winfo_height())
-        out["inside"] = all(0 <= b[0] and 0 <= b[1] and b[2] <= cw and b[3] <= ch for b in boxes.values())
-        ov = lambda a, b: a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
-        out["overlap"] = [f"{a}/{b}" for a in boxes for b in boxes if a < b and ov(boxes[a], boxes[b])]
-        # things that change must not change the window's size
-        app.say("a very long message " * 20, "bad")
-        app.server_pill.set("server full :8000 → lite and much more text", "#3ddc84")
-        app.map.card.title.set("001 · " + "A VERY LONG LOCATION NAME " * 6)
-        app.map.info.set("hover text " * 30)
-        app._devices_changed({"COM7": dict(kind="drone", port="COM7", board="FLWO", firmware="Betaflight 4.5.1 " * 4,
-                                           flash_total=2 ** 24, flash_used=2 ** 20)})
-        for p in ("drone", "phone", "disk", "settings", "map"):
-            app.show_page(p); root.update()
-        out["size_kept"] = (root.winfo_width(), root.winfo_height()) == (W0, H0)
-        app.select(None); root.update()
-        out["callout_hidden_when_none"] = not m.card.frame.winfo_ismapped()
-        root.destroy()
+        # an error in here must end the window: Tk would only print it and keep waiting (a 120 s time-out)
+        try:
+            root.update()
+            W0, H0 = root.winfo_width(), root.winfo_height()
+            m = app.map
+            cw, ch = m.cv.winfo_width(), m.cv.winfo_height()
+            boxes = {}
+            for name, w in (("list", m.listp), ("bar", m.bar), ("zoom", m.zbox)):
+                boxes[name] = (w.winfo_x(), w.winfo_y(), w.winfo_x() + w.winfo_width(), w.winfo_y() + w.winfo_height())
+            out["inside"] = all(0 <= b[0] and 0 <= b[1] and b[2] <= cw and b[3] <= ch for b in boxes.values())
+            ov = lambda a, b: a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+            out["overlap"] = [f"{a}/{b}" for a in boxes for b in boxes if a < b and ov(boxes[a], boxes[b])]
+            # things that change must not change the window's size
+            app.say("a very long message " * 20, "bad")
+            app.server_pill.set("server full :8000 → lite and much more text", "#3ddc84")
+            app.map.card.title.set("001 · " + "A VERY LONG LOCATION NAME " * 6)
+            app.map.info.set("hover text " * 30)
+            app._devices_changed({"COM7": dict(kind="drone", port="COM7", board="FLWO", firmware="Betaflight 4.5.1 " * 4,
+                                               flash_total=2 ** 24, flash_used=2 ** 20)})
+            for p in ("drone", "phone", "disk", "settings", "map"):
+                app.show_page(p); root.update()
+            out["size_kept"] = (root.winfo_width(), root.winfo_height()) == (W0, H0)
+            app.select(None); root.update()
+            out["callout_hidden_when_none"] = not m.card.frame.winfo_ismapped()
+        except Exception as ex:
+            import traceback
+            out["error"] = repr(ex) + " " + traceback.format_exc()[-600:]
+        finally:
+            root.destroy()
     root.after(1500, check)
     root.mainloop()
 except Exception as ex:
     out["error"] = repr(ex)
 print("RESULT " + json.dumps(out))
+from launcher.main import leave
+leave()           # as the launcher does after its window closed: the map download may still be running
 """
 
 

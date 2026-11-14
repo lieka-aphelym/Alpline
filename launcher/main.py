@@ -87,6 +87,18 @@ def first_start_folder(root) -> bool:
     return False
 
 
+def leave(code=0):
+    """End the program once the window is closed. A download still running in the background (the map's tiles)
+    may be waiting to tell a window that no longer exists; Python would wait for it forever and the launcher
+    would stay in the task manager. Everything is saved by then (Launcher.quit), files are written whole."""
+    for f in (sys.stdout, sys.stderr):
+        try:
+            f.flush()
+        except Exception:                                      # noqa: BLE001  (pythonw has no output)
+            pass
+    os._exit(code)
+
+
 def main():
     sharp_on_windows()
     root = tk.Tk()
@@ -100,3 +112,4 @@ def main():
     app = Launcher(root)
     catch_errors(root, app)
     root.mainloop()
+    leave()
