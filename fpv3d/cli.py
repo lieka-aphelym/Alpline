@@ -1,7 +1,7 @@
 """Command line:  python -m fpv3d <command> ...
 
-  build      locations/moleson.yaml [--log FILE ...]   download data, compute LOS, write scene
-  add-log    locations/moleson.yaml FILE [FILE ...]    add flight logs to an existing scene (fast)
+  build      locations/my_spot.yaml [--log FILE ...]   download data, compute LOS, write scene
+  add-log    locations/my_spot.yaml FILE [FILE ...]    add flight logs to an existing scene (fast)
   serve      [--port 8000] [--scene NAME] [--lite]      open the 3D viewer in your browser (--lite = Lite mode)
   map        [--port 8000]                              Swiss map: cached areas, click to create locations
   new        NAME --lat 46.x --lon 7.x                  create a new location file
@@ -366,7 +366,7 @@ def main(argv=None):
     b.add_argument("--no-ortho", action="store_true", help="skip aerial imagery download")
     b.add_argument("--reuse-terrain", action="store_true", help="keep existing terrain, recompute LOS only")
     b.add_argument("--resolution", type=float, help="override terrain.resolution_m (e.g. 2 for more detail)")
-    b.add_argument("--name", help="write the scene under another name (e.g. moleson_2m)")
+    b.add_argument("--name", help="write the scene under another name (e.g. my_spot_2m)")
     b.add_argument("--refresh", action="store_true", help="ignore cached tiles and download again")
     b.set_defaults(func=cmd_build)
 

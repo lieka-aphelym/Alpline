@@ -1,0 +1,36 @@
+# Third-party software and data
+
+Alpline itself is free software under the GNU General Public License, version 3 (see [LICENSE](LICENSE)).
+It uses the work of others, listed here with their licences.
+
+## In this repository (`viewer/vendor/`)
+
+| What | Licence | Where the text is |
+| --- | --- | --- |
+| [three.js](https://threejs.org) (`three.core.js`, `three.module.js`, `OrbitControls.js`) | MIT | `viewer/vendor/THREE_LICENSE` |
+| [Leaflet](https://leafletjs.com) | BSD 2-Clause | `viewer/vendor/leaflet/LICENSE` |
+| [QR Code Generator for JavaScript](https://github.com/kazuhikoarase/qrcode-generator) (Kazuhiko Arase) | MIT | header of `viewer/vendor/qrcode.js` |
+
+## Python libraries (installed by `requirements.txt`, and inside the Windows app)
+
+| What | Licence |
+| --- | --- |
+| [NumPy](https://numpy.org) | BSD 3-Clause |
+| [Rasterio](https://github.com/rasterio/rasterio) (with GDAL, PROJ, GEOS and their libraries) | BSD 3-Clause (GDAL and PROJ: MIT) |
+| [Pillow](https://python-pillow.org) | MIT-CMU (HPND) |
+| [PyYAML](https://pyyaml.org) | MIT |
+| [pySerial](https://github.com/pyserial/pyserial) | BSD 3-Clause |
+| [orangebox](https://github.com/atomgomba/orangebox) | GPL-3.0 |
+| [cryptography](https://cryptography.io) | Apache-2.0 or BSD 3-Clause |
+| [Python](https://www.python.org) (inside the Windows app) | PSF License |
+
+The Windows app is made with [PyInstaller](https://pyinstaller.org) (GPL-2.0 with an exception that allows
+distributing the built app under any licence). Each library's full licence text is in its folder under
+`_internal\` in the installed app, or in `.venv\Lib\site-packages\<name>.dist-info\` in a source set-up.
+
+## Data
+
+Terrain, surface and aerial photos: © [swisstopo](https://www.swisstopo.admin.ch) (swissALTI3D, swissSURFACE3D
+Raster, SWISSIMAGE 10 cm, the grey base map), free under the swisstopo open-data terms (OGD), source to be named.
+Drone zones: Federal Office of Civil Aviation (FOCA / BAZL). Buildings: © OpenStreetMap contributors (ODbL).
+None of this data is in the repository: Alpline downloads it to your computer when you build a location.

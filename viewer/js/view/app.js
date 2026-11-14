@@ -1011,7 +1011,7 @@ async function closeSplash() {
 async function boot() {
   let list = [];
   try { list = await getJSON(SCENES + 'index.json'); } catch { /* none yet */ }
-  if (!list.length) throw new Error('No scenes found.\nBuild one first:  python -m fpv3d build locations/moleson.yaml');
+  if (!list.length) throw new Error('No scenes found.\nBuild one first:  python -m fpv3d build locations/my_spot.yaml');
   const name = params.get('scene') || list[0].name;
   $('scenePick').innerHTML = list.map((s) => `<option value="${esc(s.name)}" ${s.name === name ? 'selected' : ''}>${esc(s.title)}</option>`).join('');
   $('scenePick').onchange = () => { location.search = `?scene=${encodeURIComponent($('scenePick').value)}`; };

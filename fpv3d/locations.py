@@ -122,7 +122,7 @@ def write_location(name: str, title: str, center, pilot=None, half_size_m=2500, 
     corridor = {"points": [(lat, lon), ...], "width_m": 500} for a route-shaped location."""
     from .config import VALID_RES
     if not NAME_RE.match(name or ""):
-        raise ValueError("name: lowercase letters, digits, - and _ only (e.g. moleson_east)")
+        raise ValueError("name: lowercase letters, digits, - and _ only (e.g. my_spot_east)")
     name = numbered_name(name)
     if resolution_m not in VALID_RES:
         raise ValueError(f"resolution must be one of {VALID_RES}")

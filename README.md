@@ -7,12 +7,27 @@ Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**
 - **Signal shadow ("dark zone")** is draped on the terrain. It marks every spot where a drone flying *N m above ground* has no direct line of sight to you, or where the Fresnel zone is obstructed. It is precomputed for several heights. In the viewer you can pick one, or let the overlay follow the drone's live height.
 - **Flight log replay** (EdgeTX/OpenTX telemetry, Betaflight/INAV blackbox CSV, GPX): the track can be coloured by LOS status, predicted link margin, height, or any telemetry column (RSSI, LQ, SNR…). The HUD compares *predicted* and *logged* signal.
 
-Moléson is set up as the first location. Nothing in the code is tied to it. Each place is just a YAML file in `data/locations/`.
+## Get it
 
-Your own files (locations, flights, built scenes, packs, downloads) all live in `data/`, so the top of the project shows only the program. A project from before this layout moves them there by itself at the first start. Commands such as `python -m fpv3d build locations/moleson.yaml` still work from the project folder: a path that is not found there is looked for in `data/`.
+- **Windows, no Python needed:** download `AlplineSetup.exe` from the
+  [latest release](https://github.com/lieka-aphelym/Alpline/releases/latest) and run it. It installs for your user
+  only (no administrator rights). The installer is not signed, so Windows SmartScreen may ask once: *More info* →
+  *Run anyway*.
+- **From the source** (Windows / macOS / Linux): see [Setup](#setup-windows--macos--linux-python--39) below.
+
+What changed in each version: [CHANGELOG.md](CHANGELOG.md). Found a problem or have an idea? Open an
+[issue](https://github.com/lieka-aphelym/Alpline/issues), with `logs/errors.txt` from your files folder if something
+failed.
+
+## How it is organised
+
+Each place is just a YAML file in `data/locations/`. The easiest way to make one is the launcher's map page; an
+example for the Gotthard Pass is in `examples/gotthard.yaml` (see [Use it](#use-it)). Nothing in the code is tied to a place.
+
+Your own files (locations, flights, built scenes, packs, downloads) all live in `data/`, so the top of the project shows only the program. A project from before this layout moves them there by itself at the first start. Commands such as `python -m fpv3d build locations/gotthard.yaml` still work from the project folder: a path that is not found there is looked for in `data/`.
 
 ```
-fpv3d/
+Alpline/
 ├─ fpv3d/            Python pipeline
 │  ├─ geo.py         WGS84 ⇄ LV95 (swisstopo formulas), Grid
 │  ├─ swisstopo.py   STAC API download + mosaic (swissALTI3D / swissSURFACE3D / SWISSIMAGE)
@@ -24,8 +39,9 @@ fpv3d/
 ├─ launcher/         the launcher window, one file per page (launcher.pyw starts it)
 ├─ viewer/           the pages: 3D viewer, map, packs, phone (three.js bundled in viewer/vendor, works offline)
 ├─ tests/            checks (run_all.py), a mock STAC server, demo-log generator
+├─ examples/         an example location (gotthard.yaml)
 └─ data/             your files, never in git:
-   ├─ locations/     one YAML per flying spot (moleson.yaml)
+   ├─ locations/     one YAML per flying spot (gotthard.yaml)
    ├─ logs/          your flight logs, blackbox downloads, live and training recordings
    ├─ scenes/        built 3D scenes (created by `build`)
    ├─ battery/       your packs and their history
@@ -81,7 +97,7 @@ Logs count as **sim** when they come from the training flight (`<location>_sim_<
 
 **Disk space:** the launcher's **disk** page shows the size of the download cache, built locations, deleted locations and logs. *[clean unused tiles]* deletes downloaded tiles that none of your location files uses (1 km around each location is kept), *[empty deleted]* empties the deleted folder for good. From a terminal: `python -m fpv3d cache prune --dry-run`, then `python -m fpv3d cache prune`.
 
-**Numbered locations:** a new location gets the next number in front of its name, with as many digits as your existing ones (e.g. `015_gruyere` after `014_vanil_noir`, or `01_...` for the very first). Renaming keeps the number.
+**Numbered locations:** a new location gets the next number in front of its name, with as many digits as your existing ones (e.g. `015_north_ridge` after `014_valley`, or `01_...` for the very first). Renaming keeps the number.
 
 The viewer and the map page show the current mode in the small badge next to the title. From a terminal: `python -m fpv3d serve` (Full) or `python -m fpv3d serve --lite`, the same for `map` and `new`. `?mode=lite` / `?mode=full` in the viewer address overrides it for one page.
 
@@ -148,7 +164,8 @@ running on the computer; when it can't reach it, it says so instead of a browser
 ## Setup (Windows / macOS / Linux, Python ≥ 3.9)
 
 ```bash
-cd fpv3d
+git clone https://github.com/lieka-aphelym/Alpline.git
+cd Alpline
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
@@ -157,16 +174,19 @@ python tests/run_all.py         # all checks (see docs/development.md)
 
 ## Use it
 
+The commands below use the example location. Copy `examples/gotthard.yaml` to `data/locations/gotthard.yaml` first
+(create the two folders if Alpline has not run yet), or make your own location on the launcher's map page.
+
 ```bash
-# 1. Build the Moléson scene (downloads ~40 MB of tiles once, then cached)
-python -m fpv3d build locations/moleson.yaml
+# 1. Build the Gotthard Pass scene (downloads about 70 MB once, then cached)
+python -m fpv3d build locations/gotthard.yaml
 
 # 2. Add your flight logs (fast: reuses terrain)
-python -m fpv3d add-log locations/moleson.yaml logs/my_flight.csv
+python -m fpv3d add-log locations/gotthard.yaml logs/my_flight.csv
 
 #    no log yet? generate a synthetic demo flight for the scene:
-python tests/make_demo_log.py scenes/moleson logs/demo_moleson_edgetx.csv
-python -m fpv3d add-log locations/moleson.yaml logs/demo_moleson_edgetx.csv
+python tests/make_demo_log.py scenes/gotthard logs/demo_gotthard_edgetx.csv
+python -m fpv3d add-log locations/gotthard.yaml logs/demo_gotthard_edgetx.csv
 
 # 3. Open the 3D viewer in your browser
 python -m fpv3d serve
@@ -243,4 +263,11 @@ Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GP
 
 Data: © swisstopo (swissALTI3D, swissSURFACE3D Raster, SWISSIMAGE 10 cm), free under the swisstopo open-data terms (OGD). It is fetched via the STAC API at `data.geo.admin.ch`. To test without internet: `python tests/mock_stac.py` and set `FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9`. That serves synthetic terrain.
 
-Always check the drone rules (FOCA / BAZL map at map.geo.admin.ch) before flying.
+Always check the drone rules (FOCA / BAZL map at map.geo.admin.ch) before flying. Alpline is a planning aid: its
+signal predictions and zone outlines can be wrong or out of date, and flying safely and legally stays your job.
+
+## Licence
+
+Alpline is free software under the [GNU General Public License, version 3](LICENSE): you may use, study, share and
+change it, and versions you pass on must stay under the same licence. It comes with no warranty. The libraries and
+data it uses are listed in [THIRD_PARTY.md](THIRD_PARTY.md).

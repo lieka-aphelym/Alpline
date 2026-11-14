@@ -1,0 +1,49 @@
+# fpv3d location - edit freely. Coordinates: lat/lon (WGS84) or e/n (LV95).
+name: gotthard
+title: "Gotthard Pass"
+
+center: {lat: 46.559, lon: 8.561}
+half_size_m: 2500          # map extends this far from the centre in each direction
+
+pilot:                     # remove lat/lon to use the first GPS fix of the first log
+  lat: 46.5556               # approx. the hospice on the pass (~2100 m) - move to your real spot
+  lon: 8.5650
+  antenna_height_m: 1.8    # goggles / ground-station antenna above ground
+
+terrain:
+  resolution_m: 5         # 0.5,1,2,2.5,4,5,8,10,20,25,40,50
+  surface: dtm             # dtm = bare ground (swissALTI3D), dsm = incl. trees/buildings (swissSURFACE3D)
+  ortho: true
+  ortho_resolution_m: 2
+
+analysis:
+  los_agl_m: [10, 30, 60, 120]
+  los_resolution_m: 10
+  primary_link: 0          # index into links: used for the shadow map
+  k_factor: 1.333
+  fresnel_clearance: 0.6
+
+links:
+  - name: "Video 5.8 GHz"
+    freq_mhz: 5800
+    tx_power_dbm: 27       # 500 mW
+    tx_gain_dbi: 2
+    rx_gain_dbi: 8
+    rx_sensitivity_dbm: -90
+    misc_losses_db: 3
+    fade_margin_db: 10
+    color: "#ff4fd8"
+  - name: "Control ELRS 2.4 GHz"
+    freq_mhz: 2440
+    tx_power_dbm: 24       # 250 mW
+    tx_gain_dbi: 2
+    rx_gain_dbi: 2
+    rx_sensitivity_dbm: -108
+    misc_losses_db: 3
+    fade_margin_db: 10
+    color: "#33d0ff"
+
+logs: []                   # e.g. [../logs/gotthard_2026-09-12.csv]
+log_options:
+  altitude_mode: auto      # auto | amsl | relative | agl
+  altitude_offset_m: 0

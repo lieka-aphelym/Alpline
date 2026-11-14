@@ -40,10 +40,8 @@ skips it once. Settings for all of these are in `pyproject.toml`.
   a swollen pack to retire); the battery API (the phone can't delete packs or notes).
 - **Coverage:** `python tools/cover.py` measures the tests and the commands they start as separate programs
   (plain `pytest --cov` misses those): 69 % overall in November 2026. `htmlcov/index.html` shows it line by line.
-- **GitHub:** `docs/github-checks.yml` is a ready workflow: copied to `.github/workflows/checks.yml`, it runs
-  `tools/check.py` and the Node tests on Windows and Linux at every push. To put the project on GitHub (private):
-  create an empty private repository on github.com, then in the project folder
-  `git remote add origin https://github.com/<you>/<name>.git` and `git push -u origin main`.
+- **GitHub:** `.github/workflows/checks.yml` runs `tools/check.py` and the Node tests on Windows and Linux at every
+  push and pull request.
 - **Your files** (`test_files.py`): safe saving keeps the old file when writing fails, the error log stays small,
   clean-up deletes only the ticked kinds (never the program), backup → start fresh → restore gives everything back,
   unsafe zip entries are refused, nothing is deleted while building, a build stops when the disk is too full.
@@ -95,6 +93,21 @@ phone app.
   on screen), `viewer/js/core/esc.js` (text safe for HTML); `fpv3d/filelock.py` (a lock between programs),
   `fpv3d/safefile.py` (writes that never leave half a file), `fpv3d/errorlog.py`.
 - **Types:** `mypy` checks eleven modules (see `pyproject.toml`); add a module there when it is clean.
+
+## Making a release
+
+1. Set the version in `fpv3d/__init__.py` (the launcher's settings page and the installer read it from there) and
+   add a section to `CHANGELOG.md`.
+2. `python tests/run_all.py --browser`, then commit and push; wait for the GitHub checks to turn green.
+3. Double-click `build_app.bat` (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer). Install
+   `dist\AlplineSetup.exe` on a PC, start it once and build a location.
+4. Tag and publish, with the installer attached:
+   `git tag v1.0.0`, `git push origin v1.0.0`, then
+   `gh release create v1.0.0 dist/AlplineSetup.exe --title "Alpline 1.0.0" --notes-file CHANGELOG.md`
+   (or *Releases → Draft a new release* on github.com). The README's download link points at the latest release.
+
+The installed app contains orangebox (GPL-3), so every installer you publish must come with the matching source:
+the tag does that. `THIRD_PARTY.md` lists the libraries; update it when `requirements.txt` gains one.
 
 ## Renaming the app
 

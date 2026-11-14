@@ -107,7 +107,7 @@ def rename_location(old: str, new: str, scenes_dir: Path, title: str | None = No
     simulator logs that start with the old name. Optionally set a new display title."""
     new = slug(new)
     if not NAME_RE.match(new):
-        raise ValueError("name: lowercase letters, digits, - and _ only (e.g. moleson_east)")
+        raise ValueError("name: lowercase letters, digits, - and _ only (e.g. my_spot_east)")
     src = _loc_file(old)
     old = src.stem if src.stem == old else old
     from .locations import NUM_RE
