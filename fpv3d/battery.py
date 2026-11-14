@@ -328,6 +328,7 @@ def _save(d: dict, root: Path | None = None):
     root = Path(root) if root else DATA
     store_dir(root).mkdir(parents=True, exist_ok=True)
     write_atomic(store_dir(root) / "packs.json", json.dumps(d, indent=1))
+    _OVERVIEW.clear()                # two saves within one tick of the clock leave the file's time unchanged
 
 
 def save_flight(fid: str, s: dict, when=None, scene=None, track=None, root: Path | None = None) -> str:

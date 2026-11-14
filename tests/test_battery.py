@@ -293,6 +293,20 @@ def test_cleaned_flights_leave_the_list_without_writing():
     assert "gone" not in battery._load(root)["flights"]
 
 
+def test_overview_is_fresh_after_a_quick_save():
+    """Two saves within one tick of the clock (about 16 ms on Windows) give packs.json the same change time:
+    the overview kept in memory must not be served again."""
+    import os
+    root = Path(tempfile.mkdtemp(prefix="alpline_fresh_"))
+    battery.save_pack(dict(name="first", cells=6, capacity=1300), root)
+    packs = battery.store_dir(root) / "packs.json"
+    st = packs.stat()
+    p = battery.overview(root)["packs"][0]
+    battery.save_pack(dict(p, name="second"), root)
+    os.utime(packs, ns=(st.st_atime_ns, st.st_mtime_ns))                      # as if saved in the same tick
+    assert battery.overview(root)["packs"][0]["name"] == "second"
+
+
 def test_flight_dates_and_unsure_cell_count():
     root = Path(tempfile.mkdtemp(prefix="alpline_when_"))
     t, v, i, thr = sim_flight(0.005, dur=60)
