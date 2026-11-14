@@ -259,6 +259,21 @@ Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GP
 | [Locations, terrain and maps](docs/locations.md) | creating locations on the map, routes, terrain detail, buildings, no-fly zones, renaming, deleting |
 | [Development](docs/development.md) | how the signal model works, the tests and tools |
 
+## What's next
+
+Ideas for future versions. These are intentions, not promises, and there are no dates.
+
+**Planned**
+- **Terrain outside Switzerland:** build locations from other open elevation and imagery sources, so Alpline works
+  beyond swisstopo's coverage. Drone zones stay Switzerland-only at first; zones of other countries come later.
+- **Better training flight:** today it feels floaty. More realistic physics, wind, and a more direct feel.
+- **A better-looking 3D world:** bridges, more detailed buildings, trees and other vegetation.
+
+**Ideas**
+- **Planes and VTOL:** fixed-wing and VTOL aircraft next to quads, in the training flight and in replay.
+
+Have a wish or want to help? Open an [issue](https://github.com/lieka-aphelym/Alpline/issues).
+
 ## Data
 
 Data: © swisstopo (swissALTI3D, swissSURFACE3D Raster, SWISSIMAGE 10 cm), free under the swisstopo open-data terms (OGD). It is fetched via the STAC API at `data.geo.admin.ch`. To test without internet: `python tests/mock_stac.py` and set `FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9`. That serves synthetic terrain.
