@@ -21,6 +21,7 @@ import rasterio
 from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject
 
+from . import sources
 from .geo import Grid
 
 STAC_BASE = os.environ.get("FPV3D_STAC_BASE", "https://data.geo.admin.ch/api/stac/v0.9")
@@ -134,6 +135,70 @@ def _download_once(url: str, dest: Path, tmp: Path, on_progress=None) -> Path:
     return dest
 
 
+class Swisstopo(sources.TerrainSource):
+    """swisstopo open data as a terrain source: 1 km tiles on the LV95 kilometre grid, one file per tile."""
+    name = "swisstopo"
+    credit = "© swisstopo"
+    host = "data.geo.admin.ch"
+    crs = "EPSG:2056"
+    kinds = ("dtm", "dsm", "ortho")
+    cache_prefix = ""                            # the original cache layout: caches made before sources existed stay valid
+
+    _RAW_RE = re.compile(r"_(\d{4})_(\d{4}-\d{4})_(\d+(?:\.\d+)?)(?:_|\.tif$)")
+
+    @staticmethod
+    def _gsd(kind: str, res: float) -> float:
+        return res if kind != "dsm" else 0.5     # swissSURFACE3D raster only exists at 0.5 m
+
+    def raw_dir(self, root: Path, kind: str) -> Path:
+        return Path(root) / COLLECTIONS[kind]
+
+    def raw_key(self, path: Path) -> Optional[str]:
+        m = self._RAW_RE.search(Path(path).name)
+        return m.group(2) if m else None
+
+    def local_raw(self, root: Path, kind: str, key, res: float) -> List[Path]:
+        """Newest already-downloaded raw tile for `key` that is at least as fine as needed."""
+        folder, want = self.raw_dir(root, kind), self._gsd(kind, res)
+        if not folder.exists():
+            return []
+        name, best = f"{key[0]}-{key[1]}", None
+        for f in folder.glob(f"*{name}*.tif"):
+            m = self._RAW_RE.search(f.name)
+            if not m or m.group(2) != name:
+                continue
+            year, gsd = int(m.group(1)), float(m.group(3))
+            if gsd > want + 1e-9:
+                continue
+            rank = (year, gsd)                   # newest year, then coarsest usable resolution
+            if best is None or rank > best[0]:
+                best = (rank, f)
+        return [best[1]] if best else []
+
+    def lookup(self, kind: str, keys, res: float) -> Dict[tuple, List[sources.Found]]:
+        """One STAC query for the bounding box of `keys`."""
+        t = 1000
+        e0, n0 = min(k[0] for k in keys) * t, min(k[1] for k in keys) * t
+        e1, n1 = (max(k[0] for k in keys) + 1) * t, (max(k[1] for k in keys) + 1) * t
+        bbox = Grid(e0 + 5, n0 + 5, e1 - 5, n1 - 5, t, self.crs).wgs84_bbox()
+        items = latest_per_tile(stac_items(COLLECTIONS[kind], bbox))
+        out = {}
+        for k in keys:
+            item = items.get(f"{k[0]}-{k[1]}")
+            asset = pick_asset(item, self._gsd(kind, res)) if item else None
+            if asset is not None:
+                out[tuple(k)] = [sources.Found(asset["href"], dict(
+                    item=item.get("id"), datetime=(item.get("properties") or {}).get("datetime"),
+                    source=Path(asset["href"]).name))]
+        return out
+
+    def download(self, root: Path, kind: str, found: sources.Found, on_progress=None) -> Path:
+        return download(found.href, self.raw_dir(root, kind), on_progress)
+
+
+SOURCE = sources.register(Swisstopo())
+
+
 def fetch_tiles(kind: str, grid: Grid, gsd: float, cache_root: Path) -> List[Path]:
     """Download (or reuse cached) tiles of `kind` ('dtm' | 'dsm' | 'ortho') covering grid."""
     coll = COLLECTIONS[kind]
@@ -159,13 +224,13 @@ def mosaic(paths: List[Path], grid: Grid, bands: int = 1, dtype=np.float32,
     out = np.full((bands, grid.rows, grid.cols), nodata, dtype=dtype)
     for p in paths:
         with rasterio.open(p) as src:
-            src_crs = src.crs or "EPSG:2056"
+            src_crs = src.crs or grid.crs
             for b in range(bands):
                 tmp = np.full((grid.rows, grid.cols), nodata, dtype=dtype)
                 reproject(
                     source=rasterio.band(src, min(b + 1, src.count)),
                     destination=tmp,
-                    src_crs=src_crs, dst_crs="EPSG:2056",
+                    src_crs=src_crs, dst_crs=grid.crs,
                     dst_transform=dst_transform, dst_nodata=nodata,
                     resampling=resampling,
                 )
@@ -198,20 +263,13 @@ def fill_holes(dem: np.ndarray) -> np.ndarray:
     return dem
 
 
-def elevation(grid: Grid, surface: str, cache_root: Path, local_files=None, refresh=False, keys=None,
-              fill=True) -> np.ndarray:
-    """Elevation (m, LN02/LHN95 heights) on grid, row 0 = north. Memoised per 1 km tile.
-    `keys`: only these 1 km tiles (corridors); fill=False leaves the rest NaN."""
-    if local_files:
-        rs = Resampling.max if surface == "dsm" else Resampling.average
-        dem = mosaic([Path(p) for p in local_files], grid, bands=1, dtype=np.float32, resampling=rs)[0]
-    else:
-        from .tilecache import TileCache
-        dem = TileCache(cache_root).mosaic(surface, grid, refresh, keys)
-    return fill_holes(dem) if fill else dem
+def elevation(*a, **k) -> np.ndarray:
+    """Moved to terrain.elevation (kept here for older callers)."""
+    from . import terrain
+    return terrain.elevation(*a, **k)
 
 
-def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None) -> np.ndarray:
-    """RGB uint8 image (rows, cols, 3) on grid. Memoised per 1 km tile."""
-    from .tilecache import TileCache
-    return TileCache(cache_root).mosaic("ortho", grid, refresh, keys)
+def orthophoto(*a, **k) -> np.ndarray:
+    """Moved to terrain.orthophoto (kept here for older callers)."""
+    from . import terrain
+    return terrain.orthophoto(*a, **k)

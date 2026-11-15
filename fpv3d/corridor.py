@@ -24,21 +24,22 @@ CONTEXT_RES = 10.0
 
 
 class Corridor:
-    def __init__(self, points: List[Tuple[float, float]], width_m: float):
+    def __init__(self, points: List[Tuple[float, float]], width_m: float, crs: str = "EPSG:2056"):
         if len(points) < 2:
             raise ValueError("corridor: needs at least 2 points")
         if not 50 <= width_m <= 5000:
             raise ValueError("corridor.width_m must be between 50 and 5000")
-        self.points = np.array(points, np.float64)       # LV95 (e, n)
+        self.points = np.array(points, np.float64)       # (e, n) metres on the location's grid (LV95 in Switzerland)
         self.width = float(width_m)
+        self.crs = crs
 
     @classmethod
-    def from_raw(cls, raw: dict) -> Optional["Corridor"]:
+    def from_raw(cls, raw: dict, crs: str = "EPSG:2056") -> Optional["Corridor"]:
         if not raw:
             return None
         from .config import Point
-        pts = [Point.from_dict(p).lv95() for p in raw.get("points") or []]
-        return cls(pts, float(raw.get("width_m", 500)))
+        pts = [Point.from_dict(p).en(crs) for p in raw.get("points") or []]
+        return cls(pts, float(raw.get("width_m", 500)), crs)
 
     # ------------------------------------------------------------ geometry
     @property
@@ -54,7 +55,7 @@ class Corridor:
         """Box around the strip (and the pilot, so every signal path stays inside)."""
         e0, n0, e1, n1 = self.bbox(also=pilot_en)
         return Grid(float(np.floor(e0 / res) * res), float(np.floor(n0 / res) * res),
-                    float(np.ceil(e1 / res) * res), float(np.ceil(n1 / res) * res), res)
+                    float(np.ceil(e1 / res) * res), float(np.ceil(n1 / res) * res), res, self.crs)
 
     def center(self):
         e0, n0, e1, n1 = self.bbox()
@@ -134,7 +135,7 @@ class Corridor:
     def context_keys(self, pilot_en=None):
         """Tiles inside the (buffered) hull of route + pilot: coarse terrain for signal analysis."""
         h = self.hull(pilot_en)
-        hc = Corridor(list(map(tuple, np.vstack([h, h[:1]]))) if len(h) >= 2 else [tuple(h[0]), tuple(h[0])], self.width)
+        hc = Corridor(list(map(tuple, np.vstack([h, h[:1]]))) if len(h) >= 2 else [tuple(h[0]), tuple(h[0])], self.width, self.crs)
         e0, n0, e1, n1 = hc.bbox()
         keys = []
         for ke in range(int(e0 // TILE), int(np.ceil(e1 / TILE))):

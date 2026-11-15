@@ -1,7 +1,8 @@
-"""Coordinate helpers: WGS84 (lat/lon) <-> Swiss LV95 (EPSG:2056).
+"""Coordinate helpers: WGS84 (lat/lon) <-> a metric grid, Swiss LV95 (EPSG:2056) by default.
 
-Uses swisstopo's official approximate formulas (accuracy ~1 m), which is
+LV95 uses swisstopo's official approximate formulas (accuracy ~1 m), which is
 plenty for flight visualisation and keeps the project free of pyproj.
+Other grids (UTM, for places outside Switzerland) go through project() / unproject().
 """
 from __future__ import annotations
 
@@ -32,8 +33,38 @@ def lv95_to_wgs84(e, n):
     return phi * 100.0 / 36.0, lam * 100.0 / 36.0
 
 
+LV95 = "EPSG:2056"
+
+
+def utm_crs(lat: float, lon: float) -> str:
+    """The UTM zone (as "EPSG:326xx" north / "EPSG:327xx" south) a place falls in: a metric grid for anywhere."""
+    zone = int((float(lon) + 180.0) // 6) % 60 + 1
+    return f"EPSG:{(32600 if lat >= 0 else 32700) + zone}"
+
+
+def project(lat, lon, crs: str = LV95):
+    """WGS84 -> (E, N) metres in `crs`. Scalars or numpy arrays. LV95 uses the swisstopo formulas above
+    (no PROJ needed inside Switzerland); any other metric grid goes through PROJ (bundled with rasterio)."""
+    if crs == LV95:
+        return wgs84_to_lv95(lat, lon)
+    from rasterio.warp import transform
+    lat, lon = np.asarray(lat, dtype=np.float64), np.asarray(lon, dtype=np.float64)
+    e, n = transform("EPSG:4326", crs, lon.ravel().tolist(), lat.ravel().tolist())
+    return np.array(e).reshape(lat.shape), np.array(n).reshape(lat.shape)
+
+
+def unproject(e, n, crs: str = LV95):
+    """(E, N) metres in `crs` -> (lat, lon) degrees. Scalars or numpy arrays."""
+    if crs == LV95:
+        return lv95_to_wgs84(e, n)
+    from rasterio.warp import transform
+    e, n = np.asarray(e, dtype=np.float64), np.asarray(n, dtype=np.float64)
+    lon, lat = transform(crs, "EPSG:4326", e.ravel().tolist(), n.ravel().tolist())
+    return np.array(lat).reshape(e.shape), np.array(lon).reshape(e.shape)
+
+
 class Grid:
-    """A north-up raster grid in LV95.
+    """A north-up raster grid in a metric coordinate system (`crs`, Swiss LV95 unless told otherwise).
 
     Cell (row, col) has its centre at
         E = min_e + (col + 0.5) * res
@@ -41,25 +72,31 @@ class Grid:
     "Local" coordinates used by the viewer are x = E - min_e, y = N - min_n.
     """
 
-    def __init__(self, min_e: float, min_n: float, max_e: float, max_n: float, res: float):
+    def __init__(self, min_e: float, min_n: float, max_e: float, max_n: float, res: float, crs: str = LV95):
         self.min_e, self.min_n, self.max_e, self.max_n, self.res = min_e, min_n, max_e, max_n, res
+        self.crs = crs or LV95
         self.cols = int(round((max_e - min_e) / res))
         self.rows = int(round((max_n - min_n) / res))
 
     @classmethod
-    def around(cls, center_e: float, center_n: float, half_size: float, res: float) -> "Grid":
+    def around(cls, center_e: float, center_n: float, half_size: float, res: float, crs: str = LV95) -> "Grid":
         min_e = np.floor((center_e - half_size) / res) * res
         min_n = np.floor((center_n - half_size) / res) * res
         max_e = np.ceil((center_e + half_size) / res) * res
         max_n = np.ceil((center_n + half_size) / res) * res
-        return cls(float(min_e), float(min_n), float(max_e), float(max_n), res)
+        return cls(float(min_e), float(min_n), float(max_e), float(max_n), res, crs)
+
+    @classmethod
+    def from_dict(cls, g: dict) -> "Grid":
+        """Back from to_dict() (scene.json). Scenes written before `crs` existed are LV95."""
+        return cls(g["min_e"], g["min_n"], g["max_e"], g["max_n"], g["res"], g.get("crs") or LV95)
 
     @property
     def shape(self):
         return (self.rows, self.cols)
 
     def with_resolution(self, res: float) -> "Grid":
-        return Grid(self.min_e, self.min_n, self.max_e, self.max_n, res)
+        return Grid(self.min_e, self.min_n, self.max_e, self.max_n, res, self.crs)
 
     def wgs84_bbox(self, pad_m: float = 0.0):
         """(min_lon, min_lat, max_lon, max_lat) covering the grid."""
@@ -68,7 +105,7 @@ class Grid:
         lats, lons = [], []
         for e in es:
             for n in ns:
-                la, lo = lv95_to_wgs84(e, n)
+                la, lo = unproject(e, n, self.crs)
                 lats.append(float(la))
                 lons.append(float(lo))
         return min(lons), min(lats), max(lons), max(lats)
@@ -83,4 +120,4 @@ class Grid:
 
     def to_dict(self):
         return dict(min_e=self.min_e, min_n=self.min_n, max_e=self.max_e, max_n=self.max_n,
-                    res=self.res, rows=self.rows, cols=self.cols)
+                    res=self.res, rows=self.rows, cols=self.cols, crs=self.crs)

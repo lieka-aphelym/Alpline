@@ -191,7 +191,7 @@ class LiveLink:
 
     def _run_replay(self, track_file: Path, speed: float):
         """Turn a processed track (scene/tracks/*.json) back into CRSF frames, paced in real time."""
-        from .geo import lv95_to_wgs84
+        from .geo import unproject
         try:
             d = json.loads(Path(track_file).read_text(encoding="utf-8"))
             meta = json.loads((Path(track_file).parent.parent / "scene.json").read_text(encoding="utf-8"))
@@ -217,7 +217,7 @@ class LiveLink:
                 wait = ((T[i] or 0) - start_t) / max(speed, 0.05) - (time.monotonic() - t0)
                 if wait > 0 and self.stop_ev.wait(wait):
                     break
-                lat, lon = (float(v) for v in lv95_to_wgs84(g["min_e"] + d["x"][i], g["min_n"] + d["y"][i]))
+                lat, lon = (float(v) for v in unproject(g["min_e"] + d["x"][i], g["min_n"] + d["y"][i], g.get("crs") or "EPSG:2056"))
                 if prev is not None:
                     dt = max((T[i] or 0) - (T[prev] or 0), 1e-3)
                     dx, dy, dz = d["x"][i] - d["x"][prev], d["y"][i] - d["y"][prev], d["z"][i] - d["z"][prev]

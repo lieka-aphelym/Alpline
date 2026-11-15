@@ -82,6 +82,43 @@ def make_tile(kind, ke, kn, gsd):
     return p
 
 
+def world_height(lat, lon):
+    """The fake worldwide model: a slope rising to the north-east, with ripples."""
+    return (800 + 4000 * (lat % 1) + 2000 * (lon % 1) + 30 * np.sin(lat * 900) * np.cos(lon * 700)).astype(np.float32)
+
+
+PHOTO_SPOT = (47.26, 11.39)     # lat, lon where the fake photo is mid-grey (the test location abroad)
+
+
+def make_photo_tile(z, x, y):
+    """A tile of the fake satellite photo: around PHOTO_SPOT red grows to the east and green to the north
+    (about 20 levels per km), blue is constant."""
+    import io
+    from PIL import Image
+    n = 1 << z
+    lon = ((x + (np.arange(256) + 0.5) / 256) / n) * 360 - 180
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (y + (np.arange(256) + 0.5) / 256) / n))))
+    LO, LA = np.meshgrid(lon, lat)
+    rgb = np.stack([np.clip(128 + 1500 * (LO - PHOTO_SPOT[1]), 0, 255), np.clip(128 + 1500 * (LA - PHOTO_SPOT[0]), 0, 255),
+                    np.full(LO.shape, 120.0)], 2).astype(np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(rgb).save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
+def make_square(lat, lon, n=1200):
+    """A 1 degree square of the fake worldwide model (3 arc-seconds to keep it light), like Copernicus' files."""
+    p = TMP / f"world_{lat}_{lon}.tif"
+    if not p.exists():
+        lons = lon + (np.arange(n) + 0.5) / n
+        lats = lat + 1 - (np.arange(n) + 0.5) / n
+        LO, LA = np.meshgrid(lons, lats)
+        with rasterio.open(p, "w", driver="GTiff", width=n, height=n, count=1, dtype="float32", crs="EPSG:4326",
+                           transform=from_origin(lon, lat + 1, 1 / n, 1 / n)) as d:
+            d.write(world_height(LA, LO), 1)
+    return p
+
+
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -112,6 +149,24 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(body)
+            return
+        m = re.match(r"/copernicus/Copernicus_DSM_COG_10_([NS])(\d+)_00_([EW])(\d+)_00_DEM/", u.path)
+        if m:                           # worldwide model: 1 degree squares, the southern hemisphere is "all sea"
+            if m.group(1) == "S":
+                return self.send_error(404)
+            data = make_square(int(m.group(2)), int(m.group(4)) * (1 if m.group(3) == "E" else -1)).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        m = re.match(r"/s2/(\d+)/(\d+)/(\d+)\.jpg", u.path)
+        if m:                           # worldwide satellite photo: web-map tiles, zoom / row / column
+            data = make_photo_tile(int(m.group(1)), int(m.group(3)), int(m.group(2)))
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
             return
         m = re.match(r"/tiles/(\w+)/(\d+)/(\d+)/([\d.]+)/", u.path)
         if m:

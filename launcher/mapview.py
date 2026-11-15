@@ -1,4 +1,5 @@
-"""The map page: Switzerland with your locations, the locations list and the callout of the selected one."""
+"""The map page: the map (Switzerland, and the world around it) with your locations, the locations list and the
+callout of the selected one."""
 from __future__ import annotations
 
 import math
@@ -150,17 +151,21 @@ class Card:
         self.fly_btn.configure(state="normal" if l.get("built") else "disabled")
 
 
-# ---------------------------------------------------------------- Switzerland map
+# ---------------------------------------------------------------- the map
 # swisstopo's grey map with relief shading, dimmed outside Switzerland, and the FOCA drone zones as red outlines (styled
 # tiles: fpv3d/launcher_tiles.py). An overview of Switzerland and its neighbours at zoom 9 shows at once; sharper tiles
 # (down to zoom 13: towns, roads, rivers) load while you zoom in and stay in cache/launcher/ for offline use, as do the
 # tiles around your locations ([update map] fetches them).
+# Beyond that overview the map goes on as a darkened satellite picture of the whole world (tiles from zoom 2), so
+# locations abroad show too. Everything is measured in overview pixels (zoom 9) from the overview's top-left corner:
+# places west or north of it simply have negative coordinates.
 
 MAP_DIR = ROOT / "cache" / "launcher"
 WIDE = (4.6, 45.2, 11.9, 48.6)                      # overview area: Switzerland + neighbours (lon/lat W, S, E, N)
 CH_BOX = (5.85, 45.75, 10.6, 47.9)                  # Switzerland ([CH] button)
 ZM = 9                                               # zoom of the overview = the map's own pixel unit
 ZMAX = 13
+WORLD = (-179.9, -78.0, 179.9, 80.0)                 # how far the map can be moved (lon/lat W, S, E, N)
 MAP_BG = "#0c1016"
 MPP = 156543.03 / 2 ** ZM                            # metres per map pixel at the equator
 
@@ -174,21 +179,27 @@ def merc(lon, lat, z=ZM):
     return x, y
 
 
-def soft_edges(img, width=110):
-    """Fade the map into the page background along its edges, so it doesn't end like a picture on a screen."""
+def edge_mask(size, width=110):
+    """White in the middle, fading to black along the edges."""
     from PIL import Image, ImageDraw
-    w, h = img.size
+    w, h = size
     mask = Image.new("L", (w, h), 255)
     d = ImageDraw.Draw(mask)
     for i in range(width):
         t = i / width
         d.rectangle([i, i, w - 1 - i, h - 1 - i], outline=int(255 * t * t * (3 - 2 * t)))
-    return Image.composite(img, Image.new("RGB", (w, h), MAP_BG), mask)
+    return mask
+
+
+def soft_edges(img, width=110):
+    """Fade the map into the page background along its edges, so it doesn't end like a picture on a screen."""
+    from PIL import Image
+    return Image.composite(img, Image.new("RGB", img.size, MAP_BG), edge_mask(img.size, width))
 
 
 class SwissMap:
-    """The map page. The map fills it and can be zoomed (wheel, + / −) and moved (drag); it opens framed on your
-    locations. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered group
+    """The map page. The map fills it and can be zoomed (wheel, + / −, out to the whole world) and moved (drag); it
+    opens framed on your locations. Locations are dots (yellow = built, grey ring = not built); nearby ones merge into a numbered group
     (click: zoom in). Names show once zoomed in. The selected location gets a callout next to its dot. The list
     (top left), the zoom buttons (top right) and the map options (bottom left) float over the map at fixed sizes."""
     GROUP_PX = 22                                    # dots closer than this merge into a group
@@ -197,6 +208,8 @@ class SwissMap:
         self.app = app
         x0, y0 = merc(WIDE[0], WIDE[3]); x1, y1 = merc(WIDE[2], WIDE[1])
         self.org, self.span = (x0, y0), (x1 - x0, y1 - y0)
+        wx0, wy0 = merc(WORLD[0], WORLD[3]); wx1, wy1 = merc(WORLD[2], WORLD[1])
+        self.world = (wx0 - x0, wy0 - y0, wx1 - x0, wy1 - y0)      # the world's box, in the same pixels
         self.tiles = None                            # fpv3d.launcher_tiles.Tiles (needs Pillow)
         self.tcache = {}                             # (z, x, y) -> (RGB, zones) in memory, newest last
         self.wanted, self.pending, self.failed = set(), set(), {}
@@ -268,7 +281,8 @@ class SwissMap:
                 "for the details before flying.")
         up = app.button(bi, "[update map]", lambda: self.download(force=True), small=True)
         up.pack(side="left", padx=(S(8), 0))
-        Tip(up, "Download the map, the relief and the latest drone zones again (needs internet; kept for offline use).")
+        Tip(up, "Download the map, the relief and the latest drone zones again (needs internet; kept for offline use).\n"
+                "Map: © swisstopo. Outside it: Sentinel-2 cloudless 2016 by EOX (CC BY 4.0).")
         self.info = FitLabel(bi, font=MONO_S, fg=FG2, bg=BG)
         self.info.pack(side="left", fill="x", expand=True, padx=(S(10), 0))
         self.hint = ""
@@ -357,15 +371,12 @@ class SwissMap:
         self.draw()
 
     def clamp(self, W, H):
-        """Keep the map on screen: at most a panel's width of empty space beside it (or centred when it is smaller)."""
-        for axis, size, room in ((0, W, S(360)), (1, H, S(110))):
-            span, half = self.span[axis], size / 2 / self.s
+        """Keep the map on screen: the view never leaves the world's box (centred on it when it is smaller)."""
+        for axis, size in ((0, W), (1, H)):
+            w0, w1 = self.world[axis], self.world[axis + 2]
+            half = size / 2 / self.s
             c = self.cx if axis == 0 else self.cy
-            if span * self.s + 2 * room <= size:
-                c = span / 2
-            else:
-                lo, hi = half - room / self.s, span - half + room / self.s
-                c = min(max(c, lo), hi)
+            c = (w0 + w1) / 2 if (w1 - w0) * self.s <= size else min(max(c, w0 + half), w1 - half)
             if axis == 0:
                 self.cx = c
             else:
@@ -375,11 +386,17 @@ class SwissMap:
         x0, y0 = self.mpx(CH_BOX[3], CH_BOX[0]); x1, y1 = self.mpx(CH_BOX[1], CH_BOX[2])
         return x0, y0, x1, y1
 
-    def min_s(self):
-        """Zoomed out: Switzerland with a margin of its neighbours."""
+    def ch_s(self):
+        """The scale at which Switzerland fills the page with a margin of its neighbours (the usual zoomed-out view;
+        names next to the dots and the framing of your locations are measured against it)."""
         W, H = self.size()
         x0, y0, x1, y1 = self.ch_box()
         return min((W - S(32)) / (x1 - x0), (H - S(32)) / (y1 - y0)) / 1.25
+
+    def min_s(self):
+        """Zoomed out all the way: the world fills the page."""
+        W, H = self.size()
+        return min(self.ch_s(), max(W / (self.world[2] - self.world[0]), H / (self.world[3] - self.world[1])))
 
     def max_s(self):
         return 2 ** (ZMAX - ZM) * 1.3                # a little past the sharpest tiles
@@ -404,7 +421,7 @@ class SwissMap:
             return self.fit_switzerland(draw)
         xs, ys = [p[0] for p in pts], [p[1] for p in pts]
         pad = 60                                     # stored px around them (about 15 km)
-        self.fit_box(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad, max_zoom=self.min_s() * 4)
+        self.fit_box(min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad, max_zoom=self.ch_s() * 4)
         if draw:
             self.draw()
 
@@ -570,6 +587,7 @@ class SwissMap:
             if full.size != (round(self.span[0]), round(self.span[1])):
                 full = full.resize((round(self.span[0]), round(self.span[1])), Image.LANCZOS)
             self.src["map"] = soft_edges(full)
+            self.src["mask"] = edge_mask(full.size)          # to lay the overview over the satellite picture
             if pz.exists():
                 with Image.open(pz) as z:
                     ov = z.convert("RGBA").resize(full.size)
@@ -577,49 +595,56 @@ class SwissMap:
                 self.src["map_z"] = soft_edges(zm)
             for k in list(self.src):                  # half size: used when zoomed out (4x fewer pixels to scale)
                 self.src[k + "_half"] = self.src[k].resize((full.size[0] // 2, full.size[1] // 2), Image.LANCZOS)
+            # small copies for the world view, where the whole overview is a few dozen pixels wide
+            for k in ("map", "map_z", "mask"):
+                if k in self.src:
+                    self.src[k + "_small"] = self.src[k].resize((full.size[0] // 8, full.size[1] // 8), Image.LANCZOS)
         except Exception as ex:                       # a damaged file: download again with [update map]
             unexpected(ex)
             self.hint = f"map file not readable ({ex.__class__.__name__}): [update map]"
 
-    def detail_zoom(self):
-        """Tile zoom for the current view (ZM = only the overview)."""
-        from fpv3d.launcher_tiles import zoom_for_scale
-        return zoom_for_scale(self.s, ZM, ZMAX)
+    def view_inside(self, W, H):
+        """Is the whole view inside the overview picture (the usual case: Switzerland and its neighbours)?"""
+        hw, hh = W / 2 / self.s, H / 2 / self.s
+        return self.cx - hw >= 0 and self.cy - hh >= 0 and self.cx + hw <= self.span[0] and self.cy + hh <= self.span[1]
+
+    def detail_zoom(self, W=None, H=None):
+        """Tile zoom for the current view (ZM = only the overview; less when the view shows more of the world)."""
+        from fpv3d.launcher_tiles import view_zoom
+        if W is None:
+            W, H = self.size()
+        return view_zoom(self.s, self.view_inside(W, H), ZM, zmax=ZMAX)
 
     def view_image(self, W, H, fast):
+        from PIL import ImageTk
+        return ImageTk.PhotoImage(self.compose(W, H, fast))
+
+    def compose(self, W, H, fast):
         """The visible part of the map at the window's size, as one image: the overview, with sharper tiles on top
-        when zoomed in (those not loaded yet are fetched in the background; the overview shows meanwhile)."""
-        from PIL import Image, ImageTk
+        when zoomed in (those not loaded yet are fetched in the background; the overview shows meanwhile). A view
+        that reaches beyond the overview gets the world's satellite tiles first, and the overview laid over them."""
+        from PIL import Image
+        from fpv3d.launcher_tiles import in_wide
         zones = self.zones.get()
-        key = "map_z" if zones and "map_z" in self.src else "map"
-        k = 1.0
-        if self.s <= 0.55 and key + "_half" in self.src:          # zoomed out: the half-size copy is enough
-            key, k = key + "_half", 0.5
-        im = self.src[key]
-        s = self.s / k
-        x0, y0 = (self.cx - W / 2 / self.s) * k, (self.cy - H / 2 / self.s) * k
-        x1, y1 = x0 + W / s, y0 + H / s
         out = Image.new("RGB", (W, H), MAP_BG)
-        ix0, iy0 = max(0, x0), max(0, y0)
-        ix1, iy1 = min(im.size[0], x1), min(im.size[1], y1)
-        if ix1 - ix0 >= 1 and iy1 - iy0 >= 1:
-            box = (int(ix0), int(iy0), math.ceil(ix1), math.ceil(iy1))
-            dx, dy = round((box[0] - x0) * s), round((box[1] - y0) * s)
-            dw, dh = max(1, round((box[2] - box[0]) * s)), max(1, round((box[3] - box[1]) * s))
-            out.paste(im.crop(box).resize((dw, dh), Image.BILINEAR if fast else Image.LANCZOS), (dx, dy))
-        z = self.detail_zoom()
+        z = self.detail_zoom(W, H)
         self.wanted = set()
-        if z > ZM and self.tiles:
+        under = z <= ZM and not self.view_inside(W, H)        # the world goes under the overview
+
+        def tiles(skip_map):
             f = 2 ** (z - ZM)                         # tile pixels per map pixel
             gx = lambda X: W / 2 + (X / f - self.org[0] - self.cx) * self.s       # global px at z -> screen
             gy = lambda Y: H / 2 + (Y / f - self.org[1] - self.cy) * self.s
-            tx0 = int(((self.cx - W / 2 / self.s) + self.org[0]) * f // 256)
-            ty0 = int(((self.cy - H / 2 / self.s) + self.org[1]) * f // 256)
-            tx1 = int(((self.cx + W / 2 / self.s) + self.org[0]) * f // 256)
-            ty1 = int(((self.cy + H / 2 / self.s) + self.org[1]) * f // 256)
+            last = 2 ** z - 1
+            tx0 = max(0, int(((self.cx - W / 2 / self.s) + self.org[0]) * f // 256))
+            ty0 = max(0, int(((self.cy - H / 2 / self.s) + self.org[1]) * f // 256))
+            tx1 = min(last, int(((self.cx + W / 2 / self.s) + self.org[0]) * f // 256))
+            ty1 = min(last, int(((self.cy + H / 2 / self.s) + self.org[1]) * f // 256))
             ctr = ((tx0 + tx1) / 2, (ty0 + ty1) / 2)
             for tx, ty in sorted(((x, y) for x in range(tx0, tx1 + 1) for y in range(ty0, ty1 + 1)),
                                  key=lambda t: (t[0] - ctr[0]) ** 2 + (t[1] - ctr[1]) ** 2):    # centre first
+                if skip_map and in_wide(z, tx, ty):   # the overview shows this part
+                    continue
                 t = self.tile(z, tx, ty, load=not fast)
                 if t is None:
                     continue
@@ -632,7 +657,34 @@ class SwissMap:
                 if zones and t[1] is not None:
                     zt = t[1].resize((R - L, B - T), Image.BILINEAR)
                     out.paste(zt, (L, T), zt)
-        return ImageTk.PhotoImage(out)
+
+        if under and self.tiles:
+            tiles(skip_map=True)
+        key = "map_z" if zones and "map_z" in self.src else "map"
+        k, size = 1.0, ""
+        if self.s <= 0.14 and key + "_small" in self.src:         # the world view: the overview is tiny
+            k, size = 0.125, "_small"
+        elif self.s <= 0.55 and key + "_half" in self.src:        # zoomed out: the half-size copy is enough
+            k, size = 0.5, "_half"
+        im = self.src[key + size]
+        s = self.s / k
+        x0, y0 = (self.cx - W / 2 / self.s) * k, (self.cy - H / 2 / self.s) * k
+        x1, y1 = x0 + W / s, y0 + H / s
+        ix0, iy0 = max(0, x0), max(0, y0)
+        ix1, iy1 = min(im.size[0], x1), min(im.size[1], y1)
+        if ix1 - ix0 >= 1 and iy1 - iy0 >= 1:
+            box = (int(ix0), int(iy0), math.ceil(ix1), math.ceil(iy1))
+            dx, dy = round((box[0] - x0) * s), round((box[1] - y0) * s)
+            dw, dh = max(1, round((box[2] - box[0]) * s)), max(1, round((box[3] - box[1]) * s))
+            flt = Image.BILINEAR if fast else Image.LANCZOS
+            part = im.crop(box).resize((dw, dh), flt)
+            if under:                                 # fade its edges into the satellite picture, not into the page
+                out.paste(part, (dx, dy), self.src["mask" + size].crop(box).resize((dw, dh), Image.BILINEAR))
+            else:
+                out.paste(part, (dx, dy))
+        if z > ZM and self.tiles:
+            tiles(skip_map=False)
+        return out
 
     def tile(self, z, x, y, load=True):
         """A styled tile from memory, else from disk (load=True), else asked for in the background (None)."""
@@ -785,7 +837,7 @@ class SwissMap:
         from fpv3d.launcher_tiles import group_points
         pts = [(l, self.px(*l["center"])) for l in self.locs]
         items = group_points(pts, S(self.GROUP_PX))  # dots closer than GROUP_PX merge into groups
-        names = self.s >= self.min_s() * 2.2         # zoomed in: names next to the dots
+        names = self.s >= self.ch_s() * 2.2          # zoomed in: names next to the dots
         labels = [(i["p"][0] - S(15), i["p"][1] - S(15), i["p"][0] + S(15), i["p"][1] + S(15))
                   for i in items if len(i["m"]) > 1]  # numbers never cover a group badge
 

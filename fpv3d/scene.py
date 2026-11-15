@@ -20,9 +20,10 @@ from PIL import Image
 
 from . import logs as logmod
 from . import buildings as bldmod
-from . import geozones, progress, radio, swisstopo
+from . import geozones, progress, radio
+from . import terrain as terrainmod
 from .config import VALID_RES, LocationConfig
-from .geo import Grid, lv95_to_wgs84, wgs84_to_lv95
+from .geo import Grid, project, unproject
 from .los import Terrain, los_ceilings, path_clearance
 from .paths import from_portable, portable
 from .safefile import write_atomic
@@ -34,23 +35,22 @@ def log(msg):
 
 # ---------------------------------------------------------------- terrain
 
-def elevation_for(cfg: LocationConfig, grid: Grid, kind: str, cache: Path, refresh=False):
+def elevation_for(cfg: LocationConfig, grid: Grid, kind: str, cache: Path, refresh=False, used=None):
     """Elevation on `grid`. For a corridor: full detail on the strip's tiles, a coarse bare-ground
     'context' (10 m) between the pilot and the route, the lowest height elsewhere (never crossed
     by a signal path)."""
     cor = cfg.corridor
     if cor is None or cfg.terrain.local_dem_files:
-        return swisstopo.elevation(grid, kind, cache, cfg.terrain.local_dem_files if kind == cfg.terrain.surface else None, refresh)
+        return terrainmod.elevation(grid, kind, cache, cfg.terrain.local_dem_files if kind == cfg.terrain.surface else None, refresh, used=used)
     from .corridor import CONTEXT_RES
-    dem = swisstopo.elevation(grid, kind, cache, None, refresh, keys=cor.tile_keys(), fill=False)
+    dem = terrainmod.elevation(grid, kind, cache, None, refresh, keys=cor.tile_keys(), fill=False, used=used)
     nan = np.isnan(dem)
     if nan.any():
         cres = max(CONTEXT_RES, grid.res)
         cgrid = grid.with_resolution(cres)
-        pil = cfg.pilot.lv95() if cfg.pilot else None
-        ckeys = cor.context_keys(pil)
+        ckeys = cor.context_keys(cfg.pilot_en())
         log(f"[terrain] context between pilot and route: {len(ckeys)} km² of bare ground at {cres:g} m")
-        ctx = swisstopo.elevation(cgrid, "dtm", cache, None, refresh, keys=ckeys, fill=False)
+        ctx = terrainmod.elevation(cgrid, "dtm", cache, None, refresh, keys=ckeys, fill=False, used=used)
         low = float(np.nanmin(ctx)) if np.isfinite(ctx).any() else float(np.nanmin(dem))
         ctx[np.isnan(ctx)] = low
         t = Terrain(ctx, cgrid)
@@ -71,29 +71,36 @@ def build_terrain(cfg: LocationConfig, out: Path, cache: Path, skip_ortho=False,
     shape = f"corridor {cfg.corridor.length_m / 1000:.1f} km x {2 * cfg.corridor.width:g} m" if cfg.corridor else "square"
     log(f"[terrain] {grid.cols}x{grid.rows} cells @ {grid.res} m  ({cfg.terrain.surface}, {shape})")
     progress.emit("phase", id="terrain", label=f"Elevation {grid.res:g} m ({'trees + buildings' if cfg.terrain.surface == 'dsm' else 'bare ground'})")
-    dem = elevation_for(cfg, grid, cfg.terrain.surface, cache, refresh)
+    used = []
+    dem = elevation_for(cfg, grid, cfg.terrain.surface, cache, refresh, used)
+    if used:
+        log("[terrain] heights from " + " + ".join(s.name for s in used))
     out.mkdir(parents=True, exist_ok=True)
     dem.astype("<f4").tofile(out / "terrain.f32")
 
-    has_ortho = False
+    has_ortho, oused = False, []
     if cfg.terrain.ortho and not skip_ortho:
         try:
-            log("[ortho] SWISSIMAGE")
-            ores = cfg.ortho_res(grid)
+            # a satellite-only place: asking for a sharper photo than the satellite's would only enlarge it
+            ores = max(cfg.ortho_res(grid), terrainmod.photo_native_m(grid.crs))
+            log(f"[ortho] aerial photo {ores:g} m")
             progress.emit("phase", id="ortho", label=f"Aerial photo {ores:g} m")
             ogrid = grid.with_resolution(ores)
-            img = swisstopo.orthophoto(ogrid, cache, refresh, keys=cfg.corridor.tile_keys() if cfg.corridor else None)
+            img = terrainmod.orthophoto(ogrid, cache, refresh, keys=cfg.corridor.tile_keys() if cfg.corridor else None,
+                                        used=oused)
             Image.fromarray(img).save(out / "ortho.jpg", quality=88)
             has_ortho = True
-        except Exception as ex:  # imagery is optional
+            log("[ortho] photo from " + " + ".join(s.name for s in oused))
+        except (Exception, SystemExit) as ex:  # imagery is optional
             log(f"[ortho] skipped: {ex}")
-    return grid, dem, has_ortho
+    credits = lambda ss: [dict(name=s.name, credit=s.credit) for s in ss]  # noqa: E731
+    return grid, dem, has_ortho, credits(used), credits(oused)
 
 
 def load_terrain(out: Path):
     meta = json.loads((out / "scene.json").read_text(encoding="utf-8"))
     g = meta["grid"]
-    grid = Grid(g["min_e"], g["min_n"], g["max_e"], g["max_n"], g["res"])
+    grid = Grid.from_dict(g)
     dem = np.fromfile(out / "terrain.f32", dtype="<f4").reshape(grid.shape)
     return meta, grid, dem
 
@@ -157,6 +164,8 @@ def detail_ortho(cfg: LocationConfig, cache: Path, grid: Grid, pilot, refresh=Fa
     od = float(od)
     if od >= cfg.ortho_res(grid):
         return None
+    if grid.crs != "EPSG:2056":                       # the sharp photo is swisstopo's: Switzerland only
+        return None
     from .tilecache import TILE, TileCache
     r = cfg.terrain.detail_radius_m
     e, n = grid.min_e + pilot["x"], grid.min_n + pilot["y"]
@@ -180,13 +189,13 @@ def detail_ortho(cfg: LocationConfig, cache: Path, grid: Grid, pilot, refresh=Fa
 
 def pilot_position(cfg: LocationConfig, terrain: Terrain, tracks):
     if cfg.pilot is not None:
-        e, n = cfg.pilot.lv95()
+        e, n = cfg.pilot_en()
         src = "config"
     elif tracks:
-        e, n = wgs84_to_lv95(tracks[0].lat[0], tracks[0].lon[0])
+        e, n = project(tracks[0].lat[0], tracks[0].lon[0], terrain.grid.crs)
         src = f"first fix of {tracks[0].name}"
     else:
-        e, n = cfg.center.lv95()
+        e, n = cfg.center_en()
         src = "map centre"
     x, y = terrain.grid.to_local(float(e), float(n))
     ground = float(terrain.height(x, y))
@@ -283,7 +292,7 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
 # ---------------------------------------------------------------- tracks
 
 def process_track(cfg: LocationConfig, terrain: Terrain, pilot, track: logmod.Track, opts: dict):
-    e, n = wgs84_to_lv95(track.lat, track.lon)
+    e, n = project(track.lat, track.lon, terrain.grid.crs)
     x, y = terrain.grid.to_local(e, n)
     ground = terrain.height(x, y)
     z = logmod.resolve_altitude_amsl(track, ground, opts.get("altitude_mode", "auto"),
@@ -538,9 +547,10 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
     if reuse_terrain and (out / "scene.json").exists():
         old, grid, dem = load_terrain(out)
         has_ortho = old.get("ortho") is not None
+        tsources, osources = old.get("terrain_sources") or [], old.get("ortho_sources") or []
         log("[terrain] reusing existing terrain")
     else:
-        grid, dem, has_ortho = build_terrain(cfg, out, cache, skip_ortho, refresh)
+        grid, dem, has_ortho, tsources, osources = build_terrain(cfg, out, cache, skip_ortho, refresh)
     terrain = Terrain(dem, grid)
     pilot = pilot_position(cfg, terrain, tracks_for_pilot)
     extras = build_extras(cfg, out, cache, grid, dem, refresh)
@@ -550,14 +560,14 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
     progress.emit("phase", id="tracks", label="Flight logs")
     tracks = add_tracks(cfg, terrain, pilot, out, list(log_paths) + redo, keep)
     progress.emit("phase", id="zones", label="Drone zones (FOCA)")
-    zones = geozones.write_scene_zones(out, grid, cache, refresh)
+    zones = _zones(out, grid, cache, refresh, tsources)
 
-    lat, lon = lv95_to_wgs84((grid.min_e + grid.max_e) / 2, (grid.min_n + grid.max_n) / 2)
+    lat, lon = unproject((grid.min_e + grid.max_e) / 2, (grid.min_n + grid.max_n) / 2, grid.crs)
     meta = dict(
         version=1, name=cfg.name, title=cfg.title,
         generated=time.strftime("%Y-%m-%d %H:%M"),
         grid=grid.to_dict(), center_wgs84=[float(lat), float(lon)],
-        surface=cfg.terrain.surface,
+        surface=cfg.terrain.surface, terrain_sources=tsources, ortho_sources=osources if has_ortho else [],
         elevation=dict(min=float(dem.min()), max=float(dem.max())),
         terrain="terrain.f32", ortho="ortho.jpg" if has_ortho else None,
         pilot=pilot,
@@ -570,7 +580,7 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
         los_layers=layers,
         shadow3d=shadow3d,
         geozones=zones,
-        corridor=cfg.corridor.to_meta(grid, cfg.pilot.lv95() if cfg.pilot else None) if cfg.corridor is not None else None,
+        corridor=cfg.corridor.to_meta(grid, cfg.pilot_en()) if cfg.corridor is not None else None,
         tracks=tracks,
         **extras,
     )
@@ -608,8 +618,17 @@ def refresh_zones(cfg: LocationConfig, scenes_dir: Path, cache: Path, refresh=Tr
     """Update only the drone geozones of an existing scene (fast, no terrain work)."""
     out = scenes_dir / cfg.name
     meta, grid, _ = load_terrain(out)
-    meta["geozones"] = geozones.write_scene_zones(out, grid, cache, refresh)
+    meta["geozones"] = _zones(out, grid, cache, refresh, meta.get("terrain_sources") or [])
     write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
+
+
+def _zones(out: Path, grid: Grid, cache: Path, refresh, tsources):
+    """The Swiss drone zones of a scene; None for a place with no swisstopo terrain at all (it is abroad: "0 zones"
+    there would read as "free to fly")."""
+    if tsources and not any(s["name"] == "swisstopo" for s in tsources):
+        log("[zones] drone geozones are only known for Switzerland - none for this place")
+        return None
+    return geozones.write_scene_zones(out, grid, cache, refresh)
 
 
 def update_index(scenes_dir: Path):

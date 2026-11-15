@@ -1,4 +1,5 @@
 import { esc } from '../core/esc.js';
+import { toWGS } from '../core/geo.js';
 // fpv3d — training-flight simulator.
 //
 // Fly over the real swisstopo terrain with your radio (USB joystick mode, read through the
@@ -15,14 +16,6 @@ const G = 9.81;
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 const LS_KEY = 'fpv3d:sim:settings';
-
-// ---------------------------------------------------------------- LV95 -> WGS84 (swisstopo approx.)
-function toWGS(e, n) {
-  const y = (e - 2600000) / 1e6, x = (n - 1200000) / 1e6;
-  const l = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3;
-  const p = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.014 * x ** 3;
-  return [p * 100 / 36, l * 100 / 36];
-}
 
 // ---------------------------------------------------------------- radio model (mirrors fpv3d/radio.py)
 const fspl = (d, f) => 20 * Math.log10(Math.max(d, 1) / 1000) + 20 * Math.log10(f) + 32.44;
@@ -400,7 +393,7 @@ export function initSim(app) {
   // ---------------------------------------------------------------- recording / saving
   function record(inp) {
     const lx = st.pos.x + S.W / 2, ly = -st.pos.z + S.H / 2, g = S.meta.grid;
-    const [lat, lon] = toWGS(g.min_e + lx, g.min_n + ly);
+    const [lat, lon] = toWGS(g.min_e + lx, g.min_n + ly, g.crs);
     const row = { t: st.t, lat, lon, alt: st.pos.y + S.hBase, speed: st.vel.length(), thr: inp.throttle };
     st.sig?.links.forEach((l, j) => { row[`m${j}`] = l.margin; row[`r${j}`] = l.rssi; row[`q${j}`] = l.lq; });
     st.rec.push(row);

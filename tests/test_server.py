@@ -194,6 +194,81 @@ def test_https_certificate():
     assert tlscert.CA_CRT.read_bytes() == ca1
 
 
+def test_place_search_worldwide():
+    """The map page's search: a typed position is used as it is; Swiss places come from swisstopo; a foreign name
+    (swisstopo answers those with far-fetched Swiss ones) comes from the worldwide search, which is only asked when
+    the user switched it on."""
+    from fpv3d import server
+    asked = []
+    swiss = {"moleson": [dict(attrs=dict(label="<b>Moléson</b> (FR)", lat=46.55, lon=7.02))],
+             "innsbruck": [dict(attrs=dict(label="Ort Einisberg (BE)", lat=47.0, lon=7.6))],
+             "chamonix": [dict(attrs=dict(label=f"Avenue de Chamonix {i} 1207 Genève", y=2501000.0, x=1117000.0)) for i in range(9)]}
+    world = {"innsbruck": [dict(properties=dict(name="Innsbruck", state="Tyrol", country="Austria", countrycode="AT"),
+                                geometry=dict(coordinates=[11.39, 47.27]))],
+             "chamonix": [dict(properties=dict(name="Chamonix-Mont-Blanc", country="France", countrycode="FR"),
+                               geometry=dict(coordinates=[6.87, 45.92])),
+                          dict(properties=dict(name="Chamonix", country="Schweiz", countrycode="CH"), geometry=dict(coordinates=[6.1, 46.2]))]}
+
+    def fake(url, timeout=10):
+        asked.append(url)
+        q = url.rsplit("=", 1)[-1].lower()
+        return dict(features=world.get(q, [])) if "photon" in url else dict(results=swiss.get(q, []))
+    old = server._fetch_json
+    server._fetch_json = fake
+    try:
+        assert server.place_search(" 47.26, 11.39 ") == [dict(label="47.26000, 11.39000 (position)", lat=47.26, lon=11.39)]
+        assert server.place_search("-33.96 18.41")[0]["lat"] == -33.96 and not asked           # nothing was sent anywhere
+        assert [r["label"] for r in server.place_search("moleson")] == ["Moléson (FR)"]         # accents don't matter
+        assert [x["label"] for x in server.place_search("Innsbruck")] == ["Ort Einisberg (BE)"]  # as before: swisstopo only
+        assert len(server.place_search("Chamonix")) == 9
+        assert asked and not any("photon" in u for u in asked)             # not switched on: Photon is never asked
+        r = server.place_search("Innsbruck", world=True)
+        assert [x["label"] for x in r] == ["Innsbruck (Tyrol, Austria)"] and r[0]["lon"] == 11.39   # not the Swiss hamlet
+        r = server.place_search("Chamonix", world=True)
+        assert len(r) == 6 and r[0]["label"].startswith("Avenue de Chamonix") and r[-1]["label"] == "Chamonix-Mont-Blanc (France)"
+        assert abs(r[0]["lat"] - 46.2) < 0.05                                                    # LV95 answer converted
+        assert server.place_search("zzz") == [] and server.place_search("zzz", world=True) == []
+        server._fetch_json = lambda url, timeout=10: (_ for _ in ()).throw(OSError("offline"))
+        for w in (False, True):
+            try:
+                server.place_search("anything", world=w); raise AssertionError("offline search must fail, not return nothing")
+            except OSError:
+                pass
+    finally:
+        server._fetch_json = old
+
+
+def test_place_height_abroad():
+    """Ground height for the map page outside Switzerland: read from the worldwide model's file when it is there,
+    and from the cache once the place is built; unknown rather than wrong when neither is."""
+    import tempfile
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from fpv3d import server, sources, terrain
+    from fpv3d.copernicus import square_name
+    from fpv3d.tilecache import TileCache
+    root = Path(tempfile.mkdtemp())
+    raw = sources.worldwide("EPSG:32632").raw_dir(root, "dtm")
+    raw.mkdir(parents=True)
+    n = 360
+    lat = 48 - (np.arange(n) + 0.5) / n
+    h = np.repeat((1000 + 1000 * (lat - 47))[:, None], n, 1).astype(np.float32)        # 1000 m at 47 N, 2000 m at 48 N
+    with rasterio.open(raw / f"{square_name(47, 11)}.tif", "w", driver="GTiff", width=n, height=n, count=1, dtype="float32",
+                       crs="EPSG:4326", transform=from_origin(11, 48, 1 / n, 1 / n)) as d:
+        d.write(h, 1)
+    r = server.place_height(TileCache(root), 47.5, 11.5)
+    assert r["crs"] == "EPSG:32632" and abs(r["height"] - 1500) < 5 and "worldwide" in r["source"], r
+    assert 600000 < r["e"] < 700000 and 5200000 < r["n"] < 5300000                     # UTM 32N, not LV95
+    assert terrain.world_height(root, 30.0, -40.0, "EPSG:32624", online=False) is None  # no file, not asked online
+    dem = terrain.elevation(terrain.Grid(687000, 5263000, 689000, 5265000, 10, "EPSG:32632"), "dtm", root)
+    assert dem.shape == (200, 200)
+    r2 = server.place_height(TileCache(root), 47.5, 11.5)
+    assert "cache" in r2["source"] and abs(r2["height"] - r["height"]) < 10, r2          # now from the built tiles
+    inv = terrain.world_inventory(root)
+    assert [(w["source"], w["crs"]) for w in inv] == [("copernicus", "EPSG:32632")] and len(inv[0]["lod"]["dtm"]["10"]) == 4
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):

@@ -79,6 +79,133 @@ def test_tilecache_offline_mosaic(tmp=None):
     assert np.array_equal(m, m2)
 
 
+def test_grid_other_coordinate_system():
+    """A grid outside Switzerland: UTM zone picked from the place, there and back within a metre, kept in scene.json."""
+    from fpv3d.geo import project, unproject, utm_crs
+    assert utm_crs(45.83, 6.86) == "EPSG:32632" and utm_crs(-33.9, 18.4) == "EPSG:32734" and utm_crs(40.7, -74.0) == "EPSG:32618"
+    crs = utm_crs(45.8326, 6.8652)                              # Mont Blanc
+    e, n = project(45.8326, 6.8652, crs)
+    lat, lon = unproject(e, n, crs)
+    assert abs(lat - 45.8326) < 1e-5 and abs(lon - 6.8652) < 1e-5
+    ea, na = project(np.array([45.8, 45.9]), np.array([6.8, 6.9]), crs)
+    assert ea.shape == (2,) and na[1] - na[0] > 10_000          # 0.1 degree of latitude is about 11 km
+    e2, n2 = project(46.95108, 7.43864, "EPSG:2056")            # LV95 still goes through the swisstopo formulas
+    assert abs(float(e2) - 2600000) < 2 and abs(float(n2) - 1200000) < 2
+    g = Grid.around(float(e), float(n), 500, 10, crs)
+    assert g.with_resolution(5).crs == crs and Grid.from_dict(g.to_dict()).crs == crs
+    lo0, la0, lo1, la1 = g.wgs84_bbox()
+    assert lo0 < 6.8652 < lo1 and la0 < 45.8326 < la1
+    old = {k: v for k, v in Grid(0, 0, 1000, 1000, 10).to_dict().items() if k != "crs"}
+    assert Grid.from_dict(old).crs == "EPSG:2056"               # scenes written before crs existed are Swiss
+
+
+def test_tilecache_second_source(tmp=None):
+    """Another terrain source (own coordinate system, two files for one tile) fills the same cache, in its own folder."""
+    import tempfile
+    import rasterio
+    from rasterio.transform import from_origin
+    from fpv3d import sources
+    from fpv3d.tilecache import TileCache
+    root = Path(tmp or tempfile.mkdtemp())
+    asked = []
+
+    class Fake(sources.TerrainSource):
+        name, host, crs, kinds, cache_prefix = "fake", "example.invalid", "EPSG:32632", ("dtm",), "fake"
+
+        def raw_dir(self, root, kind):
+            return Path(root) / "raw" / kind
+
+        def lookup(self, kind, keys, res):
+            asked.append(list(keys))
+            return {k: [sources.Found(f"{k[0]}-{k[1]}-w", dict(part="w")), sources.Found(f"{k[0]}-{k[1]}-e", dict(part="e"))]
+                    for k in keys if k != (341, 5077)}          # the provider has nothing for one tile
+
+        def download(self, root, kind, found, on_progress=None):
+            ke, kn, half = found.href.split("-")
+            d = self.raw_dir(root, kind); d.mkdir(parents=True, exist_ok=True)
+            p = d / f"{found.href}.tif"                          # west half holds 100 m, east half 200 m
+            with rasterio.open(p, "w", driver="GTiff", width=50, height=100, count=1, dtype="float32", crs=self.crs,
+                               transform=from_origin(int(ke) * 1000 + (500 if half == "e" else 0), (int(kn) + 1) * 1000, 10, 10)) as f:
+                f.write(np.full((100, 50), 200 if half == "e" else 100, np.float32), 1)
+            return p
+
+    tc = TileCache(root, Fake())
+    g = Grid(340000, 5076000, 342000, 5078000, 10, "EPSG:32632")
+    m = tc.mosaic("dtm", g)
+    assert m.shape == (200, 200) and m[150, 10] == 100 and m[150, 90] == 200    # both halves of the south-west tile
+    assert np.isnan(m[10, 150]) and not np.isnan(m[10, 50])                       # the tile without data stays empty
+    assert (root / "fake" / "lod" / "dtm" / "10m" / "340-5076.npy").exists() and not (root / "lod").exists()
+    assert np.array_equal(tc.mosaic("dtm", g), m, equal_nan=True) and len(asked) == 1   # second call: no query
+    assert TileCache(root).inventory() == {"lod": {}, "raw": {}}                  # the swisstopo cache is untouched
+    assert [s.name for s in sources.chain("EPSG:2056", "dtm")] == ["swisstopo", "copernicus"]   # the world model fills gaps
+    assert [s.name for s in sources.chain(None, "ortho")] == ["swisstopo", "sentinel2"]
+    assert [s.name for s in sources.chain("EPSG:32632", "dsm")] == ["copernicus"]
+    assert [s.name for s in sources.chain("EPSG:32632", "ortho")] == ["sentinel2"]
+
+
+def test_gaps_filled_by_next_source(tmp=None):
+    """Where the first source has nothing (swisstopo across the border), the next one fills in; the first one's
+    heights are never replaced."""
+    import tempfile
+    from fpv3d import sources, terrain
+    from fpv3d.tilecache import TileCache
+    root = Path(tmp or tempfile.mkdtemp())
+
+    def fake(name, height, skip=()):
+        class Src(sources.TerrainSource):
+            crs, kinds, cache_prefix, credit = "EPSG:2056", ("dtm",), name, name
+
+            def raw_dir(self, root, kind):
+                return Path(root) / name
+
+            def lookup(self, kind, keys, res):
+                return {}
+        s = Src(); s.name = name
+        tc = TileCache(root, s)
+        tc.lod_dir("dtm", 10).mkdir(parents=True, exist_ok=True)
+        for k in [(2600, 1200), (2601, 1200)]:
+            if k not in skip:
+                np.save(tc.tile_path("dtm", 10, k), np.full((100, 100), height, np.float32))
+        return s
+
+    first, second = fake("first", 500, skip=[(2601, 1200)]), fake("second", 900)
+    old = sources.chain
+    sources.chain = lambda crs, kind: [first, second]
+    try:
+        used = []
+        dem = terrain.elevation(Grid(2600000, 1200000, 2602000, 1201000, 10), "dtm", root, used=used)
+        assert (dem[:, :100] == 500).all() and (dem[:, 100:] == 900).all() and [s.name for s in used] == ["first", "second"]
+        used = []
+        dem = terrain.elevation(Grid(2600000, 1200000, 2601000, 1201000, 10), "dtm", root, used=used)
+        assert (dem == 500).all() and [s.name for s in used] == ["first"]          # nothing missing: the second is not asked
+    finally:
+        sources.chain = old
+
+
+def test_copernicus_squares():
+    """The worldwide model's file names, in all four quarters of the globe and across a square's edge."""
+    from fpv3d.copernicus import Copernicus, square_name
+    assert square_name(45, 6) == "Copernicus_DSM_COG_10_N45_00_E006_00_DEM"
+    assert square_name(-34, 18) == "Copernicus_DSM_COG_10_S34_00_E018_00_DEM"
+    assert square_name(40, -75) == "Copernicus_DSM_COG_10_N40_00_W075_00_DEM"
+    c = Copernicus("EPSG:32632")
+    assert c.squares((681, 5239)) == [(47, 11)]                                 # Innsbruck
+    assert sorted(c.squares((652, 5207))) == [(46, 10), (46, 11), (47, 10), (47, 11)]   # the corner of four squares
+    assert Copernicus("EPSG:32734").squares((259, 6245)) == [(-34, 18)]         # Cape Town
+
+
+def test_sentinel2_tiles():
+    """The satellite photo's web-map tile numbers (Innsbruck: checked against PROJ's web-mercator position)."""
+    from fpv3d.sentinel2 import Sentinel2, tile_at, tile_bounds
+    assert tile_at(0.0, 0.0, 1) == (1, 1) and tile_at(85.0, -180.0, 3) == (0, 0) and tile_at(-85.0, 179.9, 3) == (7, 7)
+    x, y = tile_at(47.2867, 11.3986, 14)
+    assert (x, y) == (8710, 5743), (x, y)
+    west, north, size = tile_bounds(14, x, y)
+    assert abs(size - 2445.98) < 0.01 and west < 1268890 < west + size        # Innsbruck's web-mercator easting
+    t = Sentinel2("EPSG:32632").tiles((681, 5239))
+    assert (14, x, y) in t and 1 <= len(t) <= 4 and len(set(t)) == len(t)
+
+
 def test_crsf_roundtrip():
     """CRSF frames (as EdgeTX mirrors them on USB) decode back, even split in odd chunks."""
     from fpv3d import crsf

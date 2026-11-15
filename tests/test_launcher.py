@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from fpv3d.devices import Watcher, classify, drone_text, is_usb  # noqa: E402
-from fpv3d.launcher_tiles import CH_BOX, group_points, merc, tile_range, zoom_for_scale  # noqa: E402
+from fpv3d.launcher_tiles import CH_BOX, group_points, in_wide, merc, tile_range, view_zoom, zoom_for_scale  # noqa: E402
 
 BF = dict(port="COM7", firmware="Betaflight 4.5.1", board="FLWO", flash_ready=True, flash_total=16 * 2 ** 20, flash_used=3 * 2 ** 20)
 
@@ -76,6 +76,19 @@ def test_zoom_for_scale():
     assert zoom_for_scale(0.4) == 9 and zoom_for_scale(1.0) == 9               # overview is enough
     assert zoom_for_scale(1.5) == 10 and zoom_for_scale(4) == 11
     assert zoom_for_scale(100) == 13                                          # never past the deepest tiles
+
+
+def test_world_tiles():
+    """Outside Switzerland and its neighbours the map is the satellite picture: which tiles, at which zoom."""
+    assert view_zoom(0.4, True) == 9 and view_zoom(1.5, True) == 10 and view_zoom(100, True) == 13   # as before, inside
+    assert view_zoom(0.4, False) == 8 and view_zoom(0.01, False) == 3 and view_zoom(0.0001, False) == 2   # the world
+    assert view_zoom(4, False) == 11                                          # zoomed in abroad: the same detail
+    bern = [int(v // 256) for v in merc(7.4474, 46.948, 12)]
+    innsbruck = [int(v // 256) for v in merc(11.39, 47.26, 12)]               # just inside the overview's east edge
+    tokyo = [int(v // 256) for v in merc(139.7, 35.6, 12)]
+    assert in_wide(12, *bern) and in_wide(12, *innsbruck) and not in_wide(12, *tokyo)
+    assert not in_wide(3, 4, 2)                                               # a tile bigger than the overview: satellite
+    assert not in_wide(9, *[int(v // 256) for v in merc(11.95, 47.0, 9)])     # past the east edge
 
 
 def test_tiles_cover_switzerland():

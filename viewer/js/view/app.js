@@ -22,6 +22,7 @@ import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 import { createDroneMarker } from './marker.js';
 import { createPilotMarker, createRangeRings } from './pilotmark.js';
 import { esc } from '../core/esc.js';
+import { gridName, isSwiss } from '../core/geo.js';
 import { initBattery } from '../battery/battery.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits } from './geozones.js';
 import { terrainVS, terrainFS } from './terrain_shaders.js';
@@ -577,7 +578,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const p = S.meta.pilot, g = S.meta.grid;
   const d = Math.hypot(h.x - p.x, h.y - p.y, h.h - p.z);
   const zh = S.zones ? S.zones.zonesAt(h.x, h.y) : [];
-  pk.innerHTML = `<b>${h.h.toFixed(0)} m</b> · ${fmtDist(d)} from pilot<br><span class="muted">LV95 ${(g.min_e + h.x).toFixed(0)} / ${(g.min_n + h.y).toFixed(0)}</span>` +
+  pk.innerHTML = `<b>${h.h.toFixed(0)} m</b> · ${fmtDist(d)} from pilot<br><span class="muted">${gridName(g.crs)} ${(g.min_e + h.x).toFixed(0)} / ${(g.min_n + h.y).toFixed(0)}</span>` +
     zh.map(({ zone: z }) => `<br><b style="color:${z.info.color}">${z.info.label}</b> · ${esc(z.name)}<br><span class="muted">${fmtLimits(z)}</span>`).join('');
   pk.style.left = `${e.clientX + 14}px`; pk.style.top = `${e.clientY + 10}px`;
   pk.classList.remove('hidden');
@@ -629,10 +630,17 @@ function initGroundUi() {
 function initUI() {
   const m = S.meta;
   const pilotFrom = m.pilot.source === 'config' ? 'set in the location file' : m.pilot.source === 'map centre' ? 'map centre' : m.pilot.source.replace('first fix of', 'start of the log');
-  const ground = m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
+  // heights from the worldwide model: measured every 30 m only, and trees / roofs are partly in it
+  const world = (m.terrain_sources || []).filter((s) => s.name === 'copernicus');
+  const onlyWorld = world.length && m.terrain_sources.length === 1;
+  const ground = onlyWorld ? 'from the worldwide 30 m model (coarse: trees and roofs partly included)'
+    : m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
+  const credit = world.length ? `<br>${onlyWorld ? '' : 'Outside Switzerland: worldwide 30 m model. '}<span class="muted small">${esc(world[0].credit)}</span>` : '';
+  const sat = (m.ortho_sources || []).filter((s) => s.name === 'sentinel2');   // satellite photo, 10 m: its credit is required too
+  const photoCredit = sat.length && m.ortho ? `<br><span class="muted small">Photo (satellite, 10 m): ${esc(sat[0].credit)}</span>` : '';
   $('sceneInfo').innerHTML = (m.corridor
     ? `Route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide`
-    : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}`;
+    : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}` + credit + photoCredit;
   initGroundUi();
   $('orthoOn').disabled = !m.ortho;
   $('orthoOn').onchange = () => { S.terrainMat.uniforms.uUseOrtho.value = $('orthoOn').checked && m.ortho ? 1 : 0; };
@@ -849,6 +857,8 @@ function computeTrackZones(tr) {
 function fillZoneUi() {
   const z = S.zones;
   $('zonesMissing').classList.toggle('hidden', !!z);
+  const ts = S.meta.terrain_sources || [];
+  if (!z && (!isSwiss(S.meta.grid.crs) || (ts.length && !ts.some((s) => s.name === 'swisstopo')))) $('zonesMissing').textContent = 'Drone zones are only known for Switzerland. Check the official drone map of the country you fly in.';
   $('zonesBody').classList.toggle('hidden', !z);
   if (!z) return;
   $('zonesSource').textContent = `FOCA geographical UAS zones, data from ${z.meta.fetched}.`;

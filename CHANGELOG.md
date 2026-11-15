@@ -2,6 +2,20 @@
 
 What changed in each release of Alpline. Newest first.
 
+## Unreleased
+
+- **Locations outside Switzerland (first step):** a location file with a centre anywhere in the world now builds,
+  from the Copernicus worldwide elevation model (about 30 m), with the Sentinel-2 cloudless satellite photo of 2016
+  (about 10 m). Signal shadows, flight replay, live flight and the training flight work on it; 3D buildings take
+  their heights from OpenStreetMap. Not there yet: drone zones of other countries.
+- **Maps for the whole world:** the map page creates and shows locations anywhere: it switches to OpenStreetMap
+  (or a satellite layer) outside Switzerland, takes a position such as `47.26 11.39`, finds places worldwide once
+  you switch that on (it sends what you type to Photon, the OpenStreetMap search; off by default),
+  and gives the ground height there. The launcher's map zooms out to the whole world, as a satellite picture
+  around the Swiss map.
+- **Swiss locations at the border:** terrain across the border is now real (worldwide model) instead of a guess
+  from the last Swiss heights, and the photo there is the satellite one instead of black.
+
 ## 1.0.0 (November 2026)
 
 First public release.

@@ -1,5 +1,8 @@
-"""Memoised swisstopo terrain: every 1 km tile is downloaded once and resampled once
+"""Memoised terrain: every 1 km tile is downloaded once and resampled once
 per level of detail, then reused by every scene / location that touches it.
+
+The provider-specific part (catalogue, downloads, file names) is the TerrainSource (sources.py). The layout below
+is swisstopo's, in the cache folder itself; any other source gets the same layout under cache/<source name>/.
 
 cache/
   ch.swisstopo.swissalti3d/...tif        raw downloads (kept so new resolutions need no download)
@@ -13,7 +16,6 @@ Once a tile is in lod/ the build needs no network at all, so prefetched areas wo
 from __future__ import annotations
 
 import json
-import re
 import shutil
 import sys
 from pathlib import Path
@@ -25,10 +27,10 @@ from PIL import Image
 from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject
 
-from . import progress, swisstopo
+from . import progress, sources
 from .geo import Grid
 
-TILE = 1000  # swisstopo tiles are 1 x 1 km on the LV95 kilometre grid
+TILE = 1000  # cache tiles are 1 x 1 km on the kilometre grid of the source's coordinate system (LV95 for swisstopo)
 
 KIND_RESAMPLING = {
     "dtm": Resampling.average,   # bare ground: smooth average
@@ -52,12 +54,18 @@ def tile_keys(grid: Grid) -> List[Tuple[int, int]]:
 
 
 class TileCache:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, source: Optional[sources.TerrainSource] = None):
         self.root = Path(root)
+        self.source = source or sources.default()
+        # swisstopo keeps the cache folder itself (caches made before sources existed); others get cache/<name>/
+        self.base = self.root / self.source.cache_prefix if self.source.cache_prefix else self.root
 
     # ------------------------------------------------------------ paths
     def lod_dir(self, kind: str, res: float) -> Path:
-        return self.root / "lod" / kind / _res_dir(res)
+        return self.base / "lod" / kind / _res_dir(res)
+
+    def _raw_dirs(self) -> Dict[str, Path]:
+        return {kind: self.source.raw_dir(self.root, kind) for kind in self.source.kinds}
 
     def tile_path(self, kind: str, res: float, key) -> Path:
         ext = ".jpg" if kind == "ortho" else ".npy"
@@ -90,8 +98,7 @@ class TileCache:
                       cached=[ks(k) for k in keys if k not in miss_set])
         if not missing:
             return stats
-        src_gsd = res if kind != "dsm" else 0.5      # swissSURFACE3D raster only exists at 0.5 m
-        coll = swisstopo.COLLECTIONS[kind]
+        src = self.source
         d = self.lod_dir(kind, res)
         d.mkdir(parents=True, exist_ok=True)
 
@@ -99,29 +106,24 @@ class TileCache:
         if not refresh:
             still = []
             for k in missing:
-                raw = self._local_raw(coll, k, src_gsd)
-                if raw is None:
+                raws = src.local_raw(self.root, kind, k, res)
+                if not raws:
                     still.append(k)
                     continue
-                self._store(kind, res, k, self._resample(raw, kind, res, k))
+                self._store(kind, res, k, self._resample(raws, kind, res, k))
                 stats["from_raw"] += 1
                 progress.emit("tile", kind=kind, res=res, key=ks(k), state="raw")
             missing = still
             if not missing:
                 return stats
 
-        # one STAC query for the bounding box of the missing tiles
-        e0 = min(k[0] for k in missing) * TILE
-        n0 = min(k[1] for k in missing) * TILE
-        e1 = (max(k[0] for k in missing) + 1) * TILE
-        n1 = (max(k[1] for k in missing) + 1) * TILE
-        bbox_grid = Grid(e0 + 5, n0 + 5, e1 - 5, n1 - 5, TILE)
-        log(f"  {kind} {res:g} m: {len(missing)} tile(s) missing, querying {coll} ...")
+        # 2) one catalogue query for the missing tiles
+        log(f"  {kind} {res:g} m: {len(missing)} tile(s) missing, querying {src.name} ...")
         progress.emit("query", kind=kind, res=res, n=len(missing))
         try:
-            items = swisstopo.latest_per_tile(swisstopo.stac_items(coll, bbox_grid.wgs84_bbox()))
+            found = src.lookup(kind, missing, res)
         except OSError as ex:
-            raise SystemExit(f"cannot reach data.geo.admin.ch ({ex}). {len(missing)} {kind} tile(s) at "
+            raise SystemExit(f"cannot reach {src.host} ({ex}). {len(missing)} {kind} tile(s) at "
                              f"{res:g} m are not cached yet - connect to the internet once, or use "
                              f"`python -m fpv3d prefetch` beforehand.") from ex
         index_path = d / "_index.json"
@@ -131,22 +133,27 @@ class TileCache:
             index = {}
 
         for k in missing:
-            key = f"{k[0]}-{k[1]}"
-            item = items.get(key)
-            asset = swisstopo.pick_asset(item, src_gsd) if item else None
-            if asset is None:
+            key = ks(k)
+            files = found.get(tuple(k))
+            if not files:
                 self._none_path(kind, res, k).touch()
                 stats["empty"] += 1
                 progress.emit("tile", kind=kind, res=res, key=key, state="empty")
                 continue
             progress.emit("tile", kind=kind, res=res, key=key, state="download", pct=0)
-            raw = swisstopo.download(asset["href"], self.root / coll, on_progress=lambda d, t, key=key: progress.emit(
+            raws = [src.download(self.root, kind, f, on_progress=lambda d, t, key=key: progress.emit(
                 "tile", throttle=0.25, kind=kind, res=res, key=key, state="download",
-                pct=round(100 * d / t) if t else None, bytes=d, total=t))
-            self._store(kind, res, k, self._resample(raw, kind, res, k))
+                pct=round(100 * d / t) if t else None, bytes=d, total=t)) for f in files]
+            files = [f for f, r in zip(files, raws) if r is not None]
+            raws = [r for r in raws if r is not None]
+            if not raws:                                 # the provider has nothing there after all (sea)
+                self._none_path(kind, res, k).touch()
+                stats["empty"] += 1
+                progress.emit("tile", kind=kind, res=res, key=key, state="empty")
+                continue
+            self._store(kind, res, k, self._resample(raws, kind, res, k))
             progress.emit("tile", kind=kind, res=res, key=key, state="done")
-            index[key] = dict(item=item.get("id"), datetime=(item.get("properties") or {}).get("datetime"),
-                              source=Path(asset["href"]).name)
+            index[key] = files[0].info if len(files) == 1 else dict(parts=[f.info for f in files])
             stats["downloaded"] += 1
         index_path.write_text(json.dumps(index, indent=1))
         return stats
@@ -157,39 +164,26 @@ class TileCache:
         else:
             np.save(self.tile_path(kind, res, k), arr)
 
-    _RAW_RE = re.compile(r"_(\d{4})_(\d{4}-\d{4})_(\d+(?:\.\d+)?)(?:_|\.tif$)")
-
-    def _local_raw(self, coll: str, k, want_gsd: float) -> Optional[Path]:
-        """Newest already-downloaded raw tile for key k that is at least as fine as want_gsd."""
-        folder = self.root / coll
-        if not folder.exists():
-            return None
-        key, best = f"{k[0]}-{k[1]}", None
-        for f in folder.glob(f"*{key}*.tif"):
-            m = self._RAW_RE.search(f.name)
-            if not m or m.group(2) != key:
-                continue
-            year, gsd = int(m.group(1)), float(m.group(3))
-            if gsd > want_gsd + 1e-9:
-                continue
-            rank = (year, gsd)                     # newest year, then coarsest usable resolution
-            if best is None or rank > best[0]:
-                best = (rank, f)
-        return best[1] if best else None
-
-    @staticmethod
-    def _resample(raw: Path, kind: str, res: float, k) -> np.ndarray:
+    def _resample(self, raws: List[Path], kind: str, res: float, k) -> np.ndarray:
+        """Tile `k` at `res` m from one or more downloaded files (later files only fill what the earlier ones lack)."""
         n = int(round(TILE / res))
         tr = from_origin(k[0] * TILE, (k[1] + 1) * TILE, res, res)
+        crs = self.source.crs
         bands = 3 if kind == "ortho" else 1
         dtype = np.uint8 if kind == "ortho" else np.float32
         nodata = 0 if kind == "ortho" else np.nan
+        how = self.source.resampling(kind, res) or KIND_RESAMPLING[kind]
         out = np.full((bands, n, n), nodata, dtype=dtype)
-        with rasterio.open(raw) as src:
-            for b in range(bands):
-                reproject(source=rasterio.band(src, min(b + 1, src.count)), destination=out[b],
-                          src_crs=src.crs or "EPSG:2056", dst_crs="EPSG:2056",
-                          dst_transform=tr, dst_nodata=nodata, resampling=KIND_RESAMPLING[kind])
+        for i, raw in enumerate(raws):
+            dst = out if i == 0 else np.full_like(out, nodata)
+            with rasterio.open(raw) as src:
+                for b in range(bands):
+                    reproject(source=rasterio.band(src, min(b + 1, src.count)), destination=dst[b],
+                              src_crs=src.crs or crs, dst_crs=crs,
+                              dst_transform=tr, dst_nodata=nodata, resampling=how)
+            if i:
+                hole = np.isnan(out) if kind != "ortho" else np.broadcast_to((out == 0).all(axis=0), out.shape)
+                out[hole] = dst[hole]
         if kind == "ortho":
             return np.transpose(out, (1, 2, 0))
         a = out[0]
@@ -227,7 +221,7 @@ class TileCache:
     def inventory(self) -> dict:
         """{"lod": {kind: {res: [key, ...]}}, "raw": {kind: [key, ...]}} with key = "E-N" (km)."""
         inv = {"lod": {}, "raw": {}}
-        lod = self.root / "lod"
+        lod = self.base / "lod"
         if lod.exists():
             for kd in lod.iterdir():
                 if not kd.is_dir():
@@ -237,14 +231,9 @@ class TileCache:
                         keys = sorted(f.stem for f in rd.iterdir() if f.suffix in (".npy", ".jpg"))
                         if keys:
                             inv["lod"].setdefault(kd.name, {})[rd.name[:-1]] = keys
-        for kind, coll in swisstopo.COLLECTIONS.items():
-            folder = self.root / coll
+        for kind, folder in self._raw_dirs().items():
             if folder.exists():
-                keys = set()
-                for f in folder.glob("*.tif"):
-                    m = self._RAW_RE.search(f.name)
-                    if m:
-                        keys.add(m.group(2))
+                keys = {self.source.raw_key(f) for f in folder.glob("*.tif")} - {None}
                 if keys:
                     inv["raw"][kind] = sorted(keys)
         return inv
@@ -256,11 +245,10 @@ class TileCache:
         def size(p: Path):
             return sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
 
-        for coll in sorted(set(swisstopo.COLLECTIONS.values())):
-            p = self.root / coll
+        for p in sorted(set(self._raw_dirs().values())):
             if p.exists():
-                lines.append(f"raw  {coll:40s} {len(list(p.glob('*.tif'))):5d} files {size(p) / 1e6:9.1f} MB")
-        lod = self.root / "lod"
+                lines.append(f"raw  {p.name:40s} {len(list(p.glob('*.tif'))):5d} files {size(p) / 1e6:9.1f} MB")
+        lod = self.base / "lod"
         if lod.exists():
             for kd in sorted(lod.iterdir()):
                 for rd in sorted(kd.iterdir(), key=lambda x: float(x.name[:-1])):
@@ -272,14 +260,14 @@ class TileCache:
         """Delete downloaded and resampled tiles whose 1 km key ("E-N") is not in `keep`.
         Returns (files, bytes) removed, or that would be removed with dry_run."""
         files = size = 0
-        for coll in set(swisstopo.COLLECTIONS.values()):
-            for f in (self.root / coll).glob("*.tif") if (self.root / coll).exists() else []:
-                m = self._RAW_RE.search(f.name)
-                if m and m.group(2) not in keep:
+        for folder in set(self._raw_dirs().values()):
+            for f in folder.glob("*.tif") if folder.exists() else []:
+                key = self.source.raw_key(f)
+                if key and key not in keep:
                     files += 1; size += f.stat().st_size
                     if not dry_run:
                         f.unlink(missing_ok=True)
-        lod = self.root / "lod"
+        lod = self.base / "lod"
         if lod.exists():
             for f in lod.rglob("*"):
                 if f.is_file() and f.suffix in (".npy", ".jpg", ".none") and f.stem not in keep:
@@ -290,9 +278,9 @@ class TileCache:
 
     def clear(self, raw=False, lod=False, kind=None):
         if lod:
-            target = self.root / "lod" / kind if kind else self.root / "lod"
+            target = self.base / "lod" / kind if kind else self.base / "lod"
             shutil.rmtree(target, ignore_errors=True)
         if raw:
-            colls = [swisstopo.COLLECTIONS[kind]] if kind else set(swisstopo.COLLECTIONS.values())
-            for c in colls:
-                shutil.rmtree(self.root / c, ignore_errors=True)
+            dirs = self._raw_dirs()
+            for p in ([dirs[kind]] if kind else set(dirs.values())):
+                shutil.rmtree(p, ignore_errors=True)

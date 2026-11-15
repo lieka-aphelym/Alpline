@@ -2,16 +2,16 @@
 
 [← back to the README](../README.md)
 
-## Switzerland map (click to create locations)
+## Map page (click to create locations)
 
 ```bash
 python -m fpv3d map
 ```
-This opens a map of Switzerland in your browser. It shows:
+This opens a map in your browser, on Switzerland at first (move or search to go anywhere). It shows:
 - every 1 km tile you have already cached, coloured by kind; finer resolution is drawn more opaque
 - your locations, as a rectangle for the area and a small [p] tag for the pilot
 
-Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. You can also search for a place. Then pick the size, detail level and radio settings. Before you save, it tells you how many tiles are already cached and roughly how much would be downloaded. **Save & build** creates `locations/<name>.yaml`, builds the scene and links straight to the 3D view. While it builds, the location's 1 km tiles are drawn on the map and fill up as they download: dashed = still to get, blue outline = downloading, bright = just downloaded, dark = already cached, grey = no data. A card shows the steps (Terrain → Photo → Shadows → Logs → Zones), an overall bar, tile counters and the download speed. The full build log is under *Technical details*. The basemap and place search need internet; cached tiles and your locations show either way.
+Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. You can also search for a place. Then pick the size, detail level and radio settings. Before you save, it tells you how many tiles are already cached and roughly how much would be downloaded. **Save & build** creates `locations/<name>.yaml`, builds the scene and links straight to the 3D view. While it builds, the location's 1 km tiles are drawn on the map and fill up as they download: dashed = still to get, blue outline = downloading, bright = just downloaded, dark = already cached, grey = no data. A card shows the steps (Terrain → Photo → Shadows → Logs → Zones), an overall bar, tile counters and the download speed. The full build log is under *Technical details*. The basemap and place search need internet; cached tiles and your locations show either way. What you type in the search box goes to swisstopo's place search. Places outside Switzerland are found once you tick *also search outside Switzerland* under the box: what you type then also goes to Photon (the OpenStreetMap search run by Komoot). It is off until you tick it, and the choice is remembered. A typed position such as `47.26 11.39` is used as it is and sent nowhere.
 
 ## A new spot
 
@@ -32,6 +32,42 @@ Things you'll want to edit in a location file:
 | `analysis.los_agl_m` | heights above ground to precompute shadow maps for |
 | `links` | your radios: power, antenna gains, receiver sensitivity, fade margin |
 | `log_options.altitude_mode` | `auto`, `amsl` (GPS altitude), `relative` (baro, 0 at take-off), `agl` |
+
+## Outside Switzerland
+
+A location file whose centre is outside Switzerland builds too:
+
+```yaml
+name: nordkette
+title: "Innsbruck Nordkette"
+center: {lat: 47.305, lon: 11.38}
+half_size_m: 2000
+pilot: {lat: 47.2867, lon: 11.3986}
+terrain: {resolution_m: 10, surface: dtm}
+links:
+  - {name: "Video 5.8 GHz", freq_mhz: 5800, tx_power_dbm: 14, tx_gain_dbi: 2, rx_gain_dbi: 2, rx_sensitivity_dbm: -85}
+```
+
+What is different there:
+
+- **Terrain** comes from the Copernicus worldwide model, measured about every 30 m (swisstopo: 0.5 m). Tree tops and
+  roofs are partly in it and there is no bare-ground version, so `dtm` and `dsm` give the same heights. A finer
+  `resolution_m` only smooths it. Signal shadows are a rough guide there: a ridge is right, a row of trees is not.
+- **The photo** is the Sentinel-2 cloudless satellite mosaic of 2016, about 10 m per pixel (swisstopo: 10 cm): fine
+  to recognise valleys, forests and villages, not single trees or paths. A finer `ortho_resolution_m` is ignored
+  there, and there is no sharp close-up around the pilot.
+- **No drone zones**: check the official drone map of the country you fly in.
+- **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
+- The **map page** works there too: type a position (`47.26 11.39`) or tick *also search outside Switzerland* and
+  search a place, then click, save and build. The
+  basemap switches to OpenStreetMap outside Switzerland; a satellite layer is in the layers menu.
+- Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
+
+Terrain downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every
+location nearby. The photo comes as small map tiles, kept in `cache/sentinel2/`. `prefetch` fetches both.
+
+Just across the Swiss border (roughly 45.7 to 47.9 north, 5.8 to 10.6 east) a location stays on the Swiss grid:
+swisstopo data where it exists, the worldwide model and the satellite photo for the rest.
 
 ## Routes (corridor locations)
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .geo import Grid, wgs84_to_lv95
+from .geo import LV95, Grid, wgs84_to_lv95
 
 SOURCE_URL = os.environ.get(
     "FPV3D_GEOZONES_URL",
@@ -130,6 +130,9 @@ def clip_to_grid(geojson_path: Path, grid: Grid, pad_m=200):
 
 def write_scene_zones(out_dir: Path, grid: Grid, cache_root: Path, refresh=False):
     """Write <scene>/geozones.json; returns the metadata block for scene.json (or None)."""
+    if grid.crs != LV95:
+        log("[zones] drone geozones are only known for Switzerland - none for this place")
+        return None
     src = fetch(cache_root, refresh)
     if src is None:
         return None
