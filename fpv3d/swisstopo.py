@@ -138,6 +138,7 @@ def _download_once(url: str, dest: Path, tmp: Path, on_progress=None) -> Path:
 class Swisstopo(sources.TerrainSource):
     """swisstopo open data as a terrain source: 1 km tiles on the LV95 kilometre grid, one file per tile."""
     name = "swisstopo"
+    credit = "© swisstopo"
     host = "data.geo.admin.ch"
     crs = "EPSG:2056"
     kinds = ("dtm", "dsm", "ortho")
@@ -262,20 +263,13 @@ def fill_holes(dem: np.ndarray) -> np.ndarray:
     return dem
 
 
-def elevation(grid: Grid, surface: str, cache_root: Path, local_files=None, refresh=False, keys=None,
-              fill=True) -> np.ndarray:
-    """Elevation (m, LN02/LHN95 heights) on grid, row 0 = north. Memoised per 1 km tile.
-    `keys`: only these 1 km tiles (corridors); fill=False leaves the rest NaN."""
-    if local_files:
-        rs = Resampling.max if surface == "dsm" else Resampling.average
-        dem = mosaic([Path(p) for p in local_files], grid, bands=1, dtype=np.float32, resampling=rs)[0]
-    else:
-        from .tilecache import TileCache
-        dem = TileCache(cache_root, sources.for_crs(grid.crs)).mosaic(surface, grid, refresh, keys)
-    return fill_holes(dem) if fill else dem
+def elevation(*a, **k) -> np.ndarray:
+    """Moved to terrain.elevation (kept here for older callers)."""
+    from . import terrain
+    return terrain.elevation(*a, **k)
 
 
-def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None) -> np.ndarray:
-    """RGB uint8 image (rows, cols, 3) on grid. Memoised per 1 km tile."""
-    from .tilecache import TileCache
-    return TileCache(cache_root, sources.for_crs(grid.crs)).mosaic("ortho", grid, refresh, keys)
+def orthophoto(*a, **k) -> np.ndarray:
+    """Moved to terrain.orthophoto (kept here for older callers)."""
+    from . import terrain
+    return terrain.orthophoto(*a, **k)

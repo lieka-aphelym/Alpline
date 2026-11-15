@@ -17,7 +17,7 @@ ROOT = DATA          # your files (locations, scenes, cache, logs); the program 
 LOC_DIR = ROOT / "locations"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")
 
-TEMPLATE = """# fpv3d location - edit freely. Coordinates: lat/lon (WGS84) or e/n (LV95).
+TEMPLATE = """# fpv3d location - edit freely. Coordinates: lat/lon (WGS84) or, in Switzerland, e/n (LV95).
 name: {name}
 title: "{title}"
 
@@ -167,23 +167,25 @@ def write_location(name: str, title: str, center, pilot=None, half_size_m=2500, 
 def list_locations(scenes_dir: Path):
     """Summaries of all location files (+ whether a scene was built) for the map page."""
     from .config import LocationConfig
-    from .geo import lv95_to_wgs84
+    from .geo import unproject, wgs84_to_lv95
     res = []
     for f in sorted(LOC_DIR.glob("*.yaml")):
         try:
             c = LocationConfig.load(f)
-            ce, cn = c.center.lv95()
-            pe, pn = c.pilot.lv95() if c.pilot else (ce, cn)
-            clat, clon = lv95_to_wgs84(ce, cn)
-            plat, plon = lv95_to_wgs84(pe, pn)
+            ce, cn = c.center_en()
+            pe, pn = c.pilot_en() or (ce, cn)
+            clat, clon = unproject(ce, cn, c.crs)
+            plat, plon = unproject(pe, pn, c.crs)
+            if c.crs != "EPSG:2056":                           # the map page draws in LV95
+                ce, cn = (float(v) for v in wgs84_to_lv95(clat, clon))
             res.append(dict(
                 file=f.name, name=c.name, title=c.title, center=[float(clat), float(clon)],
                 center_lv95=[ce, cn], pilot=[float(plat), float(plon)], pilot_from_log=c.pilot is None,
-                half_size_m=c.half_size_m, resolution_m=c.terrain.resolution_m, surface=c.terrain.surface,
+                crs=c.crs, half_size_m=c.half_size_m, resolution_m=c.terrain.resolution_m, surface=c.terrain.surface,
                 antenna_height_m=c.pilot_antenna_height_m,
                 corridor=None if c.corridor is None else dict(
                     width_m=c.corridor.width, length_m=round(c.corridor.length_m),
-                    points=[[float(v) for v in lv95_to_wgs84(e, n)] for e, n in c.corridor.points]),
+                    points=[[float(v) for v in unproject(e, n, c.crs)] for e, n in c.corridor.points]),
                 built=(scenes_dir / c.name / "scene.json").exists()))
         except Exception as ex:  # a broken file shouldn't break the map
             res.append(dict(file=f.name, name=f.stem, error=str(ex)))

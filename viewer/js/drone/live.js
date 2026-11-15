@@ -8,20 +8,10 @@ import { createPilotMarker, textSprite } from '../view/pilotmark.js';
 import { pxPerUnit } from '../core/screen.js';
 import { esc } from '../core/esc.js';
 import { APP } from '../core/env.js';
+import { toGrid, toWGS, isSwiss } from '../core/geo.js';
 
 const $ = (id) => document.getElementById(id);
-function toLV95(lat, lon) {
-  const p = (lat * 3600 - 169028.66) / 10000, l = (lon * 3600 - 26782.5) / 10000;
-  return [2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l ** 3,
-    1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p ** 3];
-}
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-function lv95ToWgs(e, n) {                       // swisstopo's approximate formulas (about 1 m)
-  const y = (e - 2600000) / 1e6, x = (n - 1200000) / 1e6;
-  const lon = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3;
-  const lat = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.0140 * x ** 3;
-  return [lat * 100 / 36, lon * 100 / 36];
-}
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
 
 export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved, onStart }) {
@@ -176,7 +166,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     if (!navigator.geolocation) { $('livePilotText').textContent = 'This browser has no location (the phone needs the secure https page).'; return; }
     $('livePilotText').textContent = 'getting your position…';
     navigator.geolocation.getCurrentPosition((pos) => {
-      const g = S.meta.grid, [e, n] = toLV95(pos.coords.latitude, pos.coords.longitude), x = e - g.min_e, y = n - g.min_n;
+      const g = S.meta.grid, [e, n] = toGrid(pos.coords.latitude, pos.coords.longitude, g.crs), x = e - g.min_e, y = n - g.min_n;
       if (x < 0 || y < 0 || x > S.W || y > S.H) { $('livePilotText').textContent = 'You are outside this location\'s map.'; return; }
       st.pilotManual = true; setLivePilot(x, y, 'phone');
       $('livePilotText').textContent = `±${Math.round(pos.coords.accuracy)} m`;
@@ -187,7 +177,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     S.pickHook = (h) => { st.pilotManual = true; setLivePilot(h.x, h.y, 'map'); $('livePilotText').textContent = ''; };
   };
   $('lvPilotLoc').onclick = () => { st.pilotManual = true; st.pilot = null; showPilot(); $('livePilotText').textContent = ''; };
-  $('lvPilotSave').onclick = () => { const p = pilot(), [lat, lon] = lv95ToWgs(S.meta.grid.min_e + p.x, S.meta.grid.min_n + p.y); setPilot(lat, lon); };
+  $('lvPilotSave').onclick = () => { const p = pilot(), [lat, lon] = toWGS(S.meta.grid.min_e + p.x, S.meta.grid.min_n + p.y, S.meta.grid.crs); setPilot(lat, lon); };
   ['warnMode', 'warnLook', 'liveSave', 'liveFollow', 'liveCalib'].forEach((id) => $(id).addEventListener('change', () => summaries()));
   $('warnBoard').addEventListener('change', () => summaries());
   $('warnMode').value = W.cfg.mode;
@@ -369,7 +359,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
 
   function ingest(s, newest = true) {
     if (s.lat == null || Math.abs(s.lat) < 1e-6) return;
-    const g = S.meta.grid, [e, n] = toLV95(s.lat, s.lon), x = e - g.min_e, y = n - g.min_n;
+    const g = S.meta.grid, [e, n] = toGrid(s.lat, s.lon, g.crs), x = e - g.min_e, y = n - g.min_n;
     const ground = demHeight(x, y), spd = (s.speed_kmh || 0) / 3.6;
     // altitude: GPS, corrected by an offset measured while the drone sits on the ground
     if (st.manual == null && st.calibN < 5 && spd < 0.8 && Math.abs(s.vspeed || 0) < 0.5 && s.alt != null) {
@@ -556,7 +546,9 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     $('liveLostText').innerHTML = `Last fix <b>${fmtDist(dist)}</b> ${COMPASS[Math.round(brg / 45) % 8]} of the pilot (${Math.round(brg)}°), ${Math.round(hAgl)} m above ground, ${Math.round(v * 3.6)} km/h.<br>`
       + `Likely impact: ${Math.round(dMin)}–${Math.round(dMax)} m further along its course (red area).<br><span class="muted">GPS ${lat}, ${lon}</span>`;
     $('liveCopy').onclick = () => navigator.clipboard?.writeText(`${lat}, ${lon}`);
-    $('liveGeoAdmin').href = `https://map.geo.admin.ch/?swisssearch=${lat},${lon}&zoom=10`;
+    $('liveGeoAdmin').href = isSwiss(S.meta.grid.crs) ? `https://map.geo.admin.ch/?swisssearch=${lat},${lon}&zoom=10`
+      : `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`;
+    $('liveGeoAdmin').textContent = isSwiss(S.meta.grid.crs) ? '[map.geo.admin]' : '[OpenStreetMap]';
     $('liveZoom').onclick = () => { controls.target.copy(lostPin.position); camera.position.copy(lostPin.position).add(new THREE.Vector3(-120, 150, 160)); };
     W.lost(`Last fix ${fmtDist(dist)} ${COMPASS[Math.round(brg / 45) % 8]} of the pilot`);
   }

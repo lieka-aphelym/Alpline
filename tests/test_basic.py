@@ -137,7 +137,60 @@ def test_tilecache_second_source(tmp=None):
     assert (root / "fake" / "lod" / "dtm" / "10m" / "340-5076.npy").exists() and not (root / "lod").exists()
     assert np.array_equal(tc.mosaic("dtm", g), m, equal_nan=True) and len(asked) == 1   # second call: no query
     assert TileCache(root).inventory() == {"lod": {}, "raw": {}}                  # the swisstopo cache is untouched
-    assert sources.for_crs("EPSG:2056").name == "swisstopo" and sources.for_crs(None).name == "swisstopo"
+    assert [s.name for s in sources.chain("EPSG:2056", "dtm")] == ["swisstopo", "copernicus"]   # the world model fills gaps
+    assert [s.name for s in sources.chain(None, "ortho")] == ["swisstopo"]
+    assert [s.name for s in sources.chain("EPSG:32632", "dsm")] == ["copernicus"] and not sources.chain("EPSG:32632", "ortho")
+
+
+def test_gaps_filled_by_next_source(tmp=None):
+    """Where the first source has nothing (swisstopo across the border), the next one fills in; the first one's
+    heights are never replaced."""
+    import tempfile
+    from fpv3d import sources, terrain
+    from fpv3d.tilecache import TileCache
+    root = Path(tmp or tempfile.mkdtemp())
+
+    def fake(name, height, skip=()):
+        class Src(sources.TerrainSource):
+            crs, kinds, cache_prefix, credit = "EPSG:2056", ("dtm",), name, name
+
+            def raw_dir(self, root, kind):
+                return Path(root) / name
+
+            def lookup(self, kind, keys, res):
+                return {}
+        s = Src(); s.name = name
+        tc = TileCache(root, s)
+        tc.lod_dir("dtm", 10).mkdir(parents=True, exist_ok=True)
+        for k in [(2600, 1200), (2601, 1200)]:
+            if k not in skip:
+                np.save(tc.tile_path("dtm", 10, k), np.full((100, 100), height, np.float32))
+        return s
+
+    first, second = fake("first", 500, skip=[(2601, 1200)]), fake("second", 900)
+    old = sources.chain
+    sources.chain = lambda crs, kind: [first, second]
+    try:
+        used = []
+        dem = terrain.elevation(Grid(2600000, 1200000, 2602000, 1201000, 10), "dtm", root, used=used)
+        assert (dem[:, :100] == 500).all() and (dem[:, 100:] == 900).all() and [s.name for s in used] == ["first", "second"]
+        used = []
+        dem = terrain.elevation(Grid(2600000, 1200000, 2601000, 1201000, 10), "dtm", root, used=used)
+        assert (dem == 500).all() and [s.name for s in used] == ["first"]          # nothing missing: the second is not asked
+    finally:
+        sources.chain = old
+
+
+def test_copernicus_squares():
+    """The worldwide model's file names, in all four quarters of the globe and across a square's edge."""
+    from fpv3d.copernicus import Copernicus, square_name
+    assert square_name(45, 6) == "Copernicus_DSM_COG_10_N45_00_E006_00_DEM"
+    assert square_name(-34, 18) == "Copernicus_DSM_COG_10_S34_00_E018_00_DEM"
+    assert square_name(40, -75) == "Copernicus_DSM_COG_10_N40_00_W075_00_DEM"
+    c = Copernicus("EPSG:32632")
+    assert c.squares((681, 5239)) == [(47, 11)]                                 # Innsbruck
+    assert sorted(c.squares((652, 5207))) == [(46, 10), (46, 11), (47, 10), (47, 11)]   # the corner of four squares
+    assert Copernicus("EPSG:32734").squares((259, 6245)) == [(-34, 18)]         # Cape Town
 
 
 def test_crsf_roundtrip():

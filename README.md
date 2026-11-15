@@ -264,8 +264,10 @@ Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GP
 Ideas for future versions. These are intentions, not promises, and there are no dates.
 
 **Planned**
-- **Terrain outside Switzerland:** build locations from other open elevation and imagery sources, so Alpline works
-  beyond swisstopo's coverage. Drone zones stay Switzerland-only at first; zones of other countries come later.
+- **Terrain outside Switzerland:** a first step is in (not released yet): a hand-written location anywhere builds
+  from the Copernicus 30 m model, see [docs/locations.md](docs/locations.md#outside-switzerland). Still to come:
+  aerial photo, the map page and launcher map for the rest of the world, finer national elevation data, and drone
+  zones of other countries.
 - **Better training flight:** today it feels floaty. More realistic physics, wind, and a more direct feel.
 - **A better-looking 3D world:** bridges, more detailed buildings, trees and other vegetation.
 

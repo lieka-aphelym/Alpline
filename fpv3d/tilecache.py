@@ -65,7 +65,7 @@ class TileCache:
         return self.base / "lod" / kind / _res_dir(res)
 
     def _raw_dirs(self) -> Dict[str, Path]:
-        return {kind: self.source.raw_dir(self.base, kind) for kind in self.source.kinds}
+        return {kind: self.source.raw_dir(self.root, kind) for kind in self.source.kinds}
 
     def tile_path(self, kind: str, res: float, key) -> Path:
         ext = ".jpg" if kind == "ortho" else ".npy"
@@ -106,7 +106,7 @@ class TileCache:
         if not refresh:
             still = []
             for k in missing:
-                raws = src.local_raw(self.base, kind, k, res)
+                raws = src.local_raw(self.root, kind, k, res)
                 if not raws:
                     still.append(k)
                     continue
@@ -141,9 +141,16 @@ class TileCache:
                 progress.emit("tile", kind=kind, res=res, key=key, state="empty")
                 continue
             progress.emit("tile", kind=kind, res=res, key=key, state="download", pct=0)
-            raws = [src.download(self.base, kind, f, on_progress=lambda d, t, key=key: progress.emit(
+            raws = [src.download(self.root, kind, f, on_progress=lambda d, t, key=key: progress.emit(
                 "tile", throttle=0.25, kind=kind, res=res, key=key, state="download",
                 pct=round(100 * d / t) if t else None, bytes=d, total=t)) for f in files]
+            files = [f for f, r in zip(files, raws) if r is not None]
+            raws = [r for r in raws if r is not None]
+            if not raws:                                 # the provider has nothing there after all (sea)
+                self._none_path(kind, res, k).touch()
+                stats["empty"] += 1
+                progress.emit("tile", kind=kind, res=res, key=key, state="empty")
+                continue
             self._store(kind, res, k, self._resample(raws, kind, res, k))
             progress.emit("tile", kind=kind, res=res, key=key, state="done")
             index[key] = files[0].info if len(files) == 1 else dict(parts=[f.info for f in files])
@@ -165,6 +172,7 @@ class TileCache:
         bands = 3 if kind == "ortho" else 1
         dtype = np.uint8 if kind == "ortho" else np.float32
         nodata = 0 if kind == "ortho" else np.nan
+        how = self.source.resampling(kind, res) or KIND_RESAMPLING[kind]
         out = np.full((bands, n, n), nodata, dtype=dtype)
         for i, raw in enumerate(raws):
             dst = out if i == 0 else np.full_like(out, nodata)
@@ -172,7 +180,7 @@ class TileCache:
                 for b in range(bands):
                     reproject(source=rasterio.band(src, min(b + 1, src.count)), destination=dst[b],
                               src_crs=src.crs or crs, dst_crs=crs,
-                              dst_transform=tr, dst_nodata=nodata, resampling=KIND_RESAMPLING[kind])
+                              dst_transform=tr, dst_nodata=nodata, resampling=how)
             if i:
                 hole = np.isnan(out) if kind != "ortho" else np.broadcast_to((out == 0).all(axis=0), out.shape)
                 out[hole] = dst[hole]

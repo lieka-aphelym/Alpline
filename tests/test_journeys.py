@@ -53,6 +53,7 @@ class Data:
         self.env = {k: v for k, v in os.environ.items() if k.lower() not in ("http_proxy", "https_proxy")}
         self.env.update(ALPLINE_DATA=str(self.dir), PYTHONPATH=str(ROOT), PYTHONIOENCODING="utf-8",
                         FPV3D_STAC_BASE=f"http://127.0.0.1:{p}/api/stac/v0.9",
+                        FPV3D_COPERNICUS_BASE=f"http://127.0.0.1:{p}/copernicus",
                         FPV3D_OVERPASS_URL=f"http://127.0.0.1:{p}/api/interpreter")
 
     def run(self, *args, ok=True, input_text=None):
@@ -195,6 +196,38 @@ def test_broken_location_file_does_not_break_the_rest():
     r = d.run("refresh-all", "--zones-only", ok=False)                            # the good one still updates,
     out = r.stdout + r.stderr                                                     # the broken one is named with why
     assert "ok      001_ok" in out and "002_broken" in out and "line 2" in out, out[-800:]
+
+
+def test_location_outside_switzerland():
+    """A place abroad builds from the worldwide model: on its UTM grid, with a flight in the right spot, no Swiss
+    drone zones, no aerial photo (none for abroad yet), and a rebuild without internet."""
+    import numpy as np
+    d = Data()
+    f = d.dir / "locations" / "010_abroad.yaml"
+    f.write_text(LOC.format(name="010_abroad", title="Abroad").replace("lat: 46.553, lon: 7.022", "lat: 47.26, lon: 11.39")
+                 .replace("lat: 46.5553, lon: 7.0305", "lat: 47.262, lon: 11.395").replace("ortho: false", "ortho: true"),
+                 encoding="utf-8")
+    log = d.dir / "logs" / "abroad.csv"
+    log.write_text("Date,Time,GPS,Alt(m),1RSS(dB),RQly(%)\n" + "\n".join(
+        f"2026-11-01,10:00:{i:02d}.000,{47.262 + i * 1e-5:.6f} {11.395 + i * 1e-5:.6f},{50 + i},-60,100" for i in range(30)) + "\n",
+        encoding="utf-8")
+    d.run("build", "locations/010_abroad.yaml", "--log", str(log))
+    m = d.scene("010_abroad")
+    g = m["grid"]
+    assert g["crs"] == "EPSG:32632" and [s["name"] for s in m["terrain_sources"]] == ["copernicus"]
+    assert "Copernicus" in m["terrain_sources"][0]["credit"] and m["ortho"] is None and m["geozones"] is None
+    assert abs(m["center_wgs84"][0] - 47.26) < 0.01 and abs(m["center_wgs84"][1] - 11.39) < 0.01
+    dem = np.fromfile(d.dir / "scenes" / "010_abroad" / "terrain.f32", dtype="<f4").reshape(g["rows"], g["cols"])
+    import mock_stac
+    want = float(mock_stac.world_height(np.array(47.26), np.array(11.39)))
+    assert not np.isnan(dem).any() and abs(float(dem[g["rows"] // 2, g["cols"] // 2]) - want) < 40, (dem.min(), dem.max(), want)
+    assert dem[0].mean() > dem[-1].mean()                               # the fake model rises to the north: not flipped
+    p, t = m["pilot"], m["tracks"][0]
+    assert 0 < p["x"] < 2000 and 0 < p["y"] < 2000 and t["max_dist_m"] < 200     # pilot and flight sit inside the map
+    assert (d.dir / "cache" / "copernicus" / "32632" / "lod" / "dtm" / "10m").exists()
+    assert not (d.dir / "cache" / "lod").exists()                       # nothing was asked of swisstopo
+    d.env["FPV3D_COPERNICUS_BASE"] = "http://127.0.0.1:9/none"          # no internet: the cache is enough
+    d.run("build", "locations/010_abroad.yaml")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,36 @@ Things you'll want to edit in a location file:
 | `links` | your radios: power, antenna gains, receiver sensitivity, fade margin |
 | `log_options.altitude_mode` | `auto`, `amsl` (GPS altitude), `relative` (baro, 0 at take-off), `agl` |
 
+## Outside Switzerland
+
+A location file whose centre is outside Switzerland builds too:
+
+```yaml
+name: nordkette
+title: "Innsbruck Nordkette"
+center: {lat: 47.305, lon: 11.38}
+half_size_m: 2000
+pilot: {lat: 47.2867, lon: 11.3986}
+terrain: {resolution_m: 10, surface: dtm}
+links:
+  - {name: "Video 5.8 GHz", freq_mhz: 5800, tx_power_dbm: 14, tx_gain_dbi: 2, rx_gain_dbi: 2, rx_sensitivity_dbm: -85}
+```
+
+What is different there:
+
+- **Terrain** comes from the Copernicus worldwide model, measured about every 30 m (swisstopo: 0.5 m). Tree tops and
+  roofs are partly in it and there is no bare-ground version, so `dtm` and `dsm` give the same heights. A finer
+  `resolution_m` only smooths it. Signal shadows are a rough guide there: a ridge is right, a row of trees is not.
+- **No aerial photo** yet, and **no drone zones**: check the official drone map of the country you fly in.
+- **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
+- The **map page** cannot create or show such a location yet: write the file by hand, then build it.
+- Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
+
+Downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every location nearby.
+
+Just across the Swiss border (roughly 45.7 to 47.9 north, 5.8 to 10.6 east) a location stays on the Swiss grid:
+swisstopo data where it exists, the worldwide model for the rest.
+
 ## Routes (corridor locations)
 
 Sometimes you only fly along a line: from your takeoff spot to a summit, or along a ridge. A **route** location keeps only a strip along that line instead of a whole square. That means far fewer tiles to download (a 5 km route with 500 m each side is about 6 km² instead of 50–100 km²), faster builds, and room for finer detail.

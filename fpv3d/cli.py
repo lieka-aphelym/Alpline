@@ -132,7 +132,7 @@ def cmd_prefetch(a):
     from .geo import Grid
     from .tilecache import TileCache, tile_keys
     cfg = LocationConfig.load(a.config)
-    ce, cn = cfg.center.lv95()
+    ce, cn = cfg.center_en()
     half = a.half_size or cfg.half_size_m
     cor = cfg.corridor if not a.half_size else None
     if cor is not None:                       # route-shaped location: only the strip's tiles
@@ -145,7 +145,7 @@ def cmd_prefetch(a):
         if not a.no_ortho:
             for res in a.ortho_res or [cfg.ortho_res()]:
                 tc.ensure("ortho", res, keys, a.refresh)
-        tc.ensure("dtm", 10, cor.context_keys(cfg.pilot.lv95() if cfg.pilot else None), a.refresh)
+        tc.ensure("dtm", 10, cor.context_keys(cfg.pilot_en()), a.refresh)
         print(f"{len(keys)} km² along the route of {cfg.title} cached (+ coarse context).")
         print("\n".join(tc.info()))
         return
@@ -176,7 +176,7 @@ def location_tile_keys(margin_km: int = 1) -> set:
         except Exception as ex:                  # a broken file: keep everything rather than guess
             raise SystemExit(f"{f.name} cannot be read ({ex}); fix it before cleaning the cache") from ex
         if cfg.corridor is not None:
-            ks = set(cfg.corridor.tile_keys()) | set(cfg.corridor.context_keys(cfg.pilot.lv95() if cfg.pilot else None))
+            ks = set(cfg.corridor.tile_keys()) | set(cfg.corridor.context_keys(cfg.pilot_en()))
         else:
             ks = set(tile_keys(cfg.grid(10)))
         for e, n in ks:

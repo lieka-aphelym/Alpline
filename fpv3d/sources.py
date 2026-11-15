@@ -4,8 +4,9 @@ The tile cache (tilecache.py) always works on 1 x 1 km tiles of the source's own
 source three things: is a usable file already on disk, which files does the provider have for these tiles, and
 download one. Everything provider-specific (catalogue, file names, native resolutions) stays inside the source.
 
-swisstopo (swisstopo.py) is the only source today. A new one subclasses TerrainSource, sets `cache_prefix` to its
-name (its files then live in cache/<name>/, apart from the others) and is added with register().
+Sources: swisstopo (swisstopo.py, Switzerland, 0.5 m and up) and Copernicus (copernicus.py, worldwide, 30 m).
+chain() says which ones serve a grid, in order of preference. A new one subclasses TerrainSource and sets
+`cache_prefix` to its name (its files then live in cache/<name>/, apart from the others).
 """
 from __future__ import annotations
 
@@ -28,7 +29,12 @@ class TerrainSource:
     host = ""                    # shown when the provider can't be reached
     crs = "EPSG:2056"            # the metric grid its cache tiles are cut on
     kinds: Tuple[str, ...] = ()  # of "dtm" (bare ground), "dsm" (trees + buildings), "ortho" (aerial photo)
-    cache_prefix = ""            # sub-folder of the cache for this source's files ("" = the cache folder itself)
+    cache_prefix = ""            # sub-folder of the cache for this source's resampled tiles ("" = the cache folder)
+    credit = ""                  # who to credit for the data
+
+    def resampling(self, kind: str, res: float):
+        """How to resample to `res` m (a rasterio Resampling), None = the usual way for this kind."""
+        return None
 
     def raw_dir(self, root: Path, kind: str) -> Path:
         """Folder holding this source's downloads of `kind`."""
@@ -47,8 +53,9 @@ class TerrainSource:
         Network trouble is raised as OSError."""
         raise NotImplementedError
 
-    def download(self, root: Path, kind: str, found: Found, on_progress=None) -> Path:
-        """Fetch one file into raw_dir (or reuse it when already there); returns its path."""
+    def download(self, root: Path, kind: str, found: Found, on_progress=None) -> Optional[Path]:
+        """Fetch one file into raw_dir (or reuse it when already there); returns its path, None when the
+        provider turns out to have nothing there."""
         raise NotImplementedError
 
 
@@ -71,9 +78,22 @@ def all_sources() -> List[TerrainSource]:
     return list(_SOURCES)
 
 
-def for_crs(crs: Optional[str]) -> TerrainSource:
-    """The source whose tiles are cut on `crs` (a Grid's crs)."""
-    for s in all_sources():
-        if s.crs == (crs or default().crs):
-            return s
-    raise RuntimeError(f"no terrain source for the coordinate system {crs}")
+_WORLD: Dict[str, TerrainSource] = {}
+
+
+def worldwide(crs: str) -> TerrainSource:
+    """The worldwide elevation model, cut on the grid `crs`."""
+    if crs not in _WORLD:
+        from .copernicus import Copernicus
+        _WORLD[crs] = Copernicus(crs)
+    return _WORLD[crs]
+
+
+def chain(crs: Optional[str], kind: str) -> List[TerrainSource]:
+    """The sources that can give `kind` on the grid `crs`, best first; a later one only fills what the
+    earlier ones lack. Sources added with register() come first on their own grid."""
+    crs = crs or default().crs
+    out = [s for s in all_sources() if s.crs == crs and kind in s.kinds]
+    if kind in ("dtm", "dsm"):
+        out.append(worldwide(crs))
+    return out

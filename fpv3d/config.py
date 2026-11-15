@@ -7,14 +7,24 @@ from typing import Any, List, Optional
 
 import yaml
 
-from .geo import wgs84_to_lv95
+from .geo import LV95, project, utm_crs
 
 VALID_RES = (0.5, 1, 2, 2.5, 4, 5, 8, 10, 20, 25, 40, 50)
 
 
+SWISS_BOX = (45.7, 5.8, 47.9, 10.6)      # lat0, lon0, lat1, lon1: Switzerland and its border regions
+
+
+def crs_for(lat: float, lon: float) -> str:
+    """The metric grid a place is built on: Swiss LV95 in and right around Switzerland (swisstopo data, gaps
+    across the border filled from the worldwide model), the place's UTM zone anywhere else."""
+    la0, lo0, la1, lo1 = SWISS_BOX
+    return LV95 if la0 <= lat <= la1 and lo0 <= lon <= lo1 else utm_crs(lat, lon)
+
+
 @dataclass
 class Point:
-    """A location given either as lat/lon (WGS84) or e/n (LV95)."""
+    """A location given either as lat/lon (WGS84) or e/n (metres on the location's grid, LV95 in Switzerland)."""
     lat: Optional[float] = None
     lon: Optional[float] = None
     e: Optional[float] = None
@@ -30,13 +40,17 @@ class Point:
             return cls(e=a, n=b) if a > 1e6 else cls(lat=a, lon=b)
         return cls(**{k: float(v) for k, v in d.items() if k in ("lat", "lon", "e", "n")})
 
-    def lv95(self):
+    def en(self, crs: str = LV95):
+        """(E, N) metres on the grid `crs`."""
         if self.e is not None and self.n is not None:
             return self.e, self.n
         if self.lat is None or self.lon is None:
             raise ValueError("point needs lat/lon or e/n")
-        e, n = wgs84_to_lv95(self.lat, self.lon)
+        e, n = project(self.lat, self.lon, crs)
         return float(e), float(n)
+
+    def lv95(self):
+        return self.en(LV95)
 
 
 @dataclass
@@ -90,6 +104,14 @@ class LocationConfig:
     log_options: dict
     source_path: Path
     corridor: Optional[Any]    = None      # fpv3d.corridor.Corridor for route-shaped locations
+    crs: str = LV95                        # the metric grid of this location (LV95 in Switzerland, else its UTM zone)
+
+    def center_en(self):
+        return self.center.en(self.crs)
+
+    def pilot_en(self):
+        """The pilot on this location's grid, None when it comes from the first flight log."""
+        return self.pilot.en(self.crs) if self.pilot else None
 
     def ortho_res(self, grid=None) -> float:
         """Aerial photo resolution: the configured value, or for "auto" the sharpest valid one that
@@ -105,9 +127,9 @@ class LocationConfig:
         """The scene's grid at `res`: square around the centre, or the box around a corridor."""
         from .geo import Grid
         if self.corridor is not None:
-            return self.corridor.grid(res, self.pilot.lv95() if self.pilot else None)
-        ce, cn = self.center.lv95()
-        return Grid.around(ce, cn, self.half_size_m, res)
+            return self.corridor.grid(res, self.pilot_en())
+        ce, cn = self.center_en()
+        return Grid.around(ce, cn, self.half_size_m, res, self.crs)
 
     @classmethod
     def load(cls, path) -> "LocationConfig":
@@ -151,7 +173,8 @@ class LocationConfig:
         base = path.parent
         logs = [str((base / p).resolve()) if not Path(p).is_absolute() else p for p in (raw.get("logs") or [])]
         from .corridor import Corridor
-        corridor = Corridor.from_raw(raw.get("corridor"))  # type: ignore[arg-type]
+        crs = _crs_of(raw)
+        corridor = Corridor.from_raw(raw.get("corridor"), crs)  # type: ignore[arg-type]
         if corridor is not None:
             ce, cn = corridor.center()
             e0, n0, e1, n1 = corridor.bbox()
@@ -166,6 +189,7 @@ class LocationConfig:
             center=center,
             half_size_m=half,
             corridor=corridor,
+            crs=crs,
             pilot=pilot,
             pilot_antenna_height_m=float(pilot_raw.get("antenna_height_m", 1.8)),
             terrain=terrain,
@@ -175,3 +199,18 @@ class LocationConfig:
             log_options=raw.get("log_options") or {},
             source_path=path,
         )
+
+
+def _crs_of(raw: dict) -> str:
+    """The grid of a location file: its `crs:` line when it has one, else from where its centre (or the start of
+    its route) is. Positions written as e/n metres are Swiss LV95."""
+    if raw.get("crs"):
+        crs = str(raw["crs"]).upper()
+        if not crs.startswith("EPSG:"):
+            raise ValueError("crs must look like EPSG:32632")
+        return crs
+    first = (raw.get("corridor") or {}).get("points") or [raw.get("center")]
+    p = Point.from_dict(first[0]) if first and first[0] is not None else None
+    if p is None or p.lat is None or p.lon is None:
+        return LV95
+    return crs_for(p.lat, p.lon)

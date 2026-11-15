@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .geo import Grid, wgs84_to_lv95
+from .geo import Grid, project
 from .safefile import write_atomic
 
 # public Overpass servers, tried in turn (they limit how many queries one computer may run in a row)
@@ -167,7 +167,7 @@ def build_buildings(grid: Grid, dtm: np.ndarray, dsm, cache: Path, refresh=False
             continue
         for ring in _rings(el):
             lat = np.array([p[0] for p in ring]); lon = np.array([p[1] for p in ring])
-            e, n = wgs84_to_lv95(lat, lon)
+            e, n = project(lat, lon, grid.crs)
             x, y = np.asarray(e) - grid.min_e, np.asarray(n) - grid.min_n
             if x.max() < 0 or y.max() < 0 or x.min() > W or y.min() > H:
                 continue
@@ -208,6 +208,6 @@ def write_scene_buildings(out_dir: Path, grid: Grid, dtm: np.ndarray, dsm, cache
         log(f"[buildings] unavailable ({ex}) - scene built without them; retry with: python -m fpv3d buildings")
         return dict(count=0, error=str(ex)[:300], when=time.strftime("%Y-%m-%d %H:%M"))
     write_atomic((out_dir / "buildings.json"), json.dumps(dict(items=items), separators=(",", ":")))
-    log(f"[buildings] {len(items)} from OpenStreetMap, {n_dsm} with heights measured on swissSURFACE3D "
+    log(f"[buildings] {len(items)} from OpenStreetMap, {n_dsm} with heights measured on the surface model "
         f"({time.time() - t0:.1f}s)")
-    return dict(file="buildings.json", count=len(items), heights_from_dsm=n_dsm, source="OpenStreetMap + swisstopo")
+    return dict(file="buildings.json", count=len(items), heights_from_dsm=n_dsm, source="OpenStreetMap + swisstopo" if grid.crs == "EPSG:2056" else "OpenStreetMap")

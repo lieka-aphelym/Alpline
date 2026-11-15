@@ -32,5 +32,9 @@ distributing the built app under any licence). Each library's full licence text 
 
 Terrain, surface and aerial photos: © [swisstopo](https://www.swisstopo.admin.ch) (swissALTI3D, swissSURFACE3D
 Raster, SWISSIMAGE 10 cm, the grey base map), free under the swisstopo open-data terms (OGD), source to be named.
+
+Terrain outside Switzerland: Copernicus DEM GLO-30, read from its public copy on AWS. Produced using Copernicus
+WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the
+European Union and ESA; all rights reserved. Free to use with this credit, which the viewer shows on such scenes.
 Drone zones: Federal Office of Civil Aviation (FOCA / BAZL). Buildings: © OpenStreetMap contributors (ODbL).
 None of this data is in the repository: Alpline downloads it to your computer when you build a location.
