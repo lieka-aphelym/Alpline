@@ -106,6 +106,71 @@ def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None, used: Opt
     return img
 
 
+def world_inventory(cache_root: Path) -> List[dict]:
+    """What is cached of the worldwide sources, per source and grid (for the map page):
+    [{"source": "copernicus", "label": "worldwide 30 m model", "crs": "EPSG:32632", "lod": {kind: {res: [key, ...]}}}]."""
+    out = []
+    for name, label, make in (("copernicus", "worldwide 30 m model", sources.worldwide),
+                              ("sentinel2", "satellite photo", sources.worldwide_photo)):
+        folder = Path(cache_root) / name
+        for d in sorted(folder.iterdir()) if folder.exists() else []:
+            if not (d.is_dir() and d.name.isdigit() and (d / "lod").exists()):
+                continue
+            crs = f"EPSG:{d.name}"
+            lod = TileCache(cache_root, make(crs)).inventory()["lod"]
+            if lod:
+                out.append(dict(source=name, label=label, crs=crs, lod=lod))
+    return out
+
+
+def cached_height(tc: TileCache, e: float, n: float):
+    """Ground height at (e, n) of the cache's grid from its finest resampled tile: (height, "cache (dtm 2 m)") or None."""
+    key = (int(e // TILE), int(n // TILE))
+    for kind in ("dtm", "dsm"):
+        d = tc.base / "lod" / kind
+        if not d.exists():
+            continue
+        for rd in sorted((p for p in d.iterdir() if p.name[:-1].replace(".", "").isdigit()), key=lambda p: float(p.name[:-1])):
+            res = float(rd.name[:-1])
+            t = tc.load(kind, res, key)
+            if t is None:
+                continue
+            c = int((e - key[0] * TILE) / res)
+            r = int(((key[1] + 1) * TILE - n) / res)
+            v = float(t[min(r, t.shape[0] - 1), min(c, t.shape[1] - 1)])
+            if np.isfinite(v):
+                return v, f"cache ({kind} {res:g} m)"
+    return None
+
+
+def world_height(cache_root: Path, lat: float, lon: float, crs: str, online=True):
+    """Ground height of a place from the worldwide model: from the cache, else from its 1 degree file when it is
+    already downloaded, else (online) by reading just that spot of the file on the server. (height, source) or None."""
+    import math
+    import rasterio
+    from .copernicus import BASE, square_name
+    from .geo import project
+    e, n = (float(v) for v in project(lat, lon, crs))
+    src = sources.worldwide(crs)
+    hit = cached_height(TileCache(cache_root, src), e, n)
+    if hit:
+        return hit[0], f"worldwide 30 m model, {hit[1]}"
+    name = square_name(math.floor(lat), math.floor(lon))
+    local = src.raw_dir(cache_root, "dtm") / f"{name}.tif"
+    if local.exists():
+        where, env = str(local), {}
+    elif online and not local.with_suffix(".missing").exists():
+        # the files are made for this: only the few kilobytes around the spot are fetched
+        where, env = f"/vsicurl/{BASE}/{name}/{name}.tif", dict(
+            GDAL_HTTP_TIMEOUT="10", GDAL_HTTP_CONNECTTIMEOUT="5", GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
+            CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif")
+    else:
+        return None
+    with rasterio.Env(**env), rasterio.open(where) as ds:
+        v = float(next(ds.sample([(lon, lat)]))[0])
+    return (v, "worldwide 30 m model") if math.isfinite(v) and v > -1000 else None
+
+
 def photo_native_m(crs: str) -> float:
     """The finest photo worth asking for on this grid, in metres: sharper would only enlarge the picture."""
     return min((getattr(s, "native_m", 0.0) for s in sources.chain(crs, "ortho")), default=0.0)

@@ -52,6 +52,17 @@ function fromUTM(e, n, { zone, south }) {
   return [lat / RAD, zone * 6 - 183 + Math.atan(Math.sinh(h) / Math.cos(x)) / RAD];
 }
 
+// ---------------------------------------------------------------- which grid a place is built on (fpv3d/config.py)
+const SWISS_BOX = [45.7, 5.8, 47.9, 10.6];           // lat0, lon0, lat1, lon1: Switzerland and its border regions
+export function utmCrs(lat, lon) {
+  const zone = ((Math.floor((lon + 180) / 6) % 60) + 60) % 60 + 1;
+  return `EPSG:${(lat >= 0 ? 32600 : 32700) + zone}`;
+}
+/** Swiss LV95 in and right around Switzerland, the place's UTM zone anywhere else. */
+export function crsFor(lat, lon) {
+  return lat >= SWISS_BOX[0] && lat <= SWISS_BOX[2] && lon >= SWISS_BOX[1] && lon <= SWISS_BOX[3] ? LV95 : utmCrs(lat, lon);
+}
+
 // ---------------------------------------------------------------- what the pages use
 export const isSwiss = (crs) => !crs || crs === LV95;
 /** [e, n] metres on the grid `crs` (scene.json grid.crs; none = LV95, scenes made before it existed). */

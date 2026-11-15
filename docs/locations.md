@@ -2,16 +2,16 @@
 
 [← back to the README](../README.md)
 
-## Switzerland map (click to create locations)
+## Map page (click to create locations)
 
 ```bash
 python -m fpv3d map
 ```
-This opens a map of Switzerland in your browser. It shows:
+This opens a map in your browser, on Switzerland at first (move or search to go anywhere). It shows:
 - every 1 km tile you have already cached, coloured by kind; finer resolution is drawn more opaque
 - your locations, as a rectangle for the area and a small [p] tag for the pilot
 
-Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. You can also search for a place. Then pick the size, detail level and radio settings. Before you save, it tells you how many tiles are already cached and roughly how much would be downloaded. **Save & build** creates `locations/<name>.yaml`, builds the scene and links straight to the 3D view. While it builds, the location's 1 km tiles are drawn on the map and fill up as they download: dashed = still to get, blue outline = downloading, bright = just downloaded, dark = already cached, grey = no data. A card shows the steps (Terrain → Photo → Shadows → Logs → Zones), an overall bar, tile counters and the download speed. The full build log is under *Technical details*. The basemap and place search need internet; cached tiles and your locations show either way.
+Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. You can also search for a place. Then pick the size, detail level and radio settings. Before you save, it tells you how many tiles are already cached and roughly how much would be downloaded. **Save & build** creates `locations/<name>.yaml`, builds the scene and links straight to the 3D view. While it builds, the location's 1 km tiles are drawn on the map and fill up as they download: dashed = still to get, blue outline = downloading, bright = just downloaded, dark = already cached, grey = no data. A card shows the steps (Terrain → Photo → Shadows → Logs → Zones), an overall bar, tile counters and the download speed. The full build log is under *Technical details*. The basemap and place search need internet; cached tiles and your locations show either way. What you type in the search box goes to swisstopo's place search. Places outside Switzerland are found once you tick *also search outside Switzerland* under the box: what you type then also goes to Photon (the OpenStreetMap search run by Komoot). It is off until you tick it, and the choice is remembered. A typed position such as `47.26 11.39` is used as it is and sent nowhere.
 
 ## A new spot
 
@@ -58,7 +58,9 @@ What is different there:
   there, and there is no sharp close-up around the pilot.
 - **No drone zones**: check the official drone map of the country you fly in.
 - **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
-- The **map page** cannot create or show such a location yet: write the file by hand, then build it.
+- The **map page** works there too: type a position (`47.26 11.39`) or tick *also search outside Switzerland* and
+  search a place, then click, save and build. The
+  basemap switches to OpenStreetMap outside Switzerland; a satellite layer is in the layers menu.
 - Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
 
 Terrain downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every

@@ -1,17 +1,21 @@
-"""Map tiles for the launcher's map of Switzerland (Pillow only; no Tk here, so it can be tested on its own).
+"""Map tiles for the launcher's map (Pillow only; no Tk here, so it can be tested on its own).
 
-Sources (swisstopo WMTS, the same service as the locations map page), per 256 px tile:
+Switzerland and its neighbours (the WIDE box) are a map, from swisstopo WMTS (the same service as the locations map
+page), per 256 px tile:
     base    ch.swisstopo.pixelkarte-grau                     grey national map (also covers the border regions)
     relief  ch.swisstopo.swissalti3d-reliefschattierung      hillshade, Switzerland only
     mask    ch.swisstopo.swissboundaries3d-land-flaeche.fill Switzerland's area: everything outside is dimmed
     zones   ch.bazl.einschraenkungen-drohnen                 FOCA drone restrictions
+The rest of the world is a satellite picture: the Sentinel-2 cloudless mosaic of 2016 by EOX (CC BY 4.0, the same
+as the photo of scenes abroad, see fpv3d/sentinel2.py), darkened to sit with the map.
 
 Each tile is styled once (dark map shaded by the relief, dimmed outside Switzerland; zones as red outlines with a
-hatch) and stored in cache/launcher/tiles_v1/<z>/<x>_<y>.png (+ _z.png for the zones), so it shows offline. A missing
-layer just leaves that part out (no relief, no dimming, no zones). STYLE changes need a new folder name.
+hatch; satellite darkened) and stored in cache/launcher/tiles_v2/<z>/<x>_<y>.png (+ _z.png for the zones), so it
+shows offline. A missing layer just leaves that part out (no relief, no dimming, no zones). STYLE changes need a
+new folder name.
 
-    overview()          the whole area at zoom 9 as one image (shown first, and when zoomed out)
-    tile(z, x, y)       one styled detail tile (zoom 10..13), from disk or downloaded
+    overview()          the WIDE area at zoom 9 as one image (shown first, and when zoomed out)
+    tile(z, x, y)       one styled tile (zoom 2..13), from disk or downloaded
     prefetch(points)    the detail tiles around your locations, for offline use at the field
 """
 from __future__ import annotations
@@ -30,13 +34,16 @@ WIDE = (4.6, 45.2, 11.9, 48.6)            # lon/lat west, south, east, north of 
 CH_BOX = (5.85, 45.75, 10.6, 47.9)        # Switzerland itself ([CH] button)
 ZOV = 9                                    # zoom of the overview
 ZMAX = 13                                  # deepest detail zoom (about 13 m per pixel at 46°: towns, roads, rivers)
+ZMIN = 2                                   # the whole world in a handful of tiles
+WORLD_URL = os.environ.get("ALPLINE_WORLD_TILES", "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g") \
+    + "/{z}/{y}/{x}.jpg"
 URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
 LAYERS = {"base": ("ch.swisstopo.pixelkarte-grau", "jpeg"),
           "relief": ("ch.swisstopo.swissalti3d-reliefschattierung", "png"),
           "mask": ("ch.swisstopo.swissboundaries3d-land-flaeche.fill", "png"),
           "zones": ("ch.bazl.einschraenkungen-drohnen", "png")}
 BG = (12, 16, 22)                          # page background (#0c1016)
-STYLE = "tiles_v1"
+STYLE = "tiles_v2"                         # v1: Switzerland only (tiles outside it were stored empty)
 
 
 def merc(lon, lat, z):
@@ -65,6 +72,43 @@ def group_points(pts, radius):
         else:
             groups.append({"m": [(item, p)], "p": p})
     return groups
+
+
+def in_wide(z, x, y) -> bool:
+    """A tile that lies wholly inside the WIDE box is a swisstopo map tile; any other is satellite."""
+    x0, y0 = merc(WIDE[0], WIDE[3], z)
+    x1, y1 = merc(WIDE[2], WIDE[1], z)
+    return x * 256 >= x0 and (x + 1) * 256 <= x1 and y * 256 >= y0 and (y + 1) * 256 <= y1
+
+
+def view_zoom(s, inside, zm=ZOV, zmin=ZMIN, zmax=ZMAX):
+    """Tile zoom for a view drawn at `s` screen pixels per overview pixel. A view that stays inside the overview
+    never needs less than the overview's own zoom; one that leaves it goes down to the world's zmin."""
+    z = math.ceil(zm + math.log2(max(s, 1e-9)) - 0.35)
+    return max(zm if inside else zmin, min(zmax, z))
+
+
+def fetch_world(z, x, y, timeout=10):
+    """One raw satellite tile as a PIL image, or None (no data there). Network errors raise."""
+    from PIL import Image
+    req = urllib.request.Request(WORLD_URL.format(z=z, x=x, y=y), headers={"User-Agent": "alpline-launcher"})
+    try:
+        data = urllib.request.urlopen(req, timeout=timeout).read()
+    except urllib.error.HTTPError:
+        return None
+    try:
+        return Image.open(io.BytesIO(data)).convert("RGB")
+    except Exception:
+        return None
+
+
+def style_world(img):
+    """Satellite tile -> dark, slightly muted picture that sits with the dark map (dots and names stay readable)."""
+    from PIL import Image, ImageEnhance
+    if img is None:
+        return Image.new("RGB", (256, 256), BG)
+    img = ImageEnhance.Color(img).enhance(0.75)
+    return Image.merge("RGB", tuple(c.point(lambda p, k=k: int(8 + p * k)) for c, k in zip(img.split(), (0.44, 0.48, 0.55))))
 
 
 def tile_range(box, z):
@@ -128,36 +172,41 @@ class Tiles:
         self.dir = Path(cache) / STYLE
         self.lock = threading.Lock()
 
-    def path(self, z, x, y, zones=False):
-        return self.dir / str(z) / f"{x}_{y}{'_z' if zones else ''}.png"
+    def path(self, z, x, y, zones=False, ov=False):
+        """ov: a tile of the overview picture (always the map, also at its edges), kept apart from the view's tiles."""
+        return self.dir / f"{z}{'ov' if ov else ''}" / f"{x}_{y}{'_z' if zones else ''}.png"
 
-    def have(self, z, x, y):
-        return self.path(z, x, y).exists()
+    def have(self, z, x, y, ov=False):
+        return self.path(z, x, y, ov=ov).exists()
 
-    def load(self, z, x, y):
+    def load(self, z, x, y, ov=False):
         """(RGB, zones RGBA or None) from disk, or None."""
         from PIL import Image
-        p = self.path(z, x, y)
+        p = self.path(z, x, y, ov=ov)
         if not p.exists():
             return None
         try:
             rgb = Image.open(p).convert("RGB")
-            pz = self.path(z, x, y, True)
+            pz = self.path(z, x, y, True, ov)
             zo = Image.open(pz).convert("RGBA") if pz.exists() else None
             return rgb, zo
         except Exception:
             return None
 
-    def get(self, z, x, y):
-        """Download, style and store one tile. Returns (RGB, zones or None). Network errors raise."""
-        raw = {k: fetch(k, z, x, y) for k in LAYERS}
-        rgb, zo = style(raw["base"], raw["relief"], raw["mask"], raw["zones"], x * 256, y * 256)
-        p = self.path(z, x, y)
+    def get(self, z, x, y, ov=False):
+        """Download, style and store one tile: the swisstopo map inside the WIDE box (and for the overview), the
+        satellite picture elsewhere. Returns (RGB, zones or None). Network errors raise."""
+        if ov or in_wide(z, x, y):
+            raw = {k: fetch(k, z, x, y) for k in LAYERS}
+            rgb, zo = style(raw["base"], raw["relief"], raw["mask"], raw["zones"], x * 256, y * 256)
+        else:
+            rgb, zo = style_world(fetch_world(z, x, y)), None
+        p = self.path(z, x, y, ov=ov)
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(".tmp")
         rgb.save(tmp, "PNG", optimize=False)
         os.replace(tmp, p)
-        pz = self.path(z, x, y, True)
+        pz = self.path(z, x, y, True, ov)
         if zo is not None:
             zo.save(pz)
         elif pz.exists():
@@ -166,6 +215,9 @@ class Tiles:
 
     def clear(self):
         shutil.rmtree(self.dir, ignore_errors=True)
+        for old in self.dir.parent.glob("tiles_v*"):        # tiles of older launchers (other styles): no longer used
+            if old != self.dir:
+                shutil.rmtree(old, ignore_errors=True)
 
     # ---------------------------------------------------------- overview
     def overview(self, workers=6, progress=None):
@@ -174,11 +226,11 @@ class Tiles:
         from PIL import Image
         tx0, ty0, tx1, ty1 = tile_range(WIDE, ZOV)
         keys = [(x, y) for x in range(tx0, tx1 + 1) for y in range(ty0, ty1 + 1)]
-        todo = [k for k in keys if not self.have(ZOV, *k)]
+        todo = [k for k in keys if not self.have(ZOV, *k, ov=True)]
         done = [0]
 
         def one(k):
-            self.get(ZOV, *k)
+            self.get(ZOV, *k, ov=True)
             done[0] += 1
             if progress:
                 progress(done[0], len(todo))
@@ -189,7 +241,7 @@ class Tiles:
         rgb = Image.new("RGB", (W, H), BG)
         zo = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         for x, y in keys:
-            t = self.load(ZOV, x, y)
+            t = self.load(ZOV, x, y, ov=True)
             if t:
                 rgb.paste(t[0], ((x - tx0) * 256, (y - ty0) * 256))
                 if t[1] is not None:

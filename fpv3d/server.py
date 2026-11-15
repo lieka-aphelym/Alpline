@@ -1,8 +1,8 @@
 """Local web server for the viewer and the map page, with a small JSON API.
 
 GET  /api/state                 locations, built scenes and the tile-cache inventory
-GET  /api/height?lat=..&lon=..  ground height (from the local cache, else swisstopo's height service)
-GET  /api/search?q=..           place search (swisstopo SearchServer)
+GET  /api/height?lat=..&lon=..  ground height (the local cache, else swisstopo's height service, else the world model)
+GET  /api/search?q=..[&world=1] place search (swisstopo SearchServer; with world=1 also OpenStreetMap's Photon)
 POST /api/locations             create a location file           body: see write_location()
 POST /api/links                 save radio link settings to the location file + rebuild  body: {"scene", "links": [...]}
 POST /api/refresh-all           update every scene in the background  body: {"mode": "all"|"zones"|"buildings", "missing": false}
@@ -55,15 +55,13 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
 
-import numpy as np
-
 from .errorlog import record, record_exception
-from .geo import wgs84_to_lv95
 from .locations import ROOT, list_locations, write_location
 from .paths import APP, cli_cmd
 from .netinfo import lan_addresses  # shared with the launcher
@@ -82,22 +80,102 @@ def _fetch_json(url: str, timeout=10):
 
 def cached_height(cache: TileCache, e: float, n: float):
     """Ground height from the finest cached elevation tile, or None."""
-    key = (int(e // TILE), int(n // TILE))
-    for kind in ("dtm", "dsm"):
-        d = cache.root / "lod" / kind
-        if not d.exists():
-            continue
-        for rd in sorted(d.iterdir(), key=lambda p: float(p.name[:-1]) if p.name[:-1].replace(".", "").isdigit() else 1e9):
-            res = float(rd.name[:-1])
-            t = cache.load(kind, res, key)
-            if t is None:
+    from .terrain import cached_height as ch
+    return ch(cache, e, n)
+
+
+def place_height(cache: TileCache, lat: float, lon: float) -> dict:
+    """Ground height of a place for the map page: the local cache, then swisstopo's height service (Switzerland),
+    then the worldwide model. {"height": m or None, "source": text, "e", "n" (on the place's grid), "crs"}."""
+    from . import terrain
+    from .config import crs_for
+    from .geo import LV95, project
+    crs = crs_for(lat, lon)
+    e, n = (float(v) for v in project(lat, lon, crs))
+    out = dict(e=e, n=n, crs=crs)
+    why = "unavailable"
+    if crs == LV95:
+        hit = cached_height(cache, e, n)
+        if hit:
+            return dict(out, height=hit[0], source=hit[1])
+        try:
+            d = _fetch_json(f"{HEIGHT_URL}?easting={e:.1f}&northing={n:.1f}&sr=2056")
+            return dict(out, height=float(d["height"]), source="swisstopo height service")
+        except urllib.error.HTTPError:
+            pass                                    # the service knows Switzerland only: across the border, ask the world model
+        except Exception as ex:                     # noqa: BLE001 - offline
+            why = f"unavailable ({ex.__class__.__name__})"
+    try:
+        hit = terrain.world_height(cache.root, lat, lon, crs)
+        if hit:
+            return dict(out, height=hit[0], source=hit[1])
+    except Exception:                               # noqa: BLE001 - no file for this square (sea), or offline
+        why = "no height here (sea, or offline)"
+    return dict(out, height=None, source=why)
+
+
+HEIGHT_URL = os.environ.get("FPV3D_HEIGHT_URL", "https://api3.geo.admin.ch/rest/services/height")
+SEARCH_URL = os.environ.get("FPV3D_SEARCH_URL", "https://api3.geo.admin.ch/rest/services/ech/SearchServer")
+WORLD_SEARCH_URL = os.environ.get("FPV3D_WORLD_SEARCH_URL", "https://photon.komoot.io/api/")
+_COORD_RE = re.compile(r"^\s*(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$")
+
+
+def place_search(text: str, world: bool = False) -> list:
+    """Places matching `text` for the map page: [{"label", "lat", "lon"}].
+    "47.26, 11.39" is taken as a position (nothing is sent anywhere). Else swisstopo's search (Swiss places, addresses,
+    postcodes) and, only when the user switched it on (`world`), the worldwide OpenStreetMap search (Photon, by
+    Komoot): what is typed then goes to that second service too, so it is never asked without that choice.
+    swisstopo always answers something, however far-fetched ("Innsbruck" gives Swiss hamlets): only its results that
+    contain the words typed count; the far-fetched ones are shown only when the worldwide search finds nothing."""
+    text = (text or "").strip()
+    m = _COORD_RE.match(text)
+    if m and abs(float(m.group(1))) <= 90 and abs(float(m.group(2))) <= 180:
+        la, lo = float(m.group(1)), float(m.group(2))
+        return [dict(label=f"{la:.5f}, {lo:.5f} (position)", lat=la, lon=lo)]
+    out, loose, failed = [], [], 0
+    words = [w for w in re.split(r"[^a-z0-9]+", _plain(text)) if len(w) >= 2]
+    try:
+        url = f"{SEARCH_URL}?type=locations&sr=2056&limit=8&searchText=" + urllib.parse.quote(text)
+        for r in _fetch_json(url).get("results", []):
+            a = r.get("attrs", {})
+            label = re.sub(r"<[^>]+>", "", a.get("label", ""))
+            hit = None
+            if "lat" in a and "lon" in a:
+                hit = dict(label=label, lat=a["lat"], lon=a["lon"])
+            elif "y" in a and "x" in a:      # LV95: y = east, x = north
+                from .geo import lv95_to_wgs84
+                la, lo = lv95_to_wgs84(a["y"], a["x"])
+                hit = dict(label=label, lat=float(la), lon=float(lo))
+            if hit:
+                (out if words and all(w in _plain(label) for w in words) else loose).append(hit)
+    except Exception:                               # noqa: BLE001
+        failed += 1
+    if not world:
+        if failed:
+            raise OSError("place search unavailable")
+        return out or loose
+    out = out[:5]            # room for the rest of the world: a name can be both (Chamonix: streets in Geneva, a town in France)
+    try:
+        url = f"{WORLD_SEARCH_URL}?lang=en&limit={8 - len(out)}&q=" + urllib.parse.quote(text)
+        for f in _fetch_json(url).get("features", []):
+            p, c = f.get("properties") or {}, (f.get("geometry") or {}).get("coordinates") or []
+            if len(c) < 2 or not p.get("name"):
                 continue
-            c = int((e - key[0] * TILE) / res)
-            r = int(((key[1] + 1) * TILE - n) / res)
-            v = float(t[min(r, t.shape[0] - 1), min(c, t.shape[1] - 1)])
-            if np.isfinite(v):
-                return v, f"cache ({kind} {res:g} m)"
-    return None
+            if p.get("countrycode") == "CH" and out:        # swisstopo already answered for Switzerland
+                continue
+            where = ", ".join(dict.fromkeys(v for v in (p.get("city"), p.get("state"), p.get("country")) if v and v != p["name"]))
+            out.append(dict(label=p["name"] + (f" ({where})" if where else ""), lat=float(c[1]), lon=float(c[0])))
+    except Exception:                               # noqa: BLE001
+        failed += 1
+    if failed == 2:
+        raise OSError("place search unavailable")
+    return out or loose
+
+
+def _plain(s: str) -> str:
+    """Lower case without accents, to compare what was typed with a place name."""
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
 
 
 def run_build(job_id: str, args: list):
@@ -388,33 +466,17 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 if u.path == "/api/state":
                     from .trash import list_deleted
                     from . import mode
+                    from .terrain import world_inventory
                     return self._json(dict(locations=list_locations(scenes_dir), cache=cache.inventory(),
+                                           cache_world=world_inventory(cache.root),
                                            tile_size_m=TILE, deleted=list_deleted()[:10], mode=mode.current()))
                 if u.path == "/api/height":
-                    e, n = wgs84_to_lv95(float(q["lat"]), float(q["lon"]))
-                    e, n = float(e), float(n)
-                    hit = cached_height(cache, e, n)
-                    if hit:
-                        return self._json(dict(height=hit[0], source=hit[1], e=e, n=n))
-                    try:
-                        d = _fetch_json(f"https://api3.geo.admin.ch/rest/services/height?easting={e:.1f}&northing={n:.1f}&sr=2056")
-                        return self._json(dict(height=float(d["height"]), source="swisstopo height service", e=e, n=n))
-                    except Exception as ex:
-                        return self._json(dict(height=None, source=f"unavailable ({ex.__class__.__name__})", e=e, n=n))
+                    lat, lon = float(q["lat"]), float(q["lon"])
+                    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                        return self._json(dict(error="lat / lon out of range"), 400)
+                    return self._json(place_height(cache, lat, lon))
                 if u.path == "/api/search":
-                    url = ("https://api3.geo.admin.ch/rest/services/ech/SearchServer?type=locations&sr=2056&limit=8&searchText="
-                           + urllib.parse.quote(q.get("q", "")))
-                    out = []
-                    for r in _fetch_json(url).get("results", []):
-                        a = r.get("attrs", {})
-                        label = re.sub(r"<[^>]+>", "", a.get("label", ""))
-                        if "lat" in a and "lon" in a:
-                            out.append(dict(label=label, lat=a["lat"], lon=a["lon"]))
-                        elif "y" in a and "x" in a:      # LV95: y = east, x = north
-                            from .geo import lv95_to_wgs84
-                            la, lo = lv95_to_wgs84(a["y"], a["x"])
-                            out.append(dict(label=label, lat=float(la), lon=float(lo)))
-                    return self._json(out)
+                    return self._json(place_search(q.get("q", ""), world=q.get("world") == "1"))
                 if u.path in ("/api/terrain", "/api/ortho"):
                     from . import viewdata
                     scene = q.get("scene", "")
@@ -801,7 +863,7 @@ _CSP: dict = {}                 # (newest page time) -> header
 
 def csp() -> str:
     """Content-Security-Policy: scripts only from this server (plus the few inline blocks of our own pages, by hash),
-    map tiles from swisstopo / OpenStreetMap, never inside another site's frame. Recomputed when a page changes."""
+    map tiles from swisstopo / OpenStreetMap / EOX (satellite), never inside another site's frame. Recomputed when a page changes."""
     pages = sorted((APP / "viewer").rglob("*.html"))
     key = max((f.stat().st_mtime_ns for f in pages), default=0)
     if key not in _CSP:
@@ -809,7 +871,7 @@ def csp() -> str:
         for f in pages:
             for m in re.finditer(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", f.read_text(encoding="utf-8"), re.S):
                 hashes.add("'sha256-" + base64.b64encode(hashlib.sha256(m.group(1).encode()).digest()).decode() + "'")
-        tiles = "https://wmts.geo.admin.ch https://tile.openstreetmap.org"
+        tiles = "https://wmts.geo.admin.ch https://tile.openstreetmap.org https://tiles.maps.eox.at"
         _CSP.clear()
         _CSP[key] = "; ".join([
             "default-src 'self'", "script-src 'self' " + " ".join(sorted(hashes)),

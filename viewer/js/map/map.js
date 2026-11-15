@@ -1,5 +1,6 @@
-// fpv3d map page: Switzerland basemap, cached terrain tiles, existing locations,
-// and click-to-create new locations (pilot + area) with optional one-click build.
+// fpv3d map page: basemap (swisstopo in Switzerland, OpenStreetMap / satellite elsewhere), cached terrain tiles,
+// existing locations, and click-to-create new locations (pilot + area) with optional one-click build.
+// A location lives on a metric grid: Swiss LV95 in and around Switzerland, its UTM zone elsewhere (core/geo.js).
 /* global L */
 import { initTabs } from '../core/tabs.js';
 import { createBuildProgress } from './buildprog.js';
@@ -7,22 +8,13 @@ import { stripTiles, contextTiles, stripShapes, routeLength, stripArea, boxCells
 import { LITE } from '../core/env.js';
 import { mountDrone } from '../core/drone.js';
 import { esc } from '../core/esc.js';
+import { toGrid, toWGS, crsFor, gridName, isSwiss } from '../core/geo.js';
 const $ = (id) => document.getElementById(id);
 const TILE = 1000;
+const LV95 = 'EPSG:2056';
 
-// ---------------------------------------------------------------- swisstopo LV95 <-> WGS84 (approx. formulas, ~1 m)
-function toLV95(lat, lon) {
-  const p = (lat * 3600 - 169028.66) / 10000, l = (lon * 3600 - 26782.5) / 10000;
-  return [2600072.37 + 211455.93 * l - 10938.51 * l * p - 0.36 * l * p * p - 44.54 * l ** 3,
-    1200147.07 + 308807.95 * p + 3745.25 * l * l + 76.63 * p * p - 194.56 * l * l * p + 119.79 * p ** 3];
-}
-function toWGS(e, n) {
-  const y = (e - 2600000) / 1e6, x = (n - 1200000) / 1e6;
-  const l = 2.6779094 + 4.728982 * y + 0.791484 * y * x + 0.1306 * y * x * x - 0.0436 * y ** 3;
-  const p = 16.9023892 + 3.238272 * x - 0.270978 * y * y - 0.002528 * x * x - 0.0447 * y * y * x - 0.014 * x ** 3;
-  return [p * 100 / 36, l * 100 / 36];
-}
-const lv95Rect = (e0, n0, e1, n1) => [toWGS(e0, n0), toWGS(e1, n0), toWGS(e1, n1), toWGS(e0, n1)];
+// a rectangle of the grid `crs` (metres) as map corners
+const gridRect = (crs, e0, n0, e1, n1) => [toWGS(e0, n0, crs), toWGS(e1, n0, crs), toWGS(e1, n1, crs), toWGS(e0, n1, crs)];
 const fmtLV = (e, n) => `${Math.round(e).toLocaleString('de-CH')} / ${Math.round(n).toLocaleString('de-CH')}`;
 
 // ---------------------------------------------------------------- map + basemaps
@@ -39,8 +31,26 @@ const base = {
   'swisstopo grey': wmts('ch.swisstopo.pixelkarte-grau', 'jpeg'),
   OpenStreetMap: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     { attribution: '© OpenStreetMap contributors', maxZoom: 19 }),
+  'Satellite (world, 10 m)': L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg',
+    { attribution: 'Sentinel-2 cloudless 2016 by <a href="https://cloudless.eox.at">EOX</a> (CC BY 4.0)', maxZoom: 19, maxNativeZoom: 14 }),
 };
 base['swisstopo map'].addTo(map);
+// The swisstopo maps end at the Swiss border regions: when the view leaves them (or zooms out past them), the map
+// switches to OpenStreetMap by itself, and back when it returns. A layer picked by hand is left alone.
+let baseNow = 'swisstopo map', baseAuto = null, baseSwitching = false;
+map.on('baselayerchange', (e) => { baseNow = e.name; if (!baseSwitching) baseAuto = null; });
+function setBase(name) {
+  if (name === baseNow) return;
+  baseSwitching = true;
+  map.removeLayer(base[baseNow]); base[name].addTo(map); baseNow = name;
+  baseSwitching = false;
+}
+function autoBase() {
+  const c = map.getCenter(), swiss = isSwiss(crsFor(c.lat, c.lng)) && map.getZoom() >= 7;
+  if (!swiss && baseNow.startsWith('swisstopo')) { baseAuto = baseNow; setBase('OpenStreetMap'); }
+  else if (swiss && baseAuto && baseNow === 'OpenStreetMap') { const b = baseAuto; baseAuto = null; setBase(b); }
+}
+map.on('moveend', autoBase);
 const overlays = {
   'Drone restrictions (FOCA, official)': L.tileLayer(
     'https://wmts.geo.admin.ch/1.0.0/ch.bazl.einschraenkungen-drohnen/default/current/3857/{z}/{x}/{y}.png',
@@ -64,41 +74,51 @@ const KIND_COL = { dtm: '#2ecc71', dsm: '#16a085', ortho: '#f1c40f' };
 let STATE = null;
 const cachedSet = {};   // `${kind}|${res}` -> Set(keys), plus `raw|${kind}`
 
-function drawCache(inv) {
-  Object.values(groups).forEach((g, i) => i < 4 && g.clearLayers());
-  for (const k of Object.keys(cachedSet)) delete cachedSet[k];
-  const lodKeys = new Set();
-  for (const [kind, byRes] of Object.entries(inv.lod || {})) {
+// The cached 1 km tiles of one source on one grid. Sets are kept per grid (`${crs}|${kind}|${res}`): tiles of
+// several sources on the same grid (swisstopo and the worldwide model at the Swiss border) add up.
+function drawLod(lod, crs, label, lodKeys) {
+  for (const [kind, byRes] of Object.entries(lod || {})) {
     const finest = {};     // key -> finest res
     for (const [res, keys] of Object.entries(byRes)) {
-      cachedSet[`${kind}|${+res}`] = new Set(keys);
-      for (const k of keys) { finest[k] = Math.min(finest[k] ?? 1e9, +res); lodKeys.add(k); }
+      const id = `${crs}|${kind}|${+res}`;
+      cachedSet[id] = new Set([...(cachedSet[id] || []), ...keys]);
+      for (const k of keys) { finest[k] = Math.min(finest[k] ?? 1e9, +res); lodKeys?.add(k); }
     }
     for (const [k, r] of Object.entries(finest)) {
       const [e, n] = k.split('-').map((v) => +v * TILE);
       const all = Object.entries(byRes).filter(([, ks]) => ks.includes(k)).map(([rr]) => `${rr} m`).join(', ');
       // finer = more opaque
       const op = kind === 'ortho' ? 0.18 : Math.max(0.18, Math.min(0.6, 0.65 - Math.log2(r) * 0.12));
-      L.polygon(lv95Rect(e, n, e + TILE, n + TILE), {
+      L.polygon(gridRect(crs, e, n, e + TILE, n + TILE), {
         color: KIND_COL[kind], weight: kind === 'ortho' ? 1 : 0.6, fillOpacity: kind === 'ortho' ? 0 : op,
         dashArray: kind === 'ortho' ? '3 3' : null, interactive: true,
-      }).bindTooltip(`${kind.toUpperCase()} tile ${k}<br>cached at ${all}`, { className: 'tip', sticky: true })
+      }).bindTooltip(`${kind.toUpperCase()} tile ${k}${label}<br>cached at ${all}`, { className: 'tip', sticky: true })
         .addTo(groups[`lod_${kind}`] || groups.lod_dtm);
     }
   }
+}
+
+function drawCache(inv, world = []) {
+  Object.values(groups).forEach((g, i) => i < 4 && g.clearLayers());
+  for (const k of Object.keys(cachedSet)) delete cachedSet[k];
+  const lodKeys = new Set();
+  drawLod(inv.lod, LV95, '', lodKeys);
+  for (const w of world) drawLod(w.lod, w.crs, ` · ${esc(w.label)}${isSwiss(w.crs) ? '' : `, ${gridName(w.crs)}`}`);
   for (const [kind, keys] of Object.entries(inv.raw || {})) {
     cachedSet[`raw|${kind}`] = new Set(keys);
     for (const k of keys) {
       if (lodKeys.has(k)) continue;
       const [e, n] = k.split('-').map((v) => +v * TILE);
-      L.polygon(lv95Rect(e, n, e + TILE, n + TILE), { color: '#95a5a6', weight: 0.6, fillOpacity: 0.25 })
+      L.polygon(gridRect(LV95, e, n, e + TILE, n + TILE), { color: '#95a5a6', weight: 0.6, fillOpacity: 0.25 })
         .bindTooltip(`downloaded ${kind} tile ${k} (not resampled yet - next build does it offline)`, { className: 'tip', sticky: true })
         .addTo(groups.raw);
     }
   }
   const nDtm = new Set(Object.values(inv.lod?.dtm || {}).flat()).size, nDsm = new Set(Object.values(inv.lod?.dsm || {}).flat()).size;
   const nRaw = new Set(Object.values(inv.raw || {}).flat()).size;
-  $('cacheSummary').textContent = `Cached: ${nDtm} km² bare ground, ${nDsm} km² trees+buildings, ${nRaw} km² with raw downloads.`;
+  const nWorld = world.filter((w) => !isSwiss(w.crs) && w.lod.dtm).reduce((a, w) => a + new Set(Object.values(w.lod.dtm).flat()).size, 0);
+  $('cacheSummary').textContent = `Cached: ${nDtm} km² bare ground, ${nDsm} km² trees+buildings, ${nRaw} km² with raw downloads`
+    + (nWorld ? `, ${nWorld} km² outside Switzerland.` : '.');
 }
 
 function drawLocations(locs) {
@@ -112,15 +132,15 @@ function drawLocations(locs) {
   for (const l of locs) {
     const li = document.createElement('li');
     if (l.error) { li.innerHTML = `<span class="t">[error] ${esc(l.file)}</span><span class="badge">error</span>`; li.title = l.error; ul.appendChild(li); continue; }
-    const [ce, cn] = l.center_lv95, h = l.half_size_m;
+    const crs = l.crs || LV95, [ce, cn] = toGrid(...l.center, crs), h = l.half_size_m;
     let poly;
     if (l.corridor) {
-      const pts = l.corridor.points.map((q) => toLV95(...q));
+      const pts = l.corridor.points.map((q) => toGrid(...q, crs));
       poly = L.featureGroup([L.polyline(l.corridor.points, { color: '#4fc3f7', weight: 2.5, dashArray: l.built ? null : '6 4' }),
-        ...stripShapes(pts, l.corridor.width_m, 16).map((s) => L.polygon(s.map((q) => toWGS(...q)), { stroke: false, fillColor: '#4fc3f7', fillOpacity: 0.07 }))]);
+        ...stripShapes(pts, l.corridor.width_m, 16).map((s) => L.polygon(s.map((q) => toWGS(...q, crs)), { stroke: false, fillColor: '#4fc3f7', fillOpacity: 0.07 }))]);
       poly.bindTooltip(`<b>${esc(l.title)}</b><br>route ${(l.corridor.length_m / 1000).toFixed(1)} km · ${2 * l.corridor.width_m} m wide · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
     } else {
-      poly = L.polygon(lv95Rect(ce - h, cn - h, ce + h, cn + h), { color: '#4fc3f7', weight: 2, fill: false, dashArray: l.built ? null : '6 4' })
+      poly = L.polygon(gridRect(crs, ce - h, cn - h, ce + h, cn + h), { color: '#4fc3f7', weight: 2, fill: false, dashArray: l.built ? null : '6 4' })
         .bindTooltip(`<b>${esc(l.title)}</b><br>${(2 * h / 1000).toFixed(1)} km · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
     }
     poly.addTo(groups.locs);
@@ -226,7 +246,7 @@ function drawBin(rows) {
 async function refresh() {
   try {
     STATE = await (await fetch('/api/state', { cache: 'no-store' })).json();
-    drawCache(STATE.cache); drawLocations(STATE.locations); drawBin(STATE.deleted || []); updatePreview();
+    drawCache(STATE.cache, STATE.cache_world || []); drawLocations(STATE.locations); drawBin(STATE.deleted || []); updatePreview();
   } catch (e) {
     msg('Cannot reach the fpv3d server. Start it with: python -m fpv3d map', 'err');
   }
@@ -245,9 +265,17 @@ centerM.on('drag', () => { const p = centerM.getLatLng(); draft.center = [p.lat,
 centerM.on('dragend', () => updatePreview());
 
 pilotM.on('dragstart', () => { draft.pilotAuto = false; });
+// the grid of the location being drawn: from the start of its route, else from its centre (as fpv3d/config.py does)
+function draftCrs() {
+  const p = draft.shape === 'route' && draft.route.length ? draft.route[0] : draft.center;
+  return p ? crsFor(p[0], p[1]) : LV95;
+}
+// what is different about a place outside Switzerland, said once under the area
+const abroadNote = (crs) => (isSwiss(crs) ? '' : '<br><span class="muted">Outside Switzerland: terrain from the worldwide 30 m model '
+  + '(coarse; a finer detail only smooths it), satellite photo of about 10 m, no drone zones.</span>');
 function routeCenter() {
-  const pts = draft.route.map((q) => toLV95(...q)), es = pts.map((q) => q[0]), ns = pts.map((q) => q[1]);
-  return toWGS((Math.min(...es) + Math.max(...es)) / 2, (Math.min(...ns) + Math.max(...ns)) / 2);
+  const crs = draftCrs(), pts = draft.route.map((q) => toGrid(...q, crs)), es = pts.map((q) => q[0]), ns = pts.map((q) => q[1]);
+  return toWGS((Math.min(...es) + Math.max(...es)) / 2, (Math.min(...ns) + Math.max(...ns)) / 2, crs);
 }
 function setShape(s) {
   draft.shape = s;
@@ -284,7 +312,8 @@ function drawingRoute() {
 }
 map.on('click', onMapClick);
 function onMapClick(e) {
-  const mode = document.querySelector('input[name=cm]:checked').value, ll = [e.latlng.lat, e.latlng.lng];
+  const w = e.latlng.wrap();                 // the map repeats east and west: bring the longitude back to -180..180
+  const mode = document.querySelector('input[name=cm]:checked').value, ll = [w.lat, w.lng];
   if (draft.shape === 'route') {
     if (mode === 'pilot') { draft.pilot = ll; draft.pilotAuto = false; } else {
       draft.route.push(ll);
@@ -309,33 +338,43 @@ async function updatePreview(full = true) {
   $('fWidthOut').textContent = `${+$('fWidth').value} m (strip ${(2 * +$('fWidth').value / 1000).toFixed(1)} km wide)`;
   if (draft.shape === 'route') { updateRoutePreview(); if (full && draft.pilot) pilotHeight(); return; }
   if (!draft.center) return;
-  const h = +$('fHalf').value, [ce, cn] = toLV95(...draft.center), [pe, pn] = toLV95(...draft.pilot);
+  const crs = draftCrs(), gn = gridName(crs);
+  const h = +$('fHalf').value, [ce, cn] = toGrid(...draft.center, crs), [pe, pn] = toGrid(...draft.pilot, crs);
   pilotM.setLatLng(draft.pilot).addTo(map); centerM.setLatLng(draft.center).addTo(map);
-  areaR.setLatLngs(lv95Rect(ce - h, cn - h, ce + h, cn + h)).addTo(map);
+  areaR.setLatLngs(gridRect(crs, ce - h, cn - h, ce + h, cn + h)).addTo(map);
   const inside = Math.abs(pe - ce) <= h && Math.abs(pn - cn) <= h;
-  $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">LV95 ${fmtLV(pe, pn)}</span>${inside ? '' : '<br><b style="color:var(--bad)">outside the map area</b>'}`;
-  $('oArea').textContent = `${(2 * h / 1000).toFixed(1)} km square around LV95 ${fmtLV(ce, cn)}`;
+  $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">${gn} ${fmtLV(pe, pn)}</span>${inside ? '' : '<br><b style="color:var(--bad)">outside the map area</b>'}`;
+  $('oArea').innerHTML = `${(2 * h / 1000).toFixed(1)} km square around ${gn} ${fmtLV(ce, cn)}${abroadNote(crs)}`;
 
   // which 1 km tiles are needed, and how many are already cached at this detail
   const res = +$('fRes').value, kind = $('fSurface').value;
   const keys = [];
   for (let e = Math.floor((ce - h) / TILE); e < Math.ceil((ce + h) / TILE); e++)
     for (let n = Math.floor((cn - h) / TILE); n < Math.ceil((cn + h) / TILE); n++) keys.push(`${e}-${n}`);
-  const lod = cachedSet[`${kind}|${res}`] || new Set(), raw = cachedSet[`raw|${kind}`] || new Set();
+  const { lod, raw } = cachedFor(crs, kind, res);
   const nLod = keys.filter((k) => lod.has(k)).length, nRaw = keys.filter((k) => !lod.has(k) && raw.has(k)).length;
   const toDl = keys.length - nLod - nRaw;
-  const mb = kind === 'dsm' ? 30 : res < 2 ? 25 : 1.5;   // rough MB per raw tile
-  $('oTiles').innerHTML = `${keys.length} km²: <b>${nLod}</b> ready, ${nRaw} from earlier downloads, ` +
-    `${toDl ? `<b>${toDl}</b> to download (~${Math.round(toDl * mb)} MB)` : 'nothing to download'}`;
+  $('oTiles').innerHTML = `${keys.length} km²: <b>${nLod}</b> ready, ${nRaw} from earlier downloads, ${downloadText(crs, toDl, kind, res)}`;
   showSize(Math.pow(Math.round(2 * h / res) + 1, 2), kind);
   tilesL.clearLayers().addTo(map);
   for (const k of keys) {
     const [e, n] = k.split('-').map((v) => +v * TILE);
     const c = lod.has(k) ? '#2ecc71' : raw.has(k) ? '#95a5a6' : '#ff9f1a';
-    L.polygon(lv95Rect(e, n, e + TILE, n + TILE), { color: c, weight: 0.5, fill: false, interactive: false }).addTo(tilesL);
+    L.polygon(gridRect(crs, e, n, e + TILE, n + TILE), { color: c, weight: 0.5, fill: false, interactive: false }).addTo(tilesL);
   }
   if (!full) return;
   pilotHeight();
+}
+
+// which of a grid's tiles are ready (resampled) or only downloaded; raw downloads per tile exist for swisstopo only
+function cachedFor(crs, kind, res) {
+  return { lod: cachedSet[`${crs}|${kind}|${res}`] || new Set(), raw: (isSwiss(crs) && cachedSet[`raw|${kind}`]) || new Set() };
+}
+function downloadText(crs, toDl, kind, res) {
+  if (!toDl) return 'nothing to download';
+  if (!isSwiss(crs)) return `<b>${toDl}</b> to prepare (the worldwide model comes as one 20–50 MB file per degree square, downloaded once)`;
+  const mb = kind === 'dsm' ? 30 : res < 2 ? 25 : 1.5;   // rough MB per raw tile
+  return `<b>${toDl}</b> to download (~${Math.round(toDl * mb)} MB)`;
 }
 
 // size of the scene and memory needed to build it (same rule as fpv3d/buildlock.py: 4 bytes a cell per terrain
@@ -359,37 +398,37 @@ function updateRoutePreview() {
     if (draft.pilot) $('oPilot').textContent = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}`;
     return;
   }
-  const pts = draft.route.map((q) => toLV95(...q)), pil = draft.pilot ? toLV95(...draft.pilot) : null;
+  const crs = draftCrs();
+  const pts = draft.route.map((q) => toGrid(...q, crs)), pil = draft.pilot ? toGrid(...draft.pilot, crs) : null;
   L.polyline(draft.route, { color: '#ff9f1a', weight: 3, interactive: false }).addTo(routeL);
-  for (const s of stripShapes(pts, w)) L.polygon(s.map((q) => toWGS(...q)), { stroke: false, fillColor: '#ff9f1a', fillOpacity: 0.1, interactive: false }).addTo(routeL);
+  for (const s of stripShapes(pts, w)) L.polygon(s.map((q) => toWGS(...q, crs)), { stroke: false, fillColor: '#ff9f1a', fillOpacity: 0.1, interactive: false }).addTo(routeL);
   const keys = stripTiles(pts, w), ks = new Set(keys);
   const ctx = contextTiles(pts, w, pil).filter((k) => !ks.has(k));
-  const lod = cachedSet[`${kind}|${res}`] || new Set(), raw = cachedSet[`raw|${kind}`] || new Set();
+  const { lod, raw } = cachedFor(crs, kind, res);
   const nLod = keys.filter((k) => lod.has(k)).length, nRaw = keys.filter((k) => !lod.has(k) && raw.has(k)).length;
   const toDl = keys.length - nLod - nRaw;
-  const mb = kind === 'dsm' ? 30 : res < 2 ? 25 : 1.5;
   for (const k of keys) {
     const [e, n] = k.split('-').map((v) => +v * TILE);
     const c = lod.has(k) ? '#2ecc71' : raw.has(k) ? '#95a5a6' : '#ff9f1a';
-    L.polygon(lv95Rect(e, n, e + TILE, n + TILE), { color: c, weight: 0.6, fill: false, interactive: false }).addTo(tilesL);
+    L.polygon(gridRect(crs, e, n, e + TILE, n + TILE), { color: c, weight: 0.6, fill: false, interactive: false }).addTo(tilesL);
   }
   for (const k of ctx) {
     const [e, n] = k.split('-').map((v) => +v * TILE);
-    L.polygon(lv95Rect(e, n, e + TILE, n + TILE), { color: '#9aa7b8', weight: 0.5, dashArray: '2 4', fill: false, interactive: false }).addTo(tilesL);
+    L.polygon(gridRect(crs, e, n, e + TILE, n + TILE), { color: '#9aa7b8', weight: 0.5, dashArray: '2 4', fill: false, interactive: false }).addTo(tilesL);
   }
   tilesL.addTo(map);
   const len = routeLength(pts), area = stripArea(pts, w);
   const es = pts.map((q) => q[0]), ns = pts.map((q) => q[1]);
   const sq = Math.pow(Math.max(Math.max(...es) - Math.min(...es), Math.max(...ns) - Math.min(...ns)) + 2 * w, 2) / 1e6;
-  $('oArea').innerHTML = `route ${(len / 1000).toFixed(2)} km · strip ≈ ${area.toFixed(1)} km²<br><span class="muted">a square around it would be ${sq.toFixed(0)} km²</span>`;
+  $('oArea').innerHTML = `route ${(len / 1000).toFixed(2)} km · strip ≈ ${area.toFixed(1)} km²<br><span class="muted">a square around it would be ${sq.toFixed(0)} km²</span>${abroadNote(crs)}`;
   const cells = boxCells(pts, w, pil, res);
   $('oTiles').innerHTML = `${keys.length} km² on the strip: <b>${nLod}</b> ready, ${nRaw} from earlier downloads, `
-    + `${toDl ? `<b>${toDl}</b> to download (~${Math.round(toDl * mb)} MB)` : 'nothing to download'}`
+    + downloadText(crs, toDl, kind, res)
     + (ctx.length ? `<br><span class="muted">+ ${ctx.length} km² coarse context between pilot and route (10 m, small)</span>` : '')
     + (cells > 150e6 ? `<br><b class="warn">Large box (${Math.round(cells / 1e6)} M cells at ${res} m): choose a coarser detail or split the route.</b>` : '');
   showSize(cells, kind);
   const [pe, pn] = pil || pts[0];
-  $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">LV95 ${fmtLV(pe, pn)}${draft.pilotAuto ? ' · start of the route' : ''}</span>`;
+  $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">${gridName(crs)} ${fmtLV(pe, pn)}${draft.pilotAuto ? ' · start of the route' : ''}</span>`;
 }
 
 async function pilotHeight() {
@@ -439,13 +478,14 @@ async function save() {
   msg(`Saved ${d.file}`, 'ok'); await refresh(); return d.name || name;   // the server adds the number (015_name)
 }
 
-let PROG = null, BUILD_DRONE = null;
+let PROG = null, BUILD_DRONE = null, buildCrs = LV95;      // the grid of the location being built (its tiles are drawn live)
 async function build(name) {
   if (draft.est?.ram > 4 && !confirm(`This location needs about ${draft.est.ram.toFixed(1)} GB of memory to build and makes a ${Math.round(draft.est.scene)} MB scene. Build anyway?`)) return;
   const r = await fetch('/api/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
   const d = await r.json();
   if (!r.ok) { msg(d.error, 'err'); return; }
-  PROG ||= createBuildProgress({ map, toWGS, el: { card: $('prog'), title: $('progTitle'), pct: $('progPct'), steps: $('progSteps'),
+  buildCrs = (STATE?.locations || []).find((l) => l.name === name)?.crs || draftCrs();
+  PROG ||= createBuildProgress({ map, toWGS: (e, n) => toWGS(e, n, buildCrs), el: { card: $('prog'), title: $('progTitle'), pct: $('progPct'), steps: $('progSteps'),
     bar: $('progBar'), now: $('progNow'), stats: $('progStats'), log: $('jobLog') } });
   PROG.start(`Building “${$('fTitle').value.trim() || name}”`);
   BUILD_DRONE ||= mountDrone($('progDrone'), { size: 34 });      // props spinning while it builds
@@ -510,6 +550,13 @@ $('bSave').onclick = save;
 $('bBuild').onclick = async () => { const n = await save(); if (n) build(n); };
 
 // ---------------------------------------------------------------- search
+// The worldwide search is off until switched on: it sends what is typed to a second outside service (Photon).
+const WORLD_KEY = 'fpv3d:worldsearch';
+try { $('fWorldSearch').checked = localStorage.getItem(WORLD_KEY) === '1'; } catch { /* private mode */ }
+$('fWorldSearch').onchange = () => {
+  try { localStorage.setItem(WORLD_KEY, $('fWorldSearch').checked ? '1' : '0'); } catch { /* private mode */ }
+  $('search').dispatchEvent(new Event('input'));          // search again with the new choice
+};
 let searchT = null;
 $('search').addEventListener('input', () => {
   clearTimeout(searchT);
@@ -517,8 +564,9 @@ $('search').addEventListener('input', () => {
   if (q.length < 2) { $('results').innerHTML = ''; return; }
   searchT = setTimeout(async () => {
     try {
-      const res = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
-      $('results').innerHTML = res.length ? '' : '<li class="muted">no match (or offline)</li>';
+      const world = $('fWorldSearch').checked;
+      const res = await (await fetch(`/api/search?q=${encodeURIComponent(q)}${world ? '&world=1' : ''}`)).json();
+      $('results').innerHTML = res.length ? '' : `<li class="muted">no match (or offline)${world ? '' : '. For places outside Switzerland, tick the box below or type a position (47.26 11.39).'}</li>`;
       for (const r of res) {
         const li = document.createElement('li'); li.textContent = r.label;
         li.onclick = () => {

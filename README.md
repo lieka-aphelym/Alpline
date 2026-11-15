@@ -266,8 +266,8 @@ Ideas for future versions. These are intentions, not promises, and there are no 
 **Planned**
 - **Terrain outside Switzerland:** a first step is in (not released yet): a hand-written location anywhere builds
   from the Copernicus 30 m model and the Sentinel-2 satellite photo, see
-  [docs/locations.md](docs/locations.md#outside-switzerland). Still to come: the map page and launcher map for the
-  rest of the world, finer national elevation data and photos, and drone zones of other countries.
+  [docs/locations.md](docs/locations.md#outside-switzerland); the map page and the launcher's map cover the world.
+  Still to come: finer national elevation data and photos, and drone zones of other countries.
 - **Better training flight:** today it feels floaty. More realistic physics, wind, and a more direct feel.
 - **A better-looking 3D world:** bridges, more detailed buildings, trees and other vegetation.
 
