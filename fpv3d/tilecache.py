@@ -8,7 +8,7 @@ cache/
   ch.swisstopo.swissalti3d/...tif        raw downloads (kept so new resolutions need no download)
   lod/<kind>/<res>m/<E>-<N>.npy          elevation tile resampled to <res> m (float32)
   lod/ortho/<res>m/<E>-<N>.jpg           aerial photo tile at <res> m (RGB, JPEG q92)
-  lod/<kind>/<res>m/<E>-<N>.none         marker: no data there (outside Switzerland)
+  lod/<kind>/<res>m/<E>-<N>.none         marker: this source has no data there (swisstopo: outside Switzerland)
   lod/<kind>/<res>m/_index.json          which swisstopo item / year each tile came from
 
 Once a tile is in lod/ the build needs no network at all, so prefetched areas work offline.
@@ -253,6 +253,8 @@ class TileCache:
             for kd in sorted(lod.iterdir()):
                 for rd in sorted(kd.iterdir(), key=lambda x: float(x.name[:-1])):
                     tiles = len([f for f in rd.iterdir() if f.suffix in (".npy", ".jpg")])
+                    if not tiles:                  # only "no data here" markers (a place abroad): nothing to list
+                        continue
                     lines.append(f"lod  {kd.name:5s} {rd.name:>6s}  {tiles:5d} tiles (= {tiles} km²) {size(rd) / 1e6:9.1f} MB")
         return lines or ["cache is empty"]
 

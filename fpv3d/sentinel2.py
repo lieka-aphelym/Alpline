@@ -79,6 +79,10 @@ class Sentinel2(sources.TerrainSource):
     def _file(self, root: Path, t) -> Path:
         return self.raw_dir(root, "ortho") / f"{t[0]}-{t[1]}-{t[2]}.tif"
 
+    def raw_names(self, key) -> set:
+        """Names (without .tif) of the downloads a 1 km tile is made from: what the cache clean-up must keep."""
+        return {f"{z}-{x}-{y}" for z, x, y in self.tiles(key)}
+
     def local_raw(self, root: Path, kind: str, key, res: float) -> List[Path]:
         files = [self._file(root, t) for t in self.tiles(key)]
         return files if all(f.exists() and f.stat().st_size > 0 for f in files) else []

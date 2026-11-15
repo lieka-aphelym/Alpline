@@ -45,7 +45,7 @@ Alpline/
    ├─ logs/          your flight logs, blackbox downloads, live and training recordings
    ├─ scenes/        built 3D scenes (created by `build`)
    ├─ battery/       your packs and their history
-   ├─ cache/         downloaded swisstopo tiles (reused between builds)
+   ├─ cache/         downloaded terrain and photo tiles (reused between builds)
    └─ backups/, deleted/, launcher.json
 ```
 
@@ -279,7 +279,11 @@ Have a wish or want to help ? Open an [issue](https://github.com/lieka-aphelym/A
 
 ## Data
 
-Data: © swisstopo (swissALTI3D, swissSURFACE3D Raster, SWISSIMAGE 10 cm), free under the swisstopo open-data terms (OGD). It is fetched via the STAC API at `data.geo.admin.ch`. To test without internet: `python tests/mock_stac.py` and set `FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9`. That serves synthetic terrain.
+Data in Switzerland: © swisstopo (swissALTI3D, swissSURFACE3D Raster, SWISSIMAGE 10 cm), free under the swisstopo open-data terms (OGD). It is fetched via the STAC API at `data.geo.admin.ch`.
+
+Data elsewhere (not released yet): terrain from the Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved), photo from Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016, CC BY 4.0). Details: [THIRD_PARTY.md](THIRD_PARTY.md).
+
+To test without internet: `python tests/mock_stac.py` and set `FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9`. That serves synthetic terrain.
 
 Always check the drone rules (FOCA / BAZL map at map.geo.admin.ch) before flying. Alpline is a planning aid: its
 signal predictions and zone outlines can be wrong or out of date, and flying safely and legally stays your job.

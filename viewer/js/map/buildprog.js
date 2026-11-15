@@ -1,5 +1,5 @@
 // fpv3d map page: live build progress.
-// The 1 km swisstopo tiles of the new location are drawn on the map and fill up as they download;
+// The 1 km terrain tiles of the new location are drawn on the map and fill up as they download;
 // a card shows the build steps, an overall bar and counters, with the raw log under "Technical details".
 /* global L */
 

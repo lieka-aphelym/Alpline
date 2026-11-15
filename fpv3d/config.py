@@ -73,7 +73,7 @@ class TerrainCfg:
     ortho: bool = True
     ortho_resolution_m: object = 2.0  # metres, or "auto" = sharpest that keeps the photo <= 2048 px (Lite default)
     local_dem_files: List[str] = field(default_factory=list)   # optional offline GeoTIFFs
-    buildings: bool = True            # 3D buildings (OpenStreetMap footprints + swisstopo heights)
+    buildings: bool = True            # 3D buildings (OpenStreetMap footprints; heights measured in Switzerland, else from tags)
     detail_radius_m: float = 600      # sharp aerial photo around the pilot ...
     ortho_detail_m: object = "auto"   # ... at this resolution (m); auto = 0.5 m when resolution_m <= 1, off = none
 

@@ -106,17 +106,93 @@ def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None, used: Opt
     return img
 
 
+# the worldwide sources: (cache folder, what it is, how to get the source for a grid, the kinds it serves)
+def _world_sources():
+    return (("copernicus", "worldwide 30 m model", sources.worldwide, ("dtm", "dsm")),
+            ("sentinel2", "satellite photo", sources.worldwide_photo, ("ortho",)))
+
+
+def _world_grids(cache_root: Path, name: str) -> List[str]:
+    """The grids ("EPSG:32632") a worldwide source has resampled tiles for."""
+    folder = Path(cache_root) / name
+    return [f"EPSG:{d.name}" for d in sorted(folder.iterdir()) if d.is_dir() and d.name.isdigit()] if folder.exists() else []
+
+
+def _key(k: str):
+    """"681-5239" -> (681, 5239). Kilometre numbers are never negative on LV95 or a UTM grid."""
+    e, n = k.split("-")
+    return int(e), int(n)
+
+
+def prune_world(cache_root: Path, keep: dict, dry_run=True):
+    """Clean the worldwide caches: delete the resampled tiles no location needs, and the downloads (1 degree
+    elevation files, photo tiles) none of the kept tiles is made from.
+    `keep`: {grid: {"E-N", ...}} = the 1 km tiles the location files use, per grid. A grid no location is on loses
+    all its tiles. Returns (files, bytes) removed, or that would be removed with dry_run."""
+    files = size = 0
+    for name, _label, make, _kinds in _world_sources():
+        for crs in _world_grids(cache_root, name):
+            f, s = TileCache(cache_root, make(crs)).prune(keep.get(crs, set()), dry_run)
+            files, size = files + f, size + s
+        raw = make("EPSG:2056").raw_dir(cache_root, "dtm")
+        if not raw.exists():
+            continue
+        needed = set()
+        for crs, keys in keep.items():
+            src = make(crs)
+            for k in keys:
+                needed |= src.raw_names(_key(k))
+        for f in raw.iterdir():
+            if f.suffix in (".tif", ".missing", ".part") and f.stem not in needed:
+                files += 1; size += f.stat().st_size
+                if not dry_run:
+                    f.unlink(missing_ok=True)
+    return files, size
+
+
+def clear_world(cache_root: Path, raw=False, lod=False, kind=None):
+    """`cache clear` for the worldwide caches: the downloads (raw) and / or the resampled tiles (lod), of one kind
+    or of all."""
+    import shutil
+    for name, _label, make, kinds in _world_sources():
+        if kind and kind not in kinds:
+            continue
+        if lod:
+            for crs in _world_grids(cache_root, name):
+                base = TileCache(cache_root, make(crs)).base / "lod"
+                shutil.rmtree(base / kind if kind else base, ignore_errors=True)
+        # one download serves "dtm" and "dsm" alike: it only goes when all elevation is cleared
+        if raw and (kind is None or len(kinds) == 1):
+            shutil.rmtree(make("EPSG:2056").raw_dir(cache_root, "dtm"), ignore_errors=True)
+
+
+def world_info(cache_root: Path) -> List[str]:
+    """Lines for `cache info`: what is kept of the worldwide sources."""
+    lines = []
+
+    def size(p: Path):
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
+    for name, label, make, _kinds in _world_sources():
+        raw = make("EPSG:2056").raw_dir(cache_root, "dtm")
+        if raw.exists() and any(raw.glob("*.tif")):
+            lines.append(f"raw  {name + ' (' + label + ')':40s} {len(list(raw.glob('*.tif'))):5d} files {size(raw) / 1e6:9.1f} MB")
+        for crs in _world_grids(cache_root, name):
+            lod = TileCache(cache_root, make(crs)).base / "lod"
+            for kd in sorted(lod.iterdir()) if lod.exists() else []:
+                for rd in sorted((d for d in kd.iterdir() if d.is_dir()), key=lambda x: float(x.name[:-1])):
+                    tiles = len([f for f in rd.iterdir() if f.suffix in (".npy", ".jpg")])
+                    if tiles:
+                        lines.append(f"lod  {kd.name:5s} {rd.name:>6s}  {tiles:5d} tiles (= {tiles} km²) {size(rd) / 1e6:9.1f} MB"
+                                     f"   {name}, {crs}")
+    return lines
+
+
 def world_inventory(cache_root: Path) -> List[dict]:
     """What is cached of the worldwide sources, per source and grid (for the map page):
     [{"source": "copernicus", "label": "worldwide 30 m model", "crs": "EPSG:32632", "lod": {kind: {res: [key, ...]}}}]."""
     out = []
-    for name, label, make in (("copernicus", "worldwide 30 m model", sources.worldwide),
-                              ("sentinel2", "satellite photo", sources.worldwide_photo)):
-        folder = Path(cache_root) / name
-        for d in sorted(folder.iterdir()) if folder.exists() else []:
-            if not (d.is_dir() and d.name.isdigit() and (d / "lod").exists()):
-                continue
-            crs = f"EPSG:{d.name}"
+    for name, label, make, _kinds in _world_sources():
+        for crs in _world_grids(cache_root, name):
             lod = TileCache(cache_root, make(crs)).inventory()["lod"]
             if lod:
                 out.append(dict(source=name, label=label, crs=crs, lod=lod))

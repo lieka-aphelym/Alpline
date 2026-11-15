@@ -31,7 +31,7 @@ pilot:                     # remove lat/lon to use the first GPS fix of the firs
 
 terrain:
   resolution_m: {res:g}          # 0.5,1,2,2.5,4,5,8,10,20,25,40,50
-  surface: {surface}             # dtm = bare ground (swissALTI3D), dsm = incl. trees/buildings (swissSURFACE3D)
+  surface: {surface}             # dtm = bare ground, dsm = incl. trees/buildings (the same abroad: one worldwide model)
   ortho: true
 {terrain_opts}
   detail_radius_m: 600
@@ -53,14 +53,14 @@ log_options:
 MODE_OPTS = {
     "full": dict(
         terrain_opts="""  ortho_resolution_m: 2          # aerial photo (m), or auto = sharpest that stays <= 2048 px
-  buildings: true          # 3D buildings: OpenStreetMap footprints, heights from swisstopo
+  buildings: true          # 3D buildings: OpenStreetMap footprints; heights measured (Switzerland) or from its tags
   ortho_detail_m: auto     # sharp photo near the pilot: auto (0.5 m if resolution_m <= 1), a value, or off""",
         analysis_opts="""  los_agl_m: [10, 30, 60, 120]   # flat shadow maps
   los_resolution_m: 10     # signal analysis grid (m)
   loss_offsets_db: [-9, -6, -3, 0, 3, 6, 9, 12, 15, 18, 21]   # radio-budget steps for live antenna / power edits"""),
     "lite": dict(
         terrain_opts="""  ortho_resolution_m: auto       # sharpest photo that stays <= 2048 px (or a value in m, e.g. 2)
-  buildings: false         # off in Lite mode. true = 3D buildings (OpenStreetMap footprints, swisstopo heights)
+  buildings: false         # off in Lite mode. true = 3D buildings (OpenStreetMap footprints, measured or tagged heights)
   ortho_detail_m: off      # off in Lite mode. auto = sharp 0.5 m photo near the pilot when resolution_m <= 1""",
         analysis_opts="""  los_agl_m: [30, 120]     # flat shadow maps (the 3D shadows already cover every height)
   los_resolution_m: 20     # signal analysis grid (m)

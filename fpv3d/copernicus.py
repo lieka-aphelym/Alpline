@@ -65,6 +65,10 @@ class Copernicus(sources.TerrainSource):
     def _file(self, root: Path, sq) -> Path:
         return self.raw_dir(root, "dtm") / f"{square_name(*sq)}.tif"
 
+    def raw_names(self, key) -> set:
+        """Names (without .tif) of the downloads a 1 km tile is made from: what the cache clean-up must keep."""
+        return {square_name(*sq) for sq in self.squares(key)}
+
     def local_raw(self, root: Path, kind: str, key, res: float) -> List[Path]:
         have = []
         for sq in self.squares(key):
