@@ -210,4 +210,5 @@ def write_scene_buildings(out_dir: Path, grid: Grid, dtm: np.ndarray, dsm, cache
     write_atomic((out_dir / "buildings.json"), json.dumps(dict(items=items), separators=(",", ":")))
     log(f"[buildings] {len(items)} from OpenStreetMap, {n_dsm} with heights measured on the surface model "
         f"({time.time() - t0:.1f}s)")
-    return dict(file="buildings.json", count=len(items), heights_from_dsm=n_dsm, source="OpenStreetMap + swisstopo" if grid.crs == "EPSG:2056" else "OpenStreetMap")
+    return dict(file="buildings.json", count=len(items), heights_from_dsm=n_dsm,
+                source="OpenStreetMap + swisstopo" if grid.crs == "EPSG:2056" else "OpenStreetMap")
