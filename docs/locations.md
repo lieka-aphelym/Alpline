@@ -53,15 +53,19 @@ What is different there:
 - **Terrain** comes from the Copernicus worldwide model, measured about every 30 m (swisstopo: 0.5 m). Tree tops and
   roofs are partly in it and there is no bare-ground version, so `dtm` and `dsm` give the same heights. A finer
   `resolution_m` only smooths it. Signal shadows are a rough guide there: a ridge is right, a row of trees is not.
-- **No aerial photo** yet, and **no drone zones**: check the official drone map of the country you fly in.
+- **The photo** is the Sentinel-2 cloudless satellite mosaic of 2016, about 10 m per pixel (swisstopo: 10 cm): fine
+  to recognise valleys, forests and villages, not single trees or paths. A finer `ortho_resolution_m` is ignored
+  there, and there is no sharp close-up around the pilot.
+- **No drone zones**: check the official drone map of the country you fly in.
 - **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
 - The **map page** cannot create or show such a location yet: write the file by hand, then build it.
 - Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
 
-Downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every location nearby.
+Terrain downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every
+location nearby. The photo comes as small map tiles, kept in `cache/sentinel2/`. `prefetch` fetches both.
 
 Just across the Swiss border (roughly 45.7 to 47.9 north, 5.8 to 10.6 east) a location stays on the Swiss grid:
-swisstopo data where it exists, the worldwide model for the rest.
+swisstopo data where it exists, the worldwide model and the satellite photo for the rest.
 
 ## Routes (corridor locations)
 

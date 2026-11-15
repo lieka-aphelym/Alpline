@@ -138,8 +138,9 @@ def test_tilecache_second_source(tmp=None):
     assert np.array_equal(tc.mosaic("dtm", g), m, equal_nan=True) and len(asked) == 1   # second call: no query
     assert TileCache(root).inventory() == {"lod": {}, "raw": {}}                  # the swisstopo cache is untouched
     assert [s.name for s in sources.chain("EPSG:2056", "dtm")] == ["swisstopo", "copernicus"]   # the world model fills gaps
-    assert [s.name for s in sources.chain(None, "ortho")] == ["swisstopo"]
-    assert [s.name for s in sources.chain("EPSG:32632", "dsm")] == ["copernicus"] and not sources.chain("EPSG:32632", "ortho")
+    assert [s.name for s in sources.chain(None, "ortho")] == ["swisstopo", "sentinel2"]
+    assert [s.name for s in sources.chain("EPSG:32632", "dsm")] == ["copernicus"]
+    assert [s.name for s in sources.chain("EPSG:32632", "ortho")] == ["sentinel2"]
 
 
 def test_gaps_filled_by_next_source(tmp=None):
@@ -191,6 +192,18 @@ def test_copernicus_squares():
     assert c.squares((681, 5239)) == [(47, 11)]                                 # Innsbruck
     assert sorted(c.squares((652, 5207))) == [(46, 10), (46, 11), (47, 10), (47, 11)]   # the corner of four squares
     assert Copernicus("EPSG:32734").squares((259, 6245)) == [(-34, 18)]         # Cape Town
+
+
+def test_sentinel2_tiles():
+    """The satellite photo's web-map tile numbers (Innsbruck: checked against PROJ's web-mercator position)."""
+    from fpv3d.sentinel2 import Sentinel2, tile_at, tile_bounds
+    assert tile_at(0.0, 0.0, 1) == (1, 1) and tile_at(85.0, -180.0, 3) == (0, 0) and tile_at(-85.0, 179.9, 3) == (7, 7)
+    x, y = tile_at(47.2867, 11.3986, 14)
+    assert (x, y) == (8710, 5743), (x, y)
+    west, north, size = tile_bounds(14, x, y)
+    assert abs(size - 2445.98) < 0.01 and west < 1268890 < west + size        # Innsbruck's web-mercator easting
+    t = Sentinel2("EPSG:32632").tiles((681, 5239))
+    assert (14, x, y) in t and 1 <= len(t) <= 4 and len(set(t)) == len(t)
 
 
 def test_crsf_roundtrip():

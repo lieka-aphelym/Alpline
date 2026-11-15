@@ -78,19 +78,23 @@ def build_terrain(cfg: LocationConfig, out: Path, cache: Path, skip_ortho=False,
     out.mkdir(parents=True, exist_ok=True)
     dem.astype("<f4").tofile(out / "terrain.f32")
 
-    has_ortho = False
+    has_ortho, oused = False, []
     if cfg.terrain.ortho and not skip_ortho:
         try:
-            log("[ortho] aerial photo")
-            ores = cfg.ortho_res(grid)
+            # a satellite-only place: asking for a sharper photo than the satellite's would only enlarge it
+            ores = max(cfg.ortho_res(grid), terrainmod.photo_native_m(grid.crs))
+            log(f"[ortho] aerial photo {ores:g} m")
             progress.emit("phase", id="ortho", label=f"Aerial photo {ores:g} m")
             ogrid = grid.with_resolution(ores)
-            img = terrainmod.orthophoto(ogrid, cache, refresh, keys=cfg.corridor.tile_keys() if cfg.corridor else None)
+            img = terrainmod.orthophoto(ogrid, cache, refresh, keys=cfg.corridor.tile_keys() if cfg.corridor else None,
+                                        used=oused)
             Image.fromarray(img).save(out / "ortho.jpg", quality=88)
             has_ortho = True
-        except Exception as ex:  # imagery is optional
+            log("[ortho] photo from " + " + ".join(s.name for s in oused))
+        except (Exception, SystemExit) as ex:  # imagery is optional
             log(f"[ortho] skipped: {ex}")
-    return grid, dem, has_ortho, [dict(name=s.name, credit=s.credit) for s in used]
+    credits = lambda ss: [dict(name=s.name, credit=s.credit) for s in ss]  # noqa: E731
+    return grid, dem, has_ortho, credits(used), credits(oused)
 
 
 def load_terrain(out: Path):
@@ -159,6 +163,8 @@ def detail_ortho(cfg: LocationConfig, cache: Path, grid: Grid, pilot, refresh=Fa
         od = 0.5
     od = float(od)
     if od >= cfg.ortho_res(grid):
+        return None
+    if grid.crs != "EPSG:2056":                       # the sharp photo is swisstopo's: Switzerland only
         return None
     from .tilecache import TILE, TileCache
     r = cfg.terrain.detail_radius_m
@@ -541,10 +547,10 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
     if reuse_terrain and (out / "scene.json").exists():
         old, grid, dem = load_terrain(out)
         has_ortho = old.get("ortho") is not None
-        tsources = old.get("terrain_sources") or []
+        tsources, osources = old.get("terrain_sources") or [], old.get("ortho_sources") or []
         log("[terrain] reusing existing terrain")
     else:
-        grid, dem, has_ortho, tsources = build_terrain(cfg, out, cache, skip_ortho, refresh)
+        grid, dem, has_ortho, tsources, osources = build_terrain(cfg, out, cache, skip_ortho, refresh)
     terrain = Terrain(dem, grid)
     pilot = pilot_position(cfg, terrain, tracks_for_pilot)
     extras = build_extras(cfg, out, cache, grid, dem, refresh)
@@ -561,7 +567,7 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
         version=1, name=cfg.name, title=cfg.title,
         generated=time.strftime("%Y-%m-%d %H:%M"),
         grid=grid.to_dict(), center_wgs84=[float(lat), float(lon)],
-        surface=cfg.terrain.surface, terrain_sources=tsources,
+        surface=cfg.terrain.surface, terrain_sources=tsources, ortho_sources=osources if has_ortho else [],
         elevation=dict(min=float(dem.min()), max=float(dem.max())),
         terrain="terrain.f32", ortho="ortho.jpg" if has_ortho else None,
         pilot=pilot,

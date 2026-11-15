@@ -72,9 +72,40 @@ def elevation(grid: Grid, surface: str, cache_root: Path, local_files=None, refr
     return fill_holes(dem) if fill else dem
 
 
-def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None) -> np.ndarray:
-    """RGB uint8 image (rows, cols, 3) on grid. Memoised per 1 km tile."""
+def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None, used: Optional[List] = None) -> np.ndarray:
+    """RGB uint8 image (rows, cols, 3) on grid. Memoised per 1 km tile. The 1 km tiles the first source has no
+    picture for (swisstopo across the border) come from the next one. `used` receives the sources."""
     chain = sources.chain(grid.crs, "ortho")
     if not chain:
-        raise RuntimeError("no aerial photo source for places outside Switzerland yet")
-    return TileCache(cache_root, chain[0]).mosaic("ortho", grid, refresh, keys)
+        raise RuntimeError(f"no aerial photo source for {grid.crs}")
+    todo = tile_keys(grid) if keys is None else [tuple(k) for k in keys]
+    img = None
+    for src in chain:
+        if not todo:
+            break
+        tc = TileCache(cache_root, src)
+        try:
+            part = tc.mosaic("ortho", grid, refresh, todo)
+        except (SystemExit, OSError) as ex:
+            if img is None:                      # the main source can't be reached: say so, don't swap in a coarser one
+                raise
+            log(f"  {src.name} photo unavailable ({str(ex)[:120]}): {len(todo)} tile(s) stay without a photo")
+            break
+        if img is None:
+            img = part
+        else:
+            log(f"  {len(todo)} tile(s) without a photo: taken from {src.name}")
+            m = part.any(axis=2)
+            img[m] = part[m]
+        have = [k for k in todo if tc.tile_path("ortho", grid.res, k).exists()]
+        if have and used is not None and src not in used:
+            used.append(src)
+        todo = [k for k in todo if k not in set(have)]
+    if img is None:
+        raise RuntimeError("no aerial photo could be downloaded")
+    return img
+
+
+def photo_native_m(crs: str) -> float:
+    """The finest photo worth asking for on this grid, in metres: sharper would only enlarge the picture."""
+    return min((getattr(s, "native_m", 0.0) for s in sources.chain(crs, "ortho")), default=0.0)

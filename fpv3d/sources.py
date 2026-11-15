@@ -4,7 +4,8 @@ The tile cache (tilecache.py) always works on 1 x 1 km tiles of the source's own
 source three things: is a usable file already on disk, which files does the provider have for these tiles, and
 download one. Everything provider-specific (catalogue, file names, native resolutions) stays inside the source.
 
-Sources: swisstopo (swisstopo.py, Switzerland, 0.5 m and up) and Copernicus (copernicus.py, worldwide, 30 m).
+Sources: swisstopo (swisstopo.py, Switzerland, 0.5 m and up), Copernicus (copernicus.py, worldwide heights, 30 m)
+and Sentinel-2 cloudless (sentinel2.py, worldwide photo, 10 m).
 chain() says which ones serve a grid, in order of preference. A new one subclasses TerrainSource and sets
 `cache_prefix` to its name (its files then live in cache/<name>/, apart from the others).
 """
@@ -89,11 +90,19 @@ def worldwide(crs: str) -> TerrainSource:
     return _WORLD[crs]
 
 
+def worldwide_photo(crs: str) -> TerrainSource:
+    """The worldwide satellite photo, cut on the grid `crs`."""
+    key = "photo:" + crs
+    if key not in _WORLD:
+        from .sentinel2 import Sentinel2
+        _WORLD[key] = Sentinel2(crs)
+    return _WORLD[key]
+
+
 def chain(crs: Optional[str], kind: str) -> List[TerrainSource]:
     """The sources that can give `kind` on the grid `crs`, best first; a later one only fills what the
     earlier ones lack. Sources added with register() come first on their own grid."""
     crs = crs or default().crs
     out = [s for s in all_sources() if s.crs == crs and kind in s.kinds]
-    if kind in ("dtm", "dsm"):
-        out.append(worldwide(crs))
+    out.append(worldwide(crs) if kind in ("dtm", "dsm") else worldwide_photo(crs))
     return out

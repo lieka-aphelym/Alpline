@@ -131,36 +131,38 @@ def cmd_prefetch(a):
     from .config import VALID_RES, LocationConfig
     from .geo import Grid
     from .tilecache import TileCache, tile_keys
+    from . import terrain
     cfg = LocationConfig.load(a.config)
     ce, cn = cfg.center_en()
     half = a.half_size or cfg.half_size_m
     cor = cfg.corridor if not a.half_size else None
+    cache = Path(a.cache)
+    tc = TileCache(cache)
+    kinds = ["dtm", "dsm"] if a.surface == "both" else [a.surface or cfg.terrain.surface]
+    # every source the place needs (swisstopo, and the worldwide model / photo abroad and across the border)
+    ortho_res = lambda g: [max(r, terrain.photo_native_m(cfg.crs)) for r in (a.ortho_res or [cfg.ortho_res(g)])]  # noqa: E731
     if cor is not None:                       # route-shaped location: only the strip's tiles
         keys = cor.tile_keys()
-        tc = TileCache(Path(a.cache))
-        kinds = ["dtm", "dsm"] if a.surface == "both" else [a.surface or cfg.terrain.surface]
         for res in a.res or [cfg.terrain.resolution_m]:
             for k in kinds:
-                tc.ensure(k, res, keys, a.refresh)
+                terrain.elevation(cfg.grid(res), k, cache, None, a.refresh, keys=keys, fill=False)
         if not a.no_ortho:
-            for res in a.ortho_res or [cfg.ortho_res()]:
-                tc.ensure("ortho", res, keys, a.refresh)
-        tc.ensure("dtm", 10, cor.context_keys(cfg.pilot_en()), a.refresh)
+            for res in ortho_res(None):
+                terrain.orthophoto(cfg.grid(res), cache, a.refresh, keys=keys)
+        terrain.elevation(cfg.grid(10), "dtm", cache, None, a.refresh, keys=cor.context_keys(cfg.pilot_en()), fill=False)
         print(f"{len(keys)} km² along the route of {cfg.title} cached (+ coarse context).")
         print("\n".join(tc.info()))
         return
-    tc = TileCache(Path(a.cache))
-    kinds = ["dtm", "dsm"] if a.surface == "both" else [a.surface or cfg.terrain.surface]
     for res in a.res or [cfg.terrain.resolution_m]:
         if res not in VALID_RES:
             sys.exit(f"--res values must be among {VALID_RES}")
-        grid = Grid.around(ce, cn, half, res)
+        grid = Grid.around(ce, cn, half, res, cfg.crs)
         for k in kinds:
-            tc.mosaic(k, grid, a.refresh)
+            terrain.elevation(grid, k, cache, None, a.refresh, fill=False)
     if not a.no_ortho:
-        for res in a.ortho_res or [cfg.ortho_res()]:
-            tc.mosaic("ortho", Grid.around(ce, cn, half, res), a.refresh)
-    print(f"{len(tile_keys(Grid.around(ce, cn, half, 10)))} km² cached around {cfg.title}. "
+        for res in ortho_res(Grid.around(ce, cn, half, 10, cfg.crs)):
+            terrain.orthophoto(Grid.around(ce, cn, half, res, cfg.crs), cache, a.refresh)
+    print(f"{len(tile_keys(Grid.around(ce, cn, half, 10, cfg.crs)))} km² cached around {cfg.title}. "
           "Builds of this area (any location file) now work offline.")
     print("\n".join(tc.info()))
 
