@@ -64,7 +64,8 @@ What is different there:
 - Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
 
 Terrain downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every
-location nearby. The photo comes as small map tiles, kept in `cache/sentinel2/`. `prefetch` fetches both.
+location nearby. The photo comes as small map tiles, kept in `cache/sentinel2/`. `prefetch` fetches both, and
+`cache prune` (the launcher's *[clean unused tiles]*) removes what no location needs any more, as for swisstopo.
 
 Just across the Swiss border (roughly 45.7 to 47.9 north, 5.8 to 10.6 east) a location stays on the Swiss grid:
 swisstopo data where it exists, the worldwide model and the satellite photo for the rest.

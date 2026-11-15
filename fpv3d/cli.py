@@ -3,7 +3,7 @@
   build      locations/my_spot.yaml [--log FILE ...]   download data, compute LOS, write scene
   add-log    locations/my_spot.yaml FILE [FILE ...]    add flight logs to an existing scene (fast)
   serve      [--port 8000] [--scene NAME] [--lite]      open the 3D viewer in your browser (--lite = Lite mode)
-  map        [--port 8000]                              Swiss map: cached areas, click to create locations
+  map        [--port 8000]                              the map: cached areas, click to create locations
   new        NAME --lat 46.x --lon 7.x                  create a new location file
   refresh-all [--zones-only | --full] [--missing]      update every scene at once (new features, zones, tracks)
   buildings [location.yaml ...] [--all]               add / retry 3D buildings (scenes without them)
@@ -167,11 +167,12 @@ def cmd_prefetch(a):
     print("\n".join(tc.info()))
 
 
-def location_tile_keys(margin_km: int = 1) -> set:
-    """1 km tile keys ("E-N") used by the location files, + a margin of tiles around each one."""
+def location_tile_keys(margin_km: int = 1) -> dict:
+    """1 km tile keys ("E-N") used by the location files, + a margin of tiles around each one, per grid:
+    {"EPSG:2056": {...}, "EPSG:32632": {...}} (a location abroad is on the UTM grid of its place)."""
     from .config import LocationConfig
     from .tilecache import tile_keys
-    keep = set()
+    keep: dict = {}
     for f in sorted((ROOT / "locations").glob("*.yaml")):
         try:
             cfg = LocationConfig.load(f)
@@ -184,22 +185,28 @@ def location_tile_keys(margin_km: int = 1) -> set:
         for e, n in ks:
             for de in range(-margin_km, margin_km + 1):
                 for dn in range(-margin_km, margin_km + 1):
-                    keep.add(f"{e + de}-{n + dn}")
+                    keep.setdefault(cfg.crs, set()).add(f"{e + de}-{n + dn}")
     return keep
 
 
 def cmd_cache(a):
+    from . import terrain
     from .tilecache import TileCache
     tc = TileCache(Path(a.cache))
-    if a.action == "prune":
-        files, size = tc.prune(location_tile_keys(), dry_run=a.dry_run)
+    if a.action == "prune":                     # swisstopo's tiles, then the worldwide model and photo
+        keep = location_tile_keys()
+        files, size = tc.prune(keep.get(tc.source.crs, set()), dry_run=a.dry_run)
+        wf, ws = terrain.prune_world(tc.root, keep, dry_run=a.dry_run)
+        files, size = files + wf, size + ws
         print(f"{'would free' if a.dry_run else 'freed'} {size / 1e6:.0f} MB ({files} tiles not used by any location file)")
         return
     if a.action == "clear":
         if not (a.raw or a.lod):
             sys.exit("say what to clear: --raw (downloads), --lod (resampled tiles) or both")
         tc.clear(raw=a.raw, lod=a.lod, kind=a.kind)
-    print("\n".join(tc.info()))
+        terrain.clear_world(tc.root, raw=a.raw, lod=a.lod, kind=a.kind)
+    lines = [l for l in tc.info() if l != "cache is empty"] + terrain.world_info(tc.root)
+    print("\n".join(lines or ["cache is empty"]))
 
 
 def cmd_add_log(a):
@@ -357,7 +364,8 @@ def _in_data(a) -> None:
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="fpv3d", description="3D FPV flight & signal visualiser for Swiss terrain")
+    p = argparse.ArgumentParser(prog="fpv3d", description="3D FPV flight & signal visualiser on real terrain "
+                                            "(swisstopo in Switzerland, worldwide data elsewhere)")
     p.add_argument("--scenes", default=str(ROOT / "scenes"), help="output folder for scenes")
     p.add_argument("--cache", default=str(ROOT / "cache"), help="download cache folder")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -399,7 +407,7 @@ def main(argv=None):
     s.add_argument("--lan", action="store_true", help="share on your network: open it on your phone (same Wi-Fi / hotspot)")
     s.set_defaults(func=cmd_serve)
 
-    mp = sub.add_parser("map", help="open the Switzerland map (cached areas, create locations by clicking)")
+    mp = sub.add_parser("map", help="open the map (cached areas, create locations by clicking)")
     mp.add_argument("--port", type=int, default=8000)
     mp.add_argument("--no-browser", action="store_true")
     mp.add_argument("--lite", action="store_true", help="Lite mode: lighter 3D and lighter defaults for new locations")

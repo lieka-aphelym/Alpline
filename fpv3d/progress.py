@@ -7,7 +7,7 @@ terminal nothing extra is printed.
 Events:
   phase  {id: terrain|ortho|los|tracks|zones|done, label}
   tiles  {kind, res, keys: ["E-N", ...], cached: ["E-N", ...]}      tiles needed by this step
-  query  {kind, res, n}                                              asking swisstopo which files exist
+  query  {kind, res, n}                                              asking the source (swisstopo, ...) which files exist
   tile   {kind, res, key, state: download|done|raw|empty, pct?, bytes?, total?}
   pct    {phase, pct, label?}                                        progress inside a computation
 """

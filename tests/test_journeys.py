@@ -236,6 +236,20 @@ def test_location_outside_switzerland():
     assert (d.dir / "cache" / "copernicus" / "32632" / "lod" / "dtm" / "10m").exists()
     assert not (d.dir / "cache" / "lod").exists()                       # nothing was asked of swisstopo
     assert (d.dir / "cache" / "sentinel2" / "32632" / "lod" / "ortho" / "10m").exists()
+    # cleaning the cache keeps what this location needs (downloads and tiles) and drops the rest
+    raw = d.dir / "cache" / "copernicus" / "raw"
+    junk = [raw / "Copernicus_DSM_COG_10_N10_00_E010_00_DEM.tif", d.dir / "cache" / "sentinel2" / "raw" / "14-1-1.tif",
+            d.dir / "cache" / "copernicus" / "32632" / "lod" / "dtm" / "10m" / "300-4000.npy"]
+    other = d.dir / "cache" / "copernicus" / "32654" / "lod" / "dtm" / "10m" / "293-3915.npy"      # a grid no location is on
+    other.parent.mkdir(parents=True)
+    for f in junk + [other]:
+        f.write_bytes(b"x" * 2000)
+    kept = [f for f in (d.dir / "cache").rglob("*") if f.is_file() and f not in junk + [other]]
+    assert "would free" in d.run("cache", "prune", "--dry-run").stdout and all(f.exists() for f in junk + [other])
+    assert "4 tiles" in d.run("cache", "prune").stdout
+    assert not any(f.exists() for f in junk + [other]) and all(f.exists() for f in kept)
+    info = d.run("cache", "info").stdout
+    assert "copernicus" in info and "sentinel2" in info and "EPSG:32632" in info
     d.env["FPV3D_COPERNICUS_BASE"] = d.env["FPV3D_SENTINEL2_BASE"] = "http://127.0.0.1:9/none"   # no internet: the cache is enough
     d.run("build", "locations/010_abroad.yaml")
 

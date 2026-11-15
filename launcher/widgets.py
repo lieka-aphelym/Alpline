@@ -178,7 +178,7 @@ class Pill(tk.Frame):
 
 
 # rail pages: key, label, tooltip
-PAGES = (("map", "map", "Your locations on the map of Switzerland"),
+PAGES = (("map", "map", "Your locations on the map"),
          ("drone", "drone", "Drone and radio on USB: download the blackbox, start a live flight"),
          ("phone", "phone", f"Open {APP_NAME} on your phone (same Wi-Fi or the phone's hotspot)"),
          ("checks", "checks", f"Run {APP_NAME}'s own tests on this computer"),

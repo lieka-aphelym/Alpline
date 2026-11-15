@@ -194,6 +194,29 @@ def test_copernicus_squares():
     assert Copernicus("EPSG:32734").squares((259, 6245)) == [(-34, 18)]         # Cape Town
 
 
+def test_clear_world_cache(tmp=None):
+    """`cache clear` on the worldwide caches: resampled tiles of one kind, or the downloads."""
+    import tempfile
+    from fpv3d import terrain
+    root = Path(tmp or tempfile.mkdtemp())
+    files = {k: root / p for k, p in dict(
+        dtm="copernicus/32632/lod/dtm/10m/681-5239.npy", dsm="copernicus/32632/lod/dsm/10m/681-5239.npy",
+        photo="sentinel2/32632/lod/ortho/10m/681-5239.jpg", dem_raw="copernicus/raw/Copernicus_DSM_COG_10_N47_00_E011_00_DEM.tif",
+        photo_raw="sentinel2/raw/14-8710-5743.tif").items()}
+    for f in files.values():
+        f.parent.mkdir(parents=True, exist_ok=True); f.write_bytes(b"x")
+    have = lambda: sorted(k for k, f in files.items() if f.exists())  # noqa: E731
+    assert len(terrain.world_info(root)) == 5
+    terrain.clear_world(root, lod=True, kind="dsm")
+    assert have() == ["dem_raw", "dtm", "photo", "photo_raw"]
+    terrain.clear_world(root, raw=True, kind="dtm")                 # the download also serves "dsm": it stays
+    assert have() == ["dem_raw", "dtm", "photo", "photo_raw"]
+    terrain.clear_world(root, raw=True, kind="ortho")
+    assert have() == ["dem_raw", "dtm", "photo"]
+    terrain.clear_world(root, raw=True, lod=True)
+    assert have() == [] and terrain.world_info(root) == []
+
+
 def test_sentinel2_tiles():
     """The satellite photo's web-map tile numbers (Innsbruck: checked against PROJ's web-mercator position)."""
     from fpv3d.sentinel2 import Sentinel2, tile_at, tile_bounds

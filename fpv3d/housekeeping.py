@@ -28,7 +28,9 @@ KINDS = {
     "scenes": ("Built 3D scenes", "terrain, photos, signal maps",
                "terrain, photos and signal maps; rebuild them from the locations "
                "(flights shown in 3D go with them, their log files stay)"),
-    "cache": ("Downloaded maps", "swisstopo tiles", "swisstopo tiles kept to build faster; downloaded again when needed"),
+    "cache": ("Downloaded maps", "terrain and photo tiles",
+              "terrain and photo tiles (swisstopo, and the worldwide model abroad) kept to build faster; "
+              "downloaded again when needed"),
     "locations": ("Locations", "location files (+ their scenes)",
                   "your location files with their radio setup (their 3D scenes go too)"),
     "packs": ("Battery packs", "names, capacity, health history",
