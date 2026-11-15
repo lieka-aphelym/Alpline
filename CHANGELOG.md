@@ -13,6 +13,9 @@ What changed in each release of Alpline. Newest first.
   you switch that on (it sends what you type to Photon, the OpenStreetMap search; off by default),
   and gives the ground height there. The launcher's map zooms out to the whole world, as a satellite picture
   around the Swiss map.
+- **OpenStreetMap layer showing "Access blocked" tiles:** the map page now tells OpenStreetMap which page asks for
+  its tiles (only the address of your own Alpline server, never the PIN link), as its usage policy requires. If
+  OpenStreetMap still does not load abroad, the map shows the satellite layer instead.
 - **Cache clean-up covers the worldwide data:** `cache prune`, `cache clear` and `cache info` (and the launcher's
   *[clean unused tiles]*) now handle the worldwide model and photo too.
 - **Swiss locations at the border:** terrain across the border is now real (worldwide model) instead of a guess
