@@ -79,6 +79,67 @@ def test_tilecache_offline_mosaic(tmp=None):
     assert np.array_equal(m, m2)
 
 
+def test_grid_other_coordinate_system():
+    """A grid outside Switzerland: UTM zone picked from the place, there and back within a metre, kept in scene.json."""
+    from fpv3d.geo import project, unproject, utm_crs
+    assert utm_crs(45.83, 6.86) == "EPSG:32632" and utm_crs(-33.9, 18.4) == "EPSG:32734" and utm_crs(40.7, -74.0) == "EPSG:32618"
+    crs = utm_crs(45.8326, 6.8652)                              # Mont Blanc
+    e, n = project(45.8326, 6.8652, crs)
+    lat, lon = unproject(e, n, crs)
+    assert abs(lat - 45.8326) < 1e-5 and abs(lon - 6.8652) < 1e-5
+    ea, na = project(np.array([45.8, 45.9]), np.array([6.8, 6.9]), crs)
+    assert ea.shape == (2,) and na[1] - na[0] > 10_000          # 0.1 degree of latitude is about 11 km
+    e2, n2 = project(46.95108, 7.43864, "EPSG:2056")            # LV95 still goes through the swisstopo formulas
+    assert abs(float(e2) - 2600000) < 2 and abs(float(n2) - 1200000) < 2
+    g = Grid.around(float(e), float(n), 500, 10, crs)
+    assert g.with_resolution(5).crs == crs and Grid.from_dict(g.to_dict()).crs == crs
+    lo0, la0, lo1, la1 = g.wgs84_bbox()
+    assert lo0 < 6.8652 < lo1 and la0 < 45.8326 < la1
+    old = {k: v for k, v in Grid(0, 0, 1000, 1000, 10).to_dict().items() if k != "crs"}
+    assert Grid.from_dict(old).crs == "EPSG:2056"               # scenes written before crs existed are Swiss
+
+
+def test_tilecache_second_source(tmp=None):
+    """Another terrain source (own coordinate system, two files for one tile) fills the same cache, in its own folder."""
+    import tempfile
+    import rasterio
+    from rasterio.transform import from_origin
+    from fpv3d import sources
+    from fpv3d.tilecache import TileCache
+    root = Path(tmp or tempfile.mkdtemp())
+    asked = []
+
+    class Fake(sources.TerrainSource):
+        name, host, crs, kinds, cache_prefix = "fake", "example.invalid", "EPSG:32632", ("dtm",), "fake"
+
+        def raw_dir(self, root, kind):
+            return Path(root) / "raw" / kind
+
+        def lookup(self, kind, keys, res):
+            asked.append(list(keys))
+            return {k: [sources.Found(f"{k[0]}-{k[1]}-w", dict(part="w")), sources.Found(f"{k[0]}-{k[1]}-e", dict(part="e"))]
+                    for k in keys if k != (341, 5077)}          # the provider has nothing for one tile
+
+        def download(self, root, kind, found, on_progress=None):
+            ke, kn, half = found.href.split("-")
+            d = self.raw_dir(root, kind); d.mkdir(parents=True, exist_ok=True)
+            p = d / f"{found.href}.tif"                          # west half holds 100 m, east half 200 m
+            with rasterio.open(p, "w", driver="GTiff", width=50, height=100, count=1, dtype="float32", crs=self.crs,
+                               transform=from_origin(int(ke) * 1000 + (500 if half == "e" else 0), (int(kn) + 1) * 1000, 10, 10)) as f:
+                f.write(np.full((100, 50), 200 if half == "e" else 100, np.float32), 1)
+            return p
+
+    tc = TileCache(root, Fake())
+    g = Grid(340000, 5076000, 342000, 5078000, 10, "EPSG:32632")
+    m = tc.mosaic("dtm", g)
+    assert m.shape == (200, 200) and m[150, 10] == 100 and m[150, 90] == 200    # both halves of the south-west tile
+    assert np.isnan(m[10, 150]) and not np.isnan(m[10, 50])                       # the tile without data stays empty
+    assert (root / "fake" / "lod" / "dtm" / "10m" / "340-5076.npy").exists() and not (root / "lod").exists()
+    assert np.array_equal(tc.mosaic("dtm", g), m, equal_nan=True) and len(asked) == 1   # second call: no query
+    assert TileCache(root).inventory() == {"lod": {}, "raw": {}}                  # the swisstopo cache is untouched
+    assert sources.for_crs("EPSG:2056").name == "swisstopo" and sources.for_crs(None).name == "swisstopo"
+
+
 def test_crsf_roundtrip():
     """CRSF frames (as EdgeTX mirrors them on USB) decode back, even split in odd chunks."""
     from fpv3d import crsf

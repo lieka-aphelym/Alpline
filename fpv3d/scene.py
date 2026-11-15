@@ -93,7 +93,7 @@ def build_terrain(cfg: LocationConfig, out: Path, cache: Path, skip_ortho=False,
 def load_terrain(out: Path):
     meta = json.loads((out / "scene.json").read_text(encoding="utf-8"))
     g = meta["grid"]
-    grid = Grid(g["min_e"], g["min_n"], g["max_e"], g["max_n"], g["res"])
+    grid = Grid.from_dict(g)
     dem = np.fromfile(out / "terrain.f32", dtype="<f4").reshape(grid.shape)
     return meta, grid, dem
 
