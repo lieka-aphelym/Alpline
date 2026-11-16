@@ -2,12 +2,15 @@
 
 What changed in each release of Alpline. Newest first.
 
-## Unreleased
+## 1.1.0 (November 2026)
 
-- **Locations outside Switzerland (first step):** a location file with a centre anywhere in the world now builds,
-  from the Copernicus worldwide elevation model (about 30 m), with the Sentinel-2 cloudless satellite photo of 2016
-  (about 10 m). Signal shadows, flight replay, live flight and the training flight work on it; 3D buildings take
-  their heights from OpenStreetMap. Not there yet: drone zones of other countries.
+Alpline now works outside Switzerland.
+
+- **Locations anywhere in the world:** a location outside Switzerland builds from the Copernicus worldwide
+  elevation model (about 30 m), with the Sentinel-2 cloudless satellite photo of 2016 (about 10 m). Signal shadows,
+  flight replay, live flight and the training flight work on it; 3D buildings take their heights from
+  OpenStreetMap. This is a first step: the terrain is much coarser than swisstopo's (a ridge is right, a row of
+  trees is not), and there are no drone zones for other countries yet. Swiss locations keep swisstopo data.
 - **Maps for the whole world:** the map page creates and shows locations anywhere: it switches to OpenStreetMap
   (or a satellite layer) outside Switzerland, takes a position such as `47.26 11.39`, finds places worldwide once
   you switch that on (it sends what you type to Photon, the OpenStreetMap search; off by default),
@@ -16,6 +19,7 @@ What changed in each release of Alpline. Newest first.
 - **OpenStreetMap layer showing "Access blocked" tiles:** the map page now tells OpenStreetMap which page asks for
   its tiles (only the address of your own Alpline server, never the PIN link), as its usage policy requires. If
   OpenStreetMap still does not load abroad, the map shows the satellite layer instead.
+- **Launcher map:** it downloads its map once more after this update (its stored tiles changed).
 - **Cache clean-up covers the worldwide data:** `cache prune`, `cache clear` and `cache info` (and the launcher's
   *[clean unused tiles]*) now handle the worldwide model and photo too.
 - **Swiss locations at the border:** terrain across the border is now real (worldwide model) instead of a guess

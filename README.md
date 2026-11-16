@@ -1,7 +1,7 @@
 # Alpline (by lieka): FPV line of sight on Swiss terrain
 *The code and the commands keep their short technical name `fpv3d` (e.g. `python -m fpv3d build ...`).*
 
-Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**. It then shows where your FPV radio link is likely to struggle:
+Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**. Since 1.1.0 it also builds places anywhere else in the world, from coarser worldwide data ([what is different there](docs/locations.md#outside-switzerland)). It then shows where your FPV radio link is likely to struggle:
 
 - **Range spheres** are drawn around the pilot antenna, one per radio link (video, control…). Their size comes from a free-space link budget. A coloured ring marks where each sphere meets the ground.
 - **Signal shadow ("dark zone")** is draped on the terrain. It marks every spot where a drone flying *N m above ground* has no direct line of sight to you, or where the Fresnel zone is obstructed. It is precomputed for several heights. In the viewer you can pick one, or let the overlay follow the drone's live height.
@@ -264,7 +264,7 @@ Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GP
 Ideas for future versions. These are intentions, not promises, and there are no dates.
 
 **Planned**
-- **Terrain outside Switzerland:** (high priority) a first step is in (not released yet): a location anywhere
+- **Terrain outside Switzerland:** (high priority) a first step is in since 1.1.0: a location anywhere
   builds from the Copernicus 30 m model and the Sentinel-2 satellite photo, see
   [docs/locations.md](docs/locations.md#outside-switzerland); the map page and the launcher's map cover the world.
   Still to come: finer national elevation data and photos. Drone zones stay Switzerland-only at first; zones of
@@ -281,7 +281,7 @@ Have a wish or want to help ? Open an [issue](https://github.com/lieka-aphelym/A
 
 Data in Switzerland: © swisstopo (swissALTI3D, swissSURFACE3D Raster, SWISSIMAGE 10 cm), free under the swisstopo open-data terms (OGD). It is fetched via the STAC API at `data.geo.admin.ch`.
 
-Data elsewhere (not released yet): terrain from the Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved), photo from Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016, CC BY 4.0). Details: [THIRD_PARTY.md](THIRD_PARTY.md).
+Data elsewhere: terrain from the Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved), photo from Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016, CC BY 4.0). Details: [THIRD_PARTY.md](THIRD_PARTY.md).
 
 To test without internet: `python tests/mock_stac.py` and set `FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9`. That serves synthetic terrain.
 
