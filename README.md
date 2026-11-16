@@ -257,6 +257,7 @@ Logs are read with [orangebox](https://github.com/atomgomba/orangebox) 0.4.0 (GP
 | [Battery analysis](docs/battery.md) | the battery tab, packs and their health, LiPo / Li-ion, notes, charger check |
 | [Training flight](docs/training.md) | the simulator: radio setup, flight model, collisions, recording |
 | [Locations, terrain and maps](docs/locations.md) | creating locations on the map, routes, terrain detail, buildings, no-fly zones, renaming, deleting |
+| [Data sources](docs/data-sources.md) | where heights and photos come from, and the open data that could be added per country |
 | [Development](docs/development.md) | how the signal model works, the tests and tools |
 
 ## What's next

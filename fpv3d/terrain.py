@@ -5,6 +5,7 @@ border), the next one fills in. What is still missing after that is filled from 
 """
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -12,12 +13,18 @@ from typing import List, Optional
 import numpy as np
 
 from . import sources
-from .geo import Grid
+from .geo import Grid, unproject
 from .tilecache import TILE, TileCache, tile_keys
 
 
 def log(msg):
     print(msg, file=sys.stderr, flush=True)
+
+
+def _where(grid: Grid):
+    """(lat, lon) of the middle of a grid: decides which regional sources are asked for it."""
+    lat, lon = unproject((grid.min_e + grid.max_e) / 2, (grid.min_n + grid.max_n) / 2, grid.crs)
+    return float(lat), float(lon)
 
 
 def _keys_with_gaps(dem: np.ndarray, grid: Grid, keys) -> list:
@@ -44,7 +51,7 @@ def elevation(grid: Grid, surface: str, cache_root: Path, local_files=None, refr
         rs = Resampling.max if surface == "dsm" else Resampling.average
         dem = mosaic([Path(p) for p in local_files], grid, bands=1, dtype=np.float32, resampling=rs)[0]
         return fill_holes(dem) if fill else dem
-    chain = sources.chain(grid.crs, surface)
+    chain = sources.chain(grid.crs, surface, _where(grid))
     if not chain:
         raise RuntimeError(f"no elevation source for {grid.crs}")
     todo = tile_keys(grid) if keys is None else [tuple(k) for k in keys]
@@ -72,14 +79,45 @@ def elevation(grid: Grid, surface: str, cache_root: Path, local_files=None, refr
     return fill_holes(dem) if fill else dem
 
 
+def _grow(mask: np.ndarray, steps: int) -> np.ndarray:
+    """The mask, widened by `steps` pixels on every side."""
+    out = mask.copy()
+    for _ in range(steps):
+        m = out.copy()
+        out[1:] |= m[:-1]
+        out[:-1] |= m[1:]
+        out[:, 1:] |= m[:, :-1]
+        out[:, :-1] |= m[:, 1:]
+    return out
+
+
+def _tile_area(grid: Grid, k):
+    """The (rows, cols) slices of 1 km tile `k` on the grid, or None when it lies outside."""
+    n = int(round(TILE / grid.res))
+    c0 = int(round((k[0] * TILE - grid.min_e) / grid.res))
+    r0 = int(round((grid.max_n - (k[1] + 1) * TILE) / grid.res))
+    r, c = slice(max(r0, 0), min(r0 + n, grid.rows)), slice(max(c0, 0), min(c0 + n, grid.cols))
+    return (r, c) if r.start < r.stop and c.start < c.stop else None
+
+
+HOLE_DARK = 8        # a cached photo tile is a JPEG: a hole comes back as almost black, not as exactly 0
+HOLE_SHARE = 0.002   # a tile is asked from the next source when more than this share of it is still empty
+
+
 def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None, used: Optional[List] = None) -> np.ndarray:
-    """RGB uint8 image (rows, cols, 3) on grid. Memoised per 1 km tile. The 1 km tiles the first source has no
-    picture for (swisstopo across the border) come from the next one. `used` receives the sources."""
-    chain = sources.chain(grid.crs, "ortho")
+    """RGB uint8 image (rows, cols, 3) on grid. Memoised per 1 km tile. What the first source has no picture for
+    comes from the next one: whole 1 km tiles (swisstopo across the border), and, for a source that says its
+    pictures have holes (`patchy`: the 2021 satellite composite has none where snow lies all year), the holes
+    inside a tile. `used` receives the sources.
+    A source that cannot be reached: a satellite one (it says how coarse it is, `native_m`) is simply passed over,
+    the next is as good; a sharp one (swisstopo) stops the photo, as before, so that a 10 cm picture is never
+    silently replaced by a 10 m one."""
+    chain = sources.chain(grid.crs, "ortho", _where(grid))
     if not chain:
         raise RuntimeError(f"no aerial photo source for {grid.crs}")
     todo = tile_keys(grid) if keys is None else [tuple(k) for k in keys]
     img = None
+    need = np.ones(grid.shape, bool)             # the pixels that have no photo yet
     for src in chain:
         if not todo:
             break
@@ -87,20 +125,34 @@ def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None, used: Opt
         try:
             part = tc.mosaic("ortho", grid, refresh, todo)
         except (SystemExit, OSError) as ex:
+            if getattr(src, "native_m", 0) and src is not chain[-1]:
+                log(f"  {src.name} photo unavailable ({str(ex)[:120]}): trying {chain[chain.index(src) + 1].name}")
+                continue
             if img is None:                      # the main source can't be reached: say so, don't swap in a coarser one
                 raise
             log(f"  {src.name} photo unavailable ({str(ex)[:120]}): {len(todo)} tile(s) stay without a photo")
             break
+        patchy = getattr(src, "patchy", False)
+        if patchy:
+            # the rim of a hole is a blend of picture and nothing (resampling, JPEG): leave it to the next source too
+            got = ~_grow(part.max(axis=2) < HOLE_DARK, int(math.ceil(src.native_m / grid.res)) + 1)
+        else:
+            got = part.any(axis=2)
         if img is None:
             img = part
         else:
-            log(f"  {len(todo)} tile(s) without a photo: taken from {src.name}")
-            m = part.any(axis=2)
+            log(f"  {len(todo)} tile(s) without a full photo: completed from {src.name}")
+            m = need & got
             img[m] = part[m]
+        need &= ~got
         have = [k for k in todo if tc.tile_path("ortho", grid.res, k).exists()]
         if have and used is not None and src not in used:
             used.append(src)
-        todo = [k for k in todo if k not in set(have)]
+        done = set(have)
+        if patchy and src is not chain[-1]:
+            areas = {k: _tile_area(grid, k) for k in have}
+            done = {k for k, a in areas.items() if a is None or need[a].mean() <= HOLE_SHARE}
+        todo = [k for k in todo if k not in done]
     if img is None:
         raise RuntimeError("no aerial photo could be downloaded")
     return img
@@ -108,8 +160,11 @@ def orthophoto(grid: Grid, cache_root: Path, refresh=False, keys=None, used: Opt
 
 # the worldwide sources: (cache folder, what it is, how to get the source for a grid, the kinds it serves)
 def _world_sources():
+    """Every source other than swisstopo: the two worldwide ones and the regional ones that were registered."""
+    regional = tuple((r.name, r.label, (lambda crs, r=r: sources.regional(r, crs)), r.kinds) for r in sources.regional_sources())
     return (("copernicus", "worldwide 30 m model", sources.worldwide, ("dtm", "dsm")),
-            ("sentinel2", "satellite photo", sources.worldwide_photo, ("ortho",)))
+            ("worldcover", "satellite photo 2021", sources.worldcover, ("ortho",)),
+            ("sentinel2", "satellite photo 2016", sources.worldwide_photo, ("ortho",))) + regional
 
 
 def _world_grids(cache_root: Path, name: str) -> List[str]:
@@ -130,11 +185,11 @@ def prune_world(cache_root: Path, keep: dict, dry_run=True):
     `keep`: {grid: {"E-N", ...}} = the 1 km tiles the location files use, per grid. A grid no location is on loses
     all its tiles. Returns (files, bytes) removed, or that would be removed with dry_run."""
     files = size = 0
-    for name, _label, make, _kinds in _world_sources():
+    for name, _label, make, kinds in _world_sources():
         for crs in _world_grids(cache_root, name):
             f, s = TileCache(cache_root, make(crs)).prune(keep.get(crs, set()), dry_run)
             files, size = files + f, size + s
-        raw = make("EPSG:2056").raw_dir(cache_root, "dtm")
+        raw = make("EPSG:2056").raw_dir(cache_root, kinds[0])
         if not raw.exists():
             continue
         needed = set()
@@ -163,7 +218,7 @@ def clear_world(cache_root: Path, raw=False, lod=False, kind=None):
                 shutil.rmtree(base / kind if kind else base, ignore_errors=True)
         # one download serves "dtm" and "dsm" alike: it only goes when all elevation is cleared
         if raw and (kind is None or len(kinds) == 1):
-            shutil.rmtree(make("EPSG:2056").raw_dir(cache_root, "dtm"), ignore_errors=True)
+            shutil.rmtree(make("EPSG:2056").raw_dir(cache_root, kinds[0]), ignore_errors=True)
 
 
 def world_info(cache_root: Path) -> List[str]:
@@ -172,8 +227,8 @@ def world_info(cache_root: Path) -> List[str]:
 
     def size(p: Path):
         return sum(f.stat().st_size for f in p.rglob("*") if f.is_file()) if p.exists() else 0
-    for name, label, make, _kinds in _world_sources():
-        raw = make("EPSG:2056").raw_dir(cache_root, "dtm")
+    for name, label, make, kinds in _world_sources():
+        raw = make("EPSG:2056").raw_dir(cache_root, kinds[0])
         if raw.exists() and any(raw.glob("*.tif")):
             lines.append(f"raw  {name + ' (' + label + ')':40s} {len(list(raw.glob('*.tif'))):5d} files {size(raw) / 1e6:9.1f} MB")
         for crs in _world_grids(cache_root, name):
@@ -247,6 +302,7 @@ def world_height(cache_root: Path, lat: float, lon: float, crs: str, online=True
     return (v, "worldwide 30 m model") if math.isfinite(v) and v > -1000 else None
 
 
-def photo_native_m(crs: str) -> float:
-    """The finest photo worth asking for on this grid, in metres: sharper would only enlarge the picture."""
-    return min((getattr(s, "native_m", 0.0) for s in sources.chain(crs, "ortho")), default=0.0)
+def photo_native_m(crs: str, where=None) -> float:
+    """The finest photo worth asking for on this grid (at the place `where`, lat / lon, when a regional source may
+    cover it), in metres: sharper would only enlarge the picture."""
+    return min((getattr(s, "native_m", 0.0) for s in sources.chain(crs, "ortho", where)), default=0.0)

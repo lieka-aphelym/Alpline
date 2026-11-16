@@ -2,6 +2,19 @@
 
 What changed in each release of Alpline. Newest first.
 
+## Unreleased
+
+- **Launcher map, zoomed out:** once you zoom out a little past Switzerland, the whole map is the satellite
+  picture, Switzerland included, instead of a dark Swiss map sitting in the middle of it. Zoom back in and the
+  Swiss map returns.
+- **Newer satellite photo abroad:** outside Switzerland the photo is now the ESA WorldCover Sentinel-2 picture
+  of 2021 (about 10 m) instead of the 2016 one. It is the average of a whole year, so it has no picture where
+  snow lies all year (glaciers, the highest summits): those parts, and anything it cannot deliver, are filled
+  from the 2016 picture, which stays as the fallback.
+- **No more thin black lines in the photo south of Switzerland:** around Mont Blanc and Aosta a 10 to 20 m band
+  along some 1 km tile edges stayed empty. Rebuild the location to get the corrected photo.
+- **Neutral examples:** the search box and the name fields no longer suggest Swiss places.
+
 ## 1.1.0 (November 2026)
 
 Alpline now works outside Switzerland.

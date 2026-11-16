@@ -636,8 +636,13 @@ function initUI() {
   const ground = onlyWorld ? 'from the worldwide 30 m model (coarse: trees and roofs partly included)'
     : m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
   const credit = world.length ? `<br>${onlyWorld ? '' : 'Outside Switzerland: worldwide 30 m model. '}<span class="muted small">${esc(world[0].credit)}</span>` : '';
-  const sat = (m.ortho_sources || []).filter((s) => s.name === 'sentinel2');   // satellite photo, 10 m: its credit is required too
-  const photoCredit = sat.length && m.ortho ? `<br><span class="muted small">Photo (satellite, 10 m): ${esc(sat[0].credit)}</span>` : '';
+  // satellite photo, 10 m (the 2021 picture, the 2016 one where that has nothing): the credits are required too
+  const sat = m.ortho ? (m.ortho_sources || []).filter((s) => s.name === 'worldcover' || s.name === 'sentinel2') : [];
+  let photoCredit = sat.map((s) => `<br><span class="muted small">Photo (satellite, 10 m): ${esc(s.credit)}</span>`).join('');
+  // any other source that took part (a country's own heights or photo): its credit is shown as it is given
+  const known = ['swisstopo', 'copernicus', 'sentinel2', 'worldcover'];
+  for (const [what, list] of [['Heights', m.terrain_sources || []], ['Photo', m.ortho ? m.ortho_sources || [] : []]])
+    for (const s of list) if (!known.includes(s.name) && s.credit) photoCredit += `<br><span class="muted small">${what}: ${esc(s.credit)}</span>`;
   $('sceneInfo').innerHTML = (m.corridor
     ? `Route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide`
     : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}` + credit + photoCredit;

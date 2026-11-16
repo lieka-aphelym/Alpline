@@ -4,10 +4,14 @@ The tile cache (tilecache.py) always works on 1 x 1 km tiles of the source's own
 source three things: is a usable file already on disk, which files does the provider have for these tiles, and
 download one. Everything provider-specific (catalogue, file names, native resolutions) stays inside the source.
 
-Sources: swisstopo (swisstopo.py, Switzerland, 0.5 m and up), Copernicus (copernicus.py, worldwide heights, 30 m)
-and Sentinel-2 cloudless (sentinel2.py, worldwide photo, 10 m).
-chain() says which ones serve a grid, in order of preference. A new one subclasses TerrainSource and sets
+Sources: swisstopo (swisstopo.py, Switzerland, 0.5 m and up), Copernicus (copernicus.py, worldwide heights, 30 m),
+the ESA WorldCover composite of 2021 (worldcover.py, worldwide photo, 10 m) and, where that has nothing or cannot
+be reached, Sentinel-2 cloudless 2016 (sentinel2.py, worldwide photo, 10 m).
+chain() says which ones serve a place, in order of preference. A new one subclasses TerrainSource and sets
 `cache_prefix` to its name (its files then live in cache/<name>/, apart from the others).
+
+A source for one country (a national lidar model, say) is added with register_regional(): it says where it has
+data, and is then asked before the worldwide model for places inside. See docs/data-sources.md for candidates.
 """
 from __future__ import annotations
 
@@ -82,6 +86,47 @@ def all_sources() -> List[TerrainSource]:
 _WORLD: Dict[str, TerrainSource] = {}
 
 
+@dataclass
+class Regional:
+    """A source that covers one country or region: what it is, where it has data, and how to make it for a grid."""
+    name: str                    # also its cache folder: cache/<name>/
+    label: str                   # for people: "Austria, 1 m lidar"
+    kinds: Tuple[str, ...]       # of "dtm", "dsm", "ortho"
+    covers: object               # covers(lat, lon) -> bool: roughly inside its area (a box is enough: where it has
+    #                              no data after all, the next source of the chain fills in)
+    make: object                 # make(crs) -> TerrainSource cut on that grid
+
+
+_REGIONAL: List[Regional] = []
+
+
+def register_regional(name: str, label: str, kinds, covers, make) -> Regional:
+    """Add a source for one country or region. It is asked after the sources of the grid itself (swisstopo on the
+    Swiss grid) and before the worldwide ones, for places `covers` says yes to."""
+    unregister_regional(name)
+    r = Regional(name, label, tuple(kinds), covers, make)
+    _REGIONAL.append(r)
+    return r
+
+
+def unregister_regional(name: str) -> None:
+    _REGIONAL[:] = [r for r in _REGIONAL if r.name != name]
+    for k in [k for k in _WORLD if k.startswith(f"{name}:")]:
+        del _WORLD[k]
+
+
+def regional_sources() -> List[Regional]:
+    return list(_REGIONAL)
+
+
+def regional(r: Regional, crs: str) -> TerrainSource:
+    """The regional source `r`, cut on the grid `crs` (one object per grid, like the worldwide ones)."""
+    key = f"{r.name}:{crs}"
+    if key not in _WORLD:
+        _WORLD[key] = r.make(crs)
+    return _WORLD[key]
+
+
 def worldwide(crs: str) -> TerrainSource:
     """The worldwide elevation model, cut on the grid `crs`."""
     if crs not in _WORLD:
@@ -90,8 +135,17 @@ def worldwide(crs: str) -> TerrainSource:
     return _WORLD[crs]
 
 
+def worldcover(crs: str) -> TerrainSource:
+    """The worldwide satellite photo of 2021 (the first choice), cut on the grid `crs`."""
+    key = "photo2021:" + crs
+    if key not in _WORLD:
+        from .worldcover import WorldCover
+        _WORLD[key] = WorldCover(crs)
+    return _WORLD[key]
+
+
 def worldwide_photo(crs: str) -> TerrainSource:
-    """The worldwide satellite photo, cut on the grid `crs`."""
+    """The worldwide satellite photo of 2016 (the fallback), cut on the grid `crs`."""
     key = "photo:" + crs
     if key not in _WORLD:
         from .sentinel2 import Sentinel2
@@ -99,10 +153,14 @@ def worldwide_photo(crs: str) -> TerrainSource:
     return _WORLD[key]
 
 
-def chain(crs: Optional[str], kind: str) -> List[TerrainSource]:
+def chain(crs: Optional[str], kind: str, where: Optional[Tuple[float, float]] = None) -> List[TerrainSource]:
     """The sources that can give `kind` on the grid `crs`, best first; a later one only fills what the
-    earlier ones lack. Sources added with register() come first on their own grid."""
+    earlier ones lack. Sources added with register() come first on their own grid, then the regional sources that
+    cover `where` (lat, lon of the place; none are asked when it is not given), then the worldwide ones (for the
+    photo: the 2021 picture, then the 2016 one)."""
     crs = crs or default().crs
     out = [s for s in all_sources() if s.crs == crs and kind in s.kinds]
-    out.append(worldwide(crs) if kind in ("dtm", "dsm") else worldwide_photo(crs))
+    if where is not None:
+        out += [regional(r, crs) for r in _REGIONAL if kind in r.kinds and r.covers(where[0], where[1])]
+    out += [worldwide(crs)] if kind in ("dtm", "dsm") else [worldcover(crs), worldwide_photo(crs)]
     return out

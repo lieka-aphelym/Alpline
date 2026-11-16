@@ -138,9 +138,9 @@ def test_tilecache_second_source(tmp=None):
     assert np.array_equal(tc.mosaic("dtm", g), m, equal_nan=True) and len(asked) == 1   # second call: no query
     assert TileCache(root).inventory() == {"lod": {}, "raw": {}}                  # the swisstopo cache is untouched
     assert [s.name for s in sources.chain("EPSG:2056", "dtm")] == ["swisstopo", "copernicus"]   # the world model fills gaps
-    assert [s.name for s in sources.chain(None, "ortho")] == ["swisstopo", "sentinel2"]
+    assert [s.name for s in sources.chain(None, "ortho")] == ["swisstopo", "worldcover", "sentinel2"]
     assert [s.name for s in sources.chain("EPSG:32632", "dsm")] == ["copernicus"]
-    assert [s.name for s in sources.chain("EPSG:32632", "ortho")] == ["sentinel2"]
+    assert [s.name for s in sources.chain("EPSG:32632", "ortho")] == ["worldcover", "sentinel2"]   # 2021 first, 2016 behind
 
 
 def test_gaps_filled_by_next_source(tmp=None):
@@ -163,6 +163,7 @@ def test_gaps_filled_by_next_source(tmp=None):
         s = Src(); s.name = name
         tc = TileCache(root, s)
         tc.lod_dir("dtm", 10).mkdir(parents=True, exist_ok=True)
+        (tc.base / "_warp2").touch()                                 # tiles of today, not ones to be made again
         for k in [(2600, 1200), (2601, 1200)]:
             if k not in skip:
                 np.save(tc.tile_path("dtm", 10, k), np.full((100, 100), height, np.float32))
@@ -170,7 +171,7 @@ def test_gaps_filled_by_next_source(tmp=None):
 
     first, second = fake("first", 500, skip=[(2601, 1200)]), fake("second", 900)
     old = sources.chain
-    sources.chain = lambda crs, kind: [first, second]
+    sources.chain = lambda crs, kind, where=None: [first, second]
     try:
         used = []
         dem = terrain.elevation(Grid(2600000, 1200000, 2602000, 1201000, 10), "dtm", root, used=used)
@@ -180,6 +181,63 @@ def test_gaps_filled_by_next_source(tmp=None):
         assert (dem == 500).all() and [s.name for s in used] == ["first"]          # nothing missing: the second is not asked
     finally:
         sources.chain = old
+
+
+def test_regional_source_comes_before_the_world(tmp=None):
+    """A source for one country is asked for places inside its area, before the worldwide model, and the worldwide
+    model still fills what it lacks. Outside its area it is not asked at all. The cache tools know about it."""
+    import tempfile
+    from fpv3d import sources, terrain
+    from fpv3d.tilecache import TileCache
+    root = Path(tmp or tempfile.mkdtemp())
+
+    class Land(sources.TerrainSource):
+        name, host, kinds, credit = "testland", "example.invalid", ("dtm",), "© Testland survey"
+
+        def __init__(self, crs):
+            self.crs, self.cache_prefix = crs, f"testland/{crs.split(':')[-1]}"
+
+        def raw_dir(self, root, kind):
+            return Path(root) / "testland" / "raw"
+
+        def lookup(self, kind, keys, res):
+            return {}
+
+        def raw_names(self, key):
+            return set()
+
+    def tiles(src, height, keys):                       # put ready tiles in a source's cache (no download needed)
+        tc = TileCache(root, src)
+        tc.lod_dir("dtm", 10).mkdir(parents=True, exist_ok=True)
+        (tc.base / "_warp2").touch()                                 # tiles of today, not ones to be made again
+        for k in keys:
+            np.save(tc.tile_path("dtm", 10, k), np.full((100, 100), height, np.float32))
+
+    crs = "EPSG:32633"
+    sources.register_regional("testland", "Testland, fine model", ("dtm",), lambda lat, lon: 48 <= lat <= 50 and 14 <= lon <= 17, Land)
+    try:
+        inside, outside = (49.17, 15.48), (52.0, 15.48)
+        assert [s.name for s in sources.chain(crs, "dtm", inside)] == ["testland", "copernicus"]
+        assert [s.name for s in sources.chain(crs, "dtm", outside)] == ["copernicus"]
+        assert [s.name for s in sources.chain(crs, "dtm")] == ["copernicus"]                # no place given: not asked
+        assert [s.name for s in sources.chain(crs, "ortho", inside)] == ["worldcover", "sentinel2"]   # it has no photo
+        assert [s.name for s in sources.chain("EPSG:2056", "dtm", inside)] == ["swisstopo", "testland", "copernicus"]
+        g = Grid(534000, 5446000, 536000, 5447000, 10, crs)                                   # two tiles near 49.17 N, 15.48 E
+        tiles(sources.regional(sources.regional_sources()[0], crs), 700, [(534, 5446)])       # the country has the west tile
+        tiles(sources.worldwide(crs), 300, [(534, 5446), (535, 5446)])                        # the world has both
+        used = []
+        dem = terrain.elevation(g, "dtm", root, used=used)
+        assert (dem[:, :100] == 700).all() and (dem[:, 100:] == 300).all()
+        assert [s.name for s in used] == ["testland", "copernicus"] and used[0].credit == "© Testland survey"
+        inv = terrain.world_inventory(root)
+        assert ("testland", crs) in [(w["source"], w["crs"]) for w in inv]
+        assert any("testland" in line for line in terrain.world_info(root))
+        files, _ = terrain.prune_world(root, {crs: {"535-5446"}}, dry_run=False)             # the west tile is no longer needed
+        assert files == 2 and (dem.shape == (100, 200))
+        assert not TileCache(root, sources.regional(sources.regional_sources()[0], crs)).tile_path("dtm", 10, (534, 5446)).exists()
+    finally:
+        sources.unregister_regional("testland")
+    assert sources.regional_sources() == [] and [s.name for s in sources.chain(crs, "dtm", inside)] == ["copernicus"]
 
 
 def test_copernicus_squares():
@@ -215,6 +273,103 @@ def test_clear_world_cache(tmp=None):
     assert have() == ["dem_raw", "dtm", "photo"]
     terrain.clear_world(root, raw=True, lod=True)
     assert have() == [] and terrain.world_info(root) == []
+
+
+def test_worldcover_holes_are_filled(tmp=None):
+    """The 2021 picture has no pixels where snow lies all year (glaciers). Those holes inside a tile must not stay
+    black: they are filled from the 2016 picture, and only the tile with the hole asks for it."""
+    import tempfile
+    import mock_stac
+    from PIL import Image
+    from fpv3d import sources, terrain, worldcover
+    from fpv3d.tilecache import TileCache
+    root, data = Path(tmp or tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+    mock_stac.make_worldcover(data, 47, 11, hole=(11.382, 47.2545, 11.387, 47.2585))    # inside the western tile
+    old, worldcover.BASE = worldcover.BASE, str(data)
+    worldcover._EXISTS.clear()
+    try:
+        g = Grid(680000, 5236000, 682000, 5237000, 10, "EPSG:32632")
+        fallback = TileCache(root, sources.worldwide_photo("EPSG:32632"))
+        fallback.lod_dir("ortho", 10).mkdir(parents=True, exist_ok=True)
+        Image.fromarray(np.full((100, 100, 3), 77, np.uint8)).save(fallback.tile_path("ortho", 10, (680, 5236)))
+        fallback._none_path("ortho", 10, (681, 5236)).touch()      # would be found empty if it were asked for
+        used = []
+        img = terrain.orthophoto(g, root, used=used).astype(int)
+        assert [s.name for s in used] == ["worldcover", "sentinel2"]
+        assert img.max(axis=2).min() > 20                              # nothing black, no dark rim either
+        filled = (np.abs(img - 77) < 4).all(axis=2)
+        assert 500 < filled.sum() < 2500 and not filled[:, 100:].any()  # a patch of the 2016 picture, in the west tile only
+        assert abs(img[~filled][:, 2].mean() - 120) < 4               # the rest is still the 2021 picture
+    finally:
+        worldcover.BASE = old
+        worldcover._EXISTS.clear()
+
+
+def test_old_world_tiles_on_the_swiss_grid_are_made_again(tmp=None):
+    """Worldwide data on the Swiss grid, cached by a version whose warp could leave an empty band: thrown away
+    once (a note marks it), then left alone. Other grids and swisstopo's own cache are never touched."""
+    import tempfile
+    from fpv3d import sources
+    from fpv3d.tilecache import TileCache
+    root = Path(tmp or tempfile.mkdtemp())
+    swiss, world = TileCache(root), TileCache(root, sources.worldwide_photo("EPSG:2056"))
+    utm = TileCache(root, sources.worldwide_photo("EPSG:32632"))
+    for tc in (swiss, world, utm):
+        tc.lod_dir("ortho", 10).mkdir(parents=True, exist_ok=True)
+        tc.tile_path("ortho", 10, (1, 1)).write_bytes(b"old")
+        tc._drop_faulty()
+    assert not world.tile_path("ortho", 10, (1, 1)).exists() and (world.base / "_warp2").exists()
+    assert swiss.tile_path("ortho", 10, (1, 1)).exists() and utm.tile_path("ortho", 10, (1, 1)).exists()
+    world.lod_dir("ortho", 10).mkdir(parents=True, exist_ok=True)
+    world.tile_path("ortho", 10, (1, 1)).write_bytes(b"new")
+    world._drop_faulty()
+    assert world.tile_path("ortho", 10, (1, 1)).exists()            # only once
+
+
+def test_worldcover_photo(tmp=None):
+    """The 2021 satellite picture: file names in every quarter of the globe, reflectance turned into a picture, only
+    the tile's part read from the big file, an all-sea square remembered, and the 2016 picture as the fallback."""
+    import tempfile
+    import mock_stac
+    from fpv3d import sources, terrain, worldcover
+    from fpv3d.tilecache import TileCache
+    assert worldcover.square_path(47, 11) == "rgbnir/2021/N47/ESA_WorldCover_10m_2021_v200_N47E011_S2RGBNIR.tif"
+    assert worldcover.square_code(-34, 18) == "S34E018" and worldcover.square_code(40, -75) == "N40W075"
+    pic = worldcover.to_picture(np.array([[0, 3000, 9000, 1]]), np.array([[0, 3000, 9000, 1]]), np.array([[0, 3000, 9000, 1]]))
+    assert pic[0, 0].tolist() == [0, 0, 0] and pic[0, 1].tolist() == [255] * 3 and pic[0, 2].tolist() == [255] * 3
+    assert pic[0, 3].min() >= 1                                    # the darkest real pixel is not "no data"
+    root, data = Path(tmp or tempfile.mkdtemp()), Path(tempfile.mkdtemp())
+    big = mock_stac.make_worldcover(data, 47, 11)
+    old, worldcover.BASE = worldcover.BASE, str(data)
+    worldcover._EXISTS.clear()
+    try:
+        src = sources.worldcover("EPSG:32632")
+        g = Grid(680000, 5236000, 682000, 5237000, 10, "EPSG:32632")       # two 1 km tiles near 47.26 N, 11.39 E
+        used = []
+        img = terrain.orthophoto(g, root, used=used).astype(float)
+        assert img.shape == (100, 200, 3) and [s.name for s in used] == ["worldcover"] and img.min() > 20
+        assert abs(img[..., 2].mean() - 120) < 4                           # blue came back as it was put in
+        assert img[:, -20:, 0].mean() > img[:, :20, 0].mean() + 20         # red grows east: not mirrored
+        assert img[:10, :, 1].mean() > img[-10:, :, 1].mean() + 10         # green grows north: not upside down
+        pieces = sorted((root / "worldcover" / "raw").glob("*.tif"))
+        assert [p.name for p in pieces] == ["32632_680-5236_N47E011.tif", "32632_681-5236_N47E011.tif"]
+        assert sum(p.stat().st_size for p in pieces) < big.stat().st_size / 20     # a small part, not the whole file
+        assert src.raw_names((680, 5236)) >= {"32632_680-5236_N47E011"}
+        # a square with no file (all sea): noted, and the 2016 picture is asked for that tile instead
+        sea = Grid(500000, 5000000, 501000, 5001000, 10, "EPSG:32632")      # 45.15 N, 9.0 E: not in the fake data
+        tc = TileCache(root, src)
+        assert tc.ensure("ortho", 10, [(500, 5000)])["empty"] == 1 and (root / "worldcover" / "raw" / "N45E009.missing").exists()
+        from fpv3d import sentinel2
+        fallback = TileCache(root, sources.worldwide_photo("EPSG:32632"))
+        fallback.lod_dir("ortho", 10).mkdir(parents=True, exist_ok=True)
+        from PIL import Image
+        Image.fromarray(np.full((100, 100, 3), 77, np.uint8)).save(fallback.tile_path("ortho", 10, (500, 5000)))
+        used = []
+        img = terrain.orthophoto(sea, root, used=used)
+        assert abs(int(img[50, 50, 0]) - 77) < 3 and [s.name for s in used] == ["sentinel2"] and sentinel2.NATIVE_M == 10
+    finally:
+        worldcover.BASE = old
+        worldcover._EXISTS.clear()
 
 
 def test_sentinel2_tiles():

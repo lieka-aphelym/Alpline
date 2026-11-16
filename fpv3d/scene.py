@@ -82,7 +82,7 @@ def build_terrain(cfg: LocationConfig, out: Path, cache: Path, skip_ortho=False,
     if cfg.terrain.ortho and not skip_ortho:
         try:
             # a satellite-only place: asking for a sharper photo than the satellite's would only enlarge it
-            ores = max(cfg.ortho_res(grid), terrainmod.photo_native_m(grid.crs))
+            ores = max(cfg.ortho_res(grid), terrainmod.photo_native_m(grid.crs, terrainmod._where(grid)))
             log(f"[ortho] aerial photo {ores:g} m")
             progress.emit("phase", id="ortho", label=f"Aerial photo {ores:g} m")
             ogrid = grid.with_resolution(ores)
