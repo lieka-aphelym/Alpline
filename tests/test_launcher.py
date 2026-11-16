@@ -88,6 +88,10 @@ def test_world_tiles():
     tokyo = [int(v // 256) for v in merc(139.7, 35.6, 12)]
     assert in_wide(12, *bern) and in_wide(12, *innsbruck) and not in_wide(12, *tokyo)
     assert not in_wide(3, 4, 2)                                               # a tile bigger than the overview: satellite
+    # zoomed far out the whole world is satellite, Switzerland included: no tile below zoom 8 is a map tile,
+    # while at zoom 8 the ones over Switzerland still are
+    assert not any(in_wide(z, x, y) for z in range(2, 8) for x in range(2 ** z) for y in range(2 ** z))
+    assert in_wide(8, *[int(v // 256) for v in merc(8.2, 46.8, 8)])
     assert not in_wide(9, *[int(v // 256) for v in merc(11.95, 47.0, 9)])     # past the east edge
 
 
