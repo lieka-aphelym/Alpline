@@ -53,9 +53,12 @@ What is different there:
 - **Terrain** comes from the Copernicus worldwide model, measured about every 30 m (swisstopo: 0.5 m). Tree tops and
   roofs are partly in it and there is no bare-ground version, so `dtm` and `dsm` give the same heights. A finer
   `resolution_m` only smooths it. Signal shadows are a rough guide there: a ridge is right, a row of trees is not.
-- **The photo** is the Sentinel-2 cloudless satellite mosaic of 2016, about 10 m per pixel (swisstopo: 10 cm): fine
-  to recognise valleys, forests and villages, not single trees or paths. A finer `ortho_resolution_m` is ignored
-  there, and there is no sharp close-up around the pilot.
+- **The photo** is a Sentinel-2 satellite picture of 2021 (ESA WorldCover), about 10 m per pixel (swisstopo:
+  10 cm): fine to recognise valleys, forests and villages, not single trees or paths. A finer
+  `ortho_resolution_m` is ignored there, and there is no sharp close-up around the pilot. It is the average of a
+  whole year, so ground that is under snow for months looks pale, and where snow lies all year (glaciers, the
+  highest summits) it has no picture: those parts come from the older Sentinel-2 cloudless mosaic of 2016 and
+  look flat white.
 - **No drone zones**: check the official drone map of the country you fly in.
 - **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
 - The **map page** works there too: type a position (`47.26 11.39`) or tick *also search outside Switzerland* and
@@ -64,7 +67,8 @@ What is different there:
 - Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
 
 Terrain downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every
-location nearby. The photo comes as small map tiles, kept in `cache/sentinel2/`. `prefetch` fetches both, and
+location nearby. The photo is read in small pieces from large files on the server and kept in `cache/worldcover/` (the 2016
+mosaic, where it is needed, in `cache/sentinel2/`). `prefetch` fetches both, and
 `cache prune` (the launcher's *[clean unused tiles]*) removes what no location needs any more, as for swisstopo.
 
 Just across the Swiss border (roughly 45.7 to 47.9 north, 5.8 to 10.6 east) a location stays on the Swiss grid:

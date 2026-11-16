@@ -37,7 +37,13 @@ Terrain outside Switzerland: Copernicus DEM GLO-30, read from its public copy on
 WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the
 European Union and ESA; all rights reserved. Free to use with this credit, which the viewer shows on such scenes.
 
-Photo outside Switzerland: Sentinel-2 cloudless 2016, <https://cloudless.eox.at>, by EOX IT Services GmbH (contains
+Photo outside Switzerland: the ESA WorldCover Sentinel-2 composite of 2021 (red, green and blue bands), read from
+its public copy on AWS, <https://registry.opendata.aws/esa-worldcover-vito-composites/>. © ESA WorldCover project
+2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The viewer shows this credit on such scenes.
+
+Where that picture has nothing (ground under snow all year, or the service cannot be reached), and for the map
+layers below: Sentinel-2 cloudless 2016, <https://cloudless.eox.at>, by EOX IT Services GmbH (contains
 modified Copernicus Sentinel data 2016), under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Only the
 2016 mosaic is used: the later years are for non-commercial use only. The viewer shows this credit on such scenes.
 The same mosaic is the satellite layer of the map page and the launcher's map outside Switzerland.

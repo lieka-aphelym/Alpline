@@ -18,15 +18,17 @@ before writing any code against it. A licence must allow free use for any purpos
 | Heights, Switzerland | swisstopo swissALTI3D, swissSURFACE3D | 0.5 m | swisstopo open data, credit |
 | Photo, Switzerland | swisstopo SWISSIMAGE | 10 cm | swisstopo open data, credit |
 | Heights, rest of the world | Copernicus DEM GLO-30 | about 30 m | free, credit required |
-| Photo, rest of the world | Sentinel-2 cloudless **2016** by EOX | about 10 m | CC BY 4.0 |
+| Photo, rest of the world | ESA WorldCover Sentinel-2 composite **2021** | about 10 m | CC BY 4.0 |
+| Photo, where the 2021 one has none | Sentinel-2 cloudless **2016** by EOX | about 10 m | CC BY 4.0 |
 
 ## A newer photo of the whole planet
 
-The 2016 mosaic is ten years old. These are the realistic replacements, best first.
+The 2016 mosaic was the only photo until the WorldCover picture of 2021 replaced it (first row, in use now).
+These are the options that were looked at, best first.
 
 | Option | Year | Detail | Account | Licence | Checked | Notes |
 |---|---|---|---|---|---|---|
-| **ESA WorldCover Sentinel-2 composite** | 2021 (also 2020) | 10 m | none | CC BY 4.0 per the AWS listing | Checked, one doubt | One-year median picture, 1 x 1 degree files on AWS (`s3://esa-worldcover-s2/`), the same shape as the Copernicus heights Alpline already reads. One catalogue lists the licence as "other": read the WorldCover terms first. [AWS listing](https://registry.opendata.aws/esa-worldcover-vito-composites/) |
+| **ESA WorldCover Sentinel-2 composite** | 2021 (also 2020) | 10 m | none | CC BY 4.0 | Checked, **in use** | One-year median picture, 1 x 1 degree files on AWS (`s3://esa-worldcover-s2/`), the same shape as the Copernicus heights Alpline already reads. The files themselves, the AWS listing and the project's page all state CC BY 4.0. It has no pixels where snow lies all year (glaciers): Alpline fills those from the 2016 mosaic. [AWS listing](https://registry.opendata.aws/esa-worldcover-vito-composites/) |
 | **Sentinel-2 cloudless 2017** by EOX | 2017 | 10 m | none | CC BY 4.0 | Checked | Same service as today, one word to change. Only one year newer. The provider's own service description gives 2016 and 2017 as CC BY 4.0. |
 | Sentinel-2 cloudless 2018 to 2025 by EOX | up to 2025 | 10 m | none | **CC BY-NC-SA 4.0** | Checked | Not usable: non-commercial. The provider sells a commercial licence. |
 | **Single Sentinel-2 scenes** through Earth Search | days old | 10 m | none | Copernicus Sentinel terms (free, credit) | Access checked, licence text not read | The freshest possible, but raw: Alpline would pick the least cloudy recent scene for each place itself (the catalogue gives the cloud cover of each scene). Clouds, haze and snow can remain. [Earth Search](https://github.com/Element84/earth-search), [AWS listing](https://registry.opendata.aws/sentinel-2-l2a-cogs/) |
