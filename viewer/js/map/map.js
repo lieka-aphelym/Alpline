@@ -29,8 +29,11 @@ const base = {
   'swisstopo map': wmts('ch.swisstopo.pixelkarte-farbe', 'jpeg'),
   'swisstopo aerial': wmts('ch.swisstopo.swissimage', 'jpeg'),
   'swisstopo grey': wmts('ch.swisstopo.pixelkarte-grau', 'jpeg'),
+  // OpenStreetMap's servers refuse browser requests that don't say which page they come from ("Access blocked"
+  // tiles). Our server asks browsers to send no referrer at all (the PIN link must never leak), so this layer alone
+  // sends the page's origin (http://localhost:8000/, never the path or the PIN).
   OpenStreetMap: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    { attribution: '© OpenStreetMap contributors', maxZoom: 19 }),
+    { attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors', maxZoom: 19, referrerPolicy: 'origin' }),
   'Satellite (world, 10 m)': L.tileLayer('https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg',
     { attribution: 'Sentinel-2 cloudless 2016 by <a href="https://cloudless.eox.at">EOX</a> (CC BY 4.0)', maxZoom: 19, maxNativeZoom: 14 }),
 };
@@ -48,7 +51,7 @@ function setBase(name) {
 function autoBase() {
   const c = map.getCenter(), swiss = isSwiss(crsFor(c.lat, c.lng)) && map.getZoom() >= 7;
   if (!swiss && baseNow.startsWith('swisstopo')) { baseAuto = baseNow; setBase('OpenStreetMap'); }
-  else if (swiss && baseAuto && baseNow === 'OpenStreetMap') { const b = baseAuto; baseAuto = null; setBase(b); }
+  else if (swiss && baseAuto && !baseNow.startsWith('swisstopo')) { const b = baseAuto; baseAuto = null; setBase(b); }
 }
 map.on('moveend', autoBase);
 const overlays = {
@@ -61,6 +64,14 @@ L.control.layers(base, overlays, { position: 'topright' }).addTo(map);
 let tileErrors = 0;
 base['swisstopo map'].on('tileerror', () => {
   if (++tileErrors === 6) msg('Basemap not loading (offline?) - cached tiles and locations are still shown.', 'err');
+});
+// OpenStreetMap not answering while it is the automatic map abroad: show the satellite layer instead
+let osmErrors = 0;
+base.OpenStreetMap.on('tileerror', () => {
+  if (++osmErrors === 6 && baseNow === 'OpenStreetMap' && baseAuto) {
+    setBase('Satellite (world, 10 m)');
+    msg('OpenStreetMap is not loading: showing the satellite layer instead (layers menu, top right, to change).', 'err');
+  }
 });
 
 // ---------------------------------------------------------------- layers: cache + locations
