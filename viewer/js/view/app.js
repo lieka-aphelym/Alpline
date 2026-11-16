@@ -635,17 +635,20 @@ function initUI() {
   const onlyWorld = world.length && m.terrain_sources.length === 1;
   const ground = onlyWorld ? 'from the worldwide 30 m model (coarse: trees and roofs partly included)'
     : m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
-  const credit = world.length ? `<br>${onlyWorld ? '' : 'Outside Switzerland: worldwide 30 m model. '}<span class="muted small">${esc(world[0].credit)}</span>` : '';
+  const mixed = world.length && !onlyWorld ? '<br>Outside Switzerland: worldwide 30 m model.' : '';
+  // the credits the data must be shown with: long, so folded away behind one line (a click opens them)
+  const credits = world.length ? [`Heights: ${esc(world[0].credit)}`] : [];
   // satellite photo, 10 m (the 2021 picture, the 2016 one where that has nothing): the credits are required too
   const sat = m.ortho ? (m.ortho_sources || []).filter((s) => s.name === 'worldcover' || s.name === 'sentinel2') : [];
-  let photoCredit = sat.map((s) => `<br><span class="muted small">Photo (satellite, 10 m): ${esc(s.credit)}</span>`).join('');
+  for (const s of sat) credits.push(`Photo (satellite, 10 m): ${esc(s.credit)}`);
   // any other source that took part (a country's own heights or photo): its credit is shown as it is given
   const known = ['swisstopo', 'copernicus', 'sentinel2', 'worldcover'];
   for (const [what, list] of [['Heights', m.terrain_sources || []], ['Photo', m.ortho ? m.ortho_sources || [] : []]])
-    for (const s of list) if (!known.includes(s.name) && s.credit) photoCredit += `<br><span class="muted small">${what}: ${esc(s.credit)}</span>`;
+    for (const s of list) if (!known.includes(s.name) && s.credit) credits.push(`${what}: ${esc(s.credit)}`);
+  const creditBox = credits.length ? `<details class="credits"><summary>Data credits (${credits.length})</summary>${credits.map((c) => `<p>${c}</p>`).join('')}</details>` : '';
   $('sceneInfo').innerHTML = (m.corridor
     ? `Route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide`
-    : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}` + credit + photoCredit;
+    : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}` + mixed + creditBox;
   initGroundUi();
   $('orthoOn').disabled = !m.ortho;
   $('orthoOn').onchange = () => { S.terrainMat.uniforms.uUseOrtho.value = $('orthoOn').checked && m.ortho ? 1 : 0; };

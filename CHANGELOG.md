@@ -13,6 +13,10 @@ What changed in each release of Alpline. Newest first.
   from the 2016 picture, which stays as the fallback.
 - **No more thin black lines in the photo south of Switzerland:** around Mont Blanc and Aosta a 10 to 20 m band
   along some 1 km tile edges stayed empty. Rebuild the location to get the corrected photo.
+- **Shorter info box in the viewer:** the data credits are folded into one line, *Data credits*, that opens
+  with a click, instead of filling the top of the panel.
+- **Easier to read:** text in the viewer's panel is one size larger (nothing under 11 px any more), the help
+  texts are a little brighter, and the info box uses the normal text font instead of the figures one.
 - **Neutral examples:** the search box and the name fields no longer suggest Swiss places.
 
 ## 1.1.0 (November 2026)
