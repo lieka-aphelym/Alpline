@@ -9,17 +9,30 @@ export const ANT = [
   ['', 'custom'], [2, 'dipole / pagoda / lollipop (2 dBi)'], [3, 'stubby or omni+ (3 dBi)'], [5, 'small patch (5 dBi)'],
   [8, 'patch (8 dBi)'], [10, 'helical / moxon (10 dBi)'], [12, 'big helical (12 dBi)'], [14, 'yagi / tracker (14 dBi)'],
 ];
-// ready-made setups: transmit power + antenna gains [label, mW, tx antenna dBi, rx antenna dBi]
-// (video: tx = drone, rx = goggles · control: tx = radio, rx = drone). Receiver sensitivity,
-// losses and safety margin keep the location's values (they are under Advanced).
+// ready-made setups. Analog video and the control links: [label, mW, tx antenna dBi, rx antenna dBi, group].
+// Analog video sets a typical analog receiver (ANALOG_SENS: also to come back from a digital system); the control
+// links keep the location's own sensitivity, losses and margin (under Advanced), as before.
+// Digital video systems: { label, mw, tg, rg, km, by, group } with the range the maker gives for an open field
+// without interference (km): the receiver sensitivity is then set so that the free-space range with the usual
+// losses and safety margin comes out at that figure. Digital systems decode far weaker signals than analog
+// (narrow channels, error correction), which a plain sensitivity in dBm would not capture.
+// (video: tx = drone, rx = goggles · control: tx = radio, rx = drone)
+const ANALOG_SENS = -90, MISC = 3, FADE = 10;
+const digital = (label, mw, km, by) => ({ label, mw, tg: 2, rg: 2, km, by, group: label.split(' ')[0] });
 export const PRESETS = {
   video: [
-    ['25 mW · stock antennas (CH / EU limit)', 25, 2, 2],
-    ['25 mW · patch on the goggles', 25, 2, 8],
-    ['200 mW · stock antennas', 200, 2, 2],
-    ['500 mW · stock antennas', 500, 2, 2],
-    ['500 mW · patch on the goggles', 500, 2, 8],
-    ['1 W · helical on the goggles', 1000, 3, 12],
+    ['25 mW · stock antennas (CH / EU limit)', 25, 2, 2, 'Analog'],
+    ['25 mW · patch on the goggles', 25, 2, 8, 'Analog'],
+    ['200 mW · stock antennas', 200, 2, 2, 'Analog'],
+    ['500 mW · stock antennas', 500, 2, 2, 'Analog'],
+    ['500 mW · patch on the goggles', 500, 2, 8, 'Analog'],
+    ['1 W · helical on the goggles', 1000, 3, 12, 'Analog'],
+    digital('DJI O4 Air Unit · CE (CH / EU)', 25, 6, 'DJI, CE'),
+    digital('DJI O4 Air Unit Pro · CE (CH / EU)', 25, 8, 'DJI, CE'),
+    digital('DJI O3 Air Unit · CE (CH / EU)', 25, 2, 'DJI, CE'),
+    digital('DJI O3 / O4 Air Unit · FCC', 1000, 10, 'DJI, FCC'),            // the same rated range: one choice
+    digital('DJI O4 Air Unit Pro · FCC', 1000, 15, 'DJI, FCC'),
+    digital('Walksnail Avatar HD Pro', 500, 4, 'Caddx / Walksnail'),
   ],
   ctl24: [
     ['100 mW · stock antennas (CH / EU limit)', 100, 2, 2],
@@ -37,15 +50,37 @@ export const PRESETS = {
   other: [['25 mW · stock antennas', 25, 2, 2], ['100 mW · stock antennas', 100, 2, 2], ['500 mW · stock antennas', 500, 2, 2], ['1 W · stock antennas', 1000, 2, 2]],
 };
 export const presetKind = (f) => (f >= 5000 ? 'video' : f >= 2300 && f <= 2500 ? 'ctl24' : f >= 800 && f <= 1000 ? 'ctl900' : 'other');
+/** A preset as the full set of radio values for a link on `freqMhz`. */
+export function presetValues(pr, freqMhz, kind) {
+  const o = Array.isArray(pr) ? { label: pr[0], mw: pr[1], tg: pr[2], rg: pr[3], group: pr[4] } : pr;
+  const tx = 10 * Math.log10(o.mw);
+  let sens = kind === 'video' ? ANALOG_SENS : null;
+  if (o.km) sens = Math.round((tx + o.tg + o.rg - MISC - FADE - (20 * Math.log10(o.km) + 20 * Math.log10(freqMhz) + 32.44)) * 2) / 2;
+  const rest = sens == null ? {} : { rx_sensitivity_dbm: sens, misc_losses_db: MISC, fade_margin_db: FADE };
+  return { ...o, values: { tx_power_dbm: +tx.toFixed(2), tx_gain_dbi: o.tg, rx_gain_dbi: o.rg, ...rest } };
+}
 export function presetIndex(l) {
-  const mw = 10 ** (l.tx_power_dbm / 10);
-  return PRESETS[presetKind(l.freq_mhz)].findIndex(([, w, tg, rg]) => Math.abs(w - mw) / w < 0.03 && Math.abs(tg - l.tx_gain_dbi) < 0.26 && Math.abs(rg - l.rx_gain_dbi) < 0.26);
+  const k = presetKind(l.freq_mhz);
+  return PRESETS[k].findIndex((pr) => {
+    const v = presetValues(pr, l.freq_mhz, k).values;
+    const same = (a, b, t) => Math.abs(a - b) <= t;
+    return same(v.tx_power_dbm, l.tx_power_dbm, 0.15) && same(v.tx_gain_dbi, l.tx_gain_dbi, 0.26) && same(v.rx_gain_dbi, l.rx_gain_dbi, 0.26)
+      // video: the sensitivity tells a digital system from analog with the same power (none given: analog)
+      && (v.rx_sensitivity_dbm == null || (l.rx_sensitivity_dbm == null ? !pr.km : same(v.rx_sensitivity_dbm, l.rx_sensitivity_dbm, pr.km ? 0.6 : 3)));
+  });
 }
 /** link budget in dB above free-space loss at 1 km... (tx + gains - losses - sensitivity - margin) */
 export const linkBudget = (l) => l.tx_power_dbm + l.tx_gain_dbi + l.rx_gain_dbi - l.misc_losses_db - l.rx_sensitivity_dbm - l.fade_margin_db;
 export const hasParams = (l) => LINK_KEYS.every((k) => typeof l[k] === 'number');
 /** range in metres where the free-space loss uses up the budget */
 export const rangeFor = (budgetDb, freqMhz) => Math.pow(10, (budgetDb - 20 * Math.log10(freqMhz) - 32.44) / 20) * 1000;
+
+/** The line under a setup: where its range comes from. */
+export function noteFor(p) {
+  if (!p) return 'Your own values (Advanced).';
+  if (p.km) return `Open-field range as rated by ${esc(p.by)}: ${p.km} km. Real flights: less behind terrain, trees and with interference.`;
+  return p.group === 'Analog' ? 'Analog video: a typical receiver; the picture gets noisy before it is lost.' : 'A typical receiver.';
+}
 
 export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
   const linkKey = () => `fpv3d:links:${S.meta.name}`;
@@ -104,9 +139,16 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
     // simple view: one "setup" choice per radio link
     const setups = S.links0.map((l0, i) => {
       const l = { ...l0, ...(ov[l0.name] || {}) }, k = presetKind(l0.freq_mhz), cur = presetIndex(l);
+      const all = PRESETS[k].map((pr, j) => [presetValues(pr, l0.freq_mhz, k), j]);
+      const groups = [...new Set(all.map(([p]) => p.group || ''))];
+      const options = groups.map((g) => {
+        const os = all.filter(([p]) => (p.group || '') === g).map(([p, j]) => `<option value="${j}" ${j === cur ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
+        return g && groups.length > 1 ? `<optgroup label="${esc(g === 'DJI' ? 'DJI digital' : g === 'Walksnail' ? 'Walksnail digital' : g)}">${os}</optgroup>` : os;
+      }).join('');
       return `<label class="row setup"><span><span class="sw" style="background:${l0.color}"></span> ${esc(l0.name.replace(/ \d.*$/, ''))}</span>
-        <select data-preset="${esc(l0.name)}">${PRESETS[k].map(([lab], j) => `<option value="${j}" ${j === cur ? 'selected' : ''}>${lab}</option>`).join('')}
-        <option value="custom" ${cur < 0 ? 'selected' : ''}>Custom (see Advanced)</option></select></label>`;
+        <select data-preset="${esc(l0.name)}">${options}
+        <option value="custom" ${cur < 0 ? 'selected' : ''}>Custom (see Advanced)</option></select></label>
+        <p class="muted small presetNote" data-note="${esc(l0.name)}">${noteFor(cur >= 0 ? all[cur][0] : null)}</p>`;
     }).join('');
     const exact = S.links0.map((l0, i) => {
       const l = { ...l0, ...(ov[l0.name] || {}) }, mw = Math.round(10 ** (l.tx_power_dbm / 10));
@@ -120,19 +162,25 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
         <label class="row">Safety (fade) margin <input type="number" step="1" data-k="fade_margin_db" value="${l.fade_margin_db}"> dB</label>
       </details>`;
     }).join('');
-    box.innerHTML = `<p class="muted small">Pick your setup: the range, the colours on the map and the warnings follow right away.</p>${setups}
+    box.innerHTML = `<p class="muted small">Pick your video system and radio: the range, the colours on the map and the warnings follow right away.</p>${setups}
       <div id="lnkDirty" class="small hidden"><span style="color:var(--warn)">Changed, not saved yet.</span> <span id="lnkShadowNote"></span></div>
       <div class="row btns"><button id="lnkReset">[undo changes]</button><button id="lnkSave" class="primary">[save for this location]</button></div>
       <div id="lnkMsg" class="small muted"></div>
       <details class="adv" id="lnkAdv"><summary>Advanced: exact radio values</summary>${exact}
-        <p class="muted small">Legal limits in Switzerland / EU (EIRP): 25 mW at 5.8 GHz, 100 mW at 2.4 GHz.</p></details>`;
+        <p class="muted small">Legal limits in Switzerland / EU (EIRP): 25 mW at 5.8 GHz, 100 mW at 2.4 GHz: the CE versions of the
+        digital systems. Digital systems: the sensitivity is set from the maker's range, see the note under the choice.</p></details>`;
     box.querySelectorAll('select[data-preset]').forEach((sel) => sel.onchange = () => {
       if (sel.value === 'custom') { $('lnkAdv').open = true; return; }
       const name = sel.dataset.preset, l0 = S.links0.find((x) => x.name === name);
-      const [, mw, tg, rg] = PRESETS[presetKind(l0.freq_mhz)][+sel.value];
-      const d = box.querySelector(`details.lnk[data-name="${CSS.escape(name)}"]`), q = (k) => d.querySelector(`[data-k="${k}"]`);
+      const k = presetKind(l0.freq_mhz), pv = presetValues(PRESETS[k][+sel.value], l0.freq_mhz, k);
+      const { mw, tg, rg } = pv;
+      const d = box.querySelector(`details.lnk[data-name="${CSS.escape(name)}"]`), q = (key) => d.querySelector(`[data-k="${key}"]`);
       if (![...q('mw').options].some((o) => +o.value === mw)) q('mw').insertAdjacentHTML('beforeend', `<option value="${mw}">${mw} mW</option>`);
       q('mw').value = String(mw); q('tx_gain_dbi').value = tg; q('rx_gain_dbi').value = rg;
+      if (pv.values.rx_sensitivity_dbm != null) {
+        q('rx_sensitivity_dbm').value = pv.values.rx_sensitivity_dbm; q('misc_losses_db').value = MISC; q('fade_margin_db').value = FADE;
+      }
+      const note = box.querySelector(`[data-note="${CSS.escape(name)}"]`); if (note) note.innerHTML = noteFor(pv);
       q('tx_ant').value = ANT.some(([a]) => a === tg) ? tg : ''; q('rx_ant').value = ANT.some(([a]) => a === rg) ? rg : '';
       q('mw').dispatchEvent(new Event('input'));
     });
@@ -146,6 +194,8 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
         const sel = box.querySelector(`select[data-preset="${CSS.escape(name)}"]`);   // keep the simple choice in sync
         const i = presetIndex({ ...S.links0.find((x) => x.name === name), ...o[name] });
         if (sel) sel.value = i < 0 ? 'custom' : String(i);
+        const note = box.querySelector(`[data-note="${CSS.escape(name)}"]`), l0 = S.links0.find((x) => x.name === name);
+        if (note) note.innerHTML = noteFor(i < 0 ? null : presetValues(PRESETS[presetKind(l0.freq_mhz)][i], l0.freq_mhz, presetKind(l0.freq_mhz)));
       };
       q('tx_ant').onchange = () => { if (q('tx_ant').value !== '') q('tx_gain_dbi').value = q('tx_ant').value; write(); };
       q('rx_ant').onchange = () => { if (q('rx_ant').value !== '') q('rx_gain_dbi').value = q('rx_ant').value; write(); };

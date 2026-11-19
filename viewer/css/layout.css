@@ -1,0 +1,186 @@
+/* The viewer's layout: a top bar (place, coordinates, camera), the tab rail and its panel on the left, the 3D view
+   in the middle, the instruments in a column on the right. Square, hairline rules, figures in the mono font.
+   On a phone (mobile.css) the panel stays a bottom sheet and the column is hidden: the tabs carry the same answers.
+   The 3D view only gets the space between the panels, so nothing covers the terrain. */
+
+/* ---------- the top bar (every screen size) ---------- */
+#topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--tb); z-index: 8; display: flex; align-items: center; gap: 8px 18px;
+  padding: 0 16px; background: var(--t-bg); color: var(--t-fg); border-bottom: 1px solid var(--t-rule); white-space: nowrap; }
+#topbar h1 { margin: 0; display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font: 700 14px var(--mono); letter-spacing: 1.5px; text-transform: uppercase; }
+#topbar h1 .by { text-transform: none; font: 400 12px var(--mono); letter-spacing: 0; color: var(--t-fg2); }
+#topbar select { min-height: 36px; max-width: 280px; padding: 0 8px; font-weight: 600; background: var(--t-bg2); color: var(--t-fg);
+  border: 1px solid var(--t-rule2); border-radius: 0; }
+#topbar .coords { font: 500 12px var(--mono); letter-spacing: .5px; color: var(--t-fg2); overflow: hidden; text-overflow: ellipsis; }
+#topbar .grow { flex: 1; }
+#topbar .navlink { font: 600 13px var(--mono); }
+#topMenu { position: relative; }
+#topMenu > summary { list-style: none; cursor: pointer; min-width: 40px; min-height: 36px; display: grid; place-items: center;
+  border: 1px solid var(--t-rule2); font: 700 14px var(--mono); color: var(--t-fg); }
+#topMenu > summary::-webkit-details-marker { display: none; }
+#topMenu[open] > summary { background: var(--t-fg); color: var(--t-bg); }
+#topMenu .menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; min-width: 260px; display: grid; grid-template-columns: auto 1fr;
+  align-items: center; gap: 10px 14px; padding: 14px 16px; background: var(--t-bg); border: 1px solid var(--t-rule2); white-space: normal; }
+#topMenu .menu .lbl { font: 500 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--t-fg2); }
+#topMenu .menu .note { grid-column: 1 / -1; font: 12px var(--mono); color: var(--t-fg2); border-top: 1px solid var(--t-rule); padding-top: 8px; }
+#topMenu .coords { overflow: visible; }
+#topbar h1 .by { display: none; }               /* in the menu */
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* camera modes: one square switch */
+.seg { display: flex; border: 1px solid var(--t-rule2); }
+.seg button { min-height: 34px; padding: 0 12px; border: 0 !important; border-left: 1px solid var(--t-rule2) !important; border-radius: 0;
+  background: none; color: var(--t-fg); font: 600 12px var(--mono) !important; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; }
+.seg button:first-child { border-left: 0 !important; }
+.seg button:hover { background: var(--t-bg3); }
+.seg button.on { background: var(--t-fg) !important; color: var(--t-bg) !important; }
+
+:root { --tb: 56px; }
+#view { top: var(--tb); }
+#instr { display: none; }
+#tlShow { display: none; }                       /* only the wide layout can hide the playback bar */
+.rail button svg { width: 22px; height: 22px; flex: none; }
+.rail .railCollapse::after { content: "Hide" !important; }
+#panel.collapsed .rail .railCollapse::after { content: "Show" !important; }
+
+/* ---------- wide screens: the three columns ---------- */
+@media (min-width: 1000px) and (min-height: 501px) {
+  :root { --pw: 380px; --iw: 0px; --cw: 250px; --bw: 300px; }
+  body:has(#panel.collapsed) { --pw: 80px; }
+  body.sim-on { --pw: 0px; }                     /* the simulator hides the panel: the view takes its place */
+
+  #view { top: var(--tb) !important; left: var(--pw); right: var(--iw); bottom: 0; }
+
+  #panel { top: var(--tb) !important; left: 0 !important; bottom: 0; max-height: none !important; box-shadow: none !important;
+    border: 0 !important; border-right: 1px solid var(--t-rule) !important; }
+  #pbody { width: var(--bw) !important; padding: 18px 20px 24px !important; }
+  #panel .rail { width: 80px; padding: 12px 0 !important; gap: 2px !important; border-right: 1px solid var(--t-rule) !important; }
+  #panel .rail button { width: 80px !important; gap: 6px; padding: 12px 0 10px !important; }
+  #panel.collapsed .rail { border-right: 0 !important; }
+  .rail button svg { width: 22px; height: 22px; color: var(--t-fg2); }
+  .rail button.on svg { color: var(--t-acc); }
+  .rail button span { font: 500 12px var(--mono) !important; }
+  #camMode, #camModeLbl { display: none; }       /* the top bar has the camera switch */
+
+  /* the instruments: a card in the view's top-right corner, as tall as what it holds, folding to one line */
+  #instr { display: flex; flex-direction: column; position: fixed; top: calc(var(--tb) + 12px); right: 12px; width: var(--cw); z-index: 7;
+    max-height: calc(100vh - var(--tb) - 24px); overflow-y: auto; background: var(--t-bg); color: var(--t-fg);
+    border: 1px solid var(--t-rule2); box-shadow: var(--t-shadow); }
+  #instr .ihead { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--t-rule); }
+  #instr .ihead .mini { flex: 1; text-align: right; font: 600 12px var(--mono); color: var(--t-acc); white-space: nowrap; }
+  #instr:not(.folded) .ihead .mini { visibility: hidden; }
+  #instr #iFold { width: 28px; height: 28px; padding: 0; border: 1px solid var(--t-rule2); background: none; color: var(--t-fg);
+    font: 600 14px var(--mono); cursor: pointer; }
+  #instr.folded #iBody { display: none; }
+  #instr.folded .ihead { border-bottom: 0; }
+  #instr .cell:last-child { border-bottom: 0; }
+  #instr .cell { display: flex; flex-direction: column; gap: 3px; padding: 10px 14px; border-bottom: 1px solid var(--t-rule); }
+  #instr .line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #instr .lbl { font: 500 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; color: var(--t-fg2); white-space: nowrap; }
+  #instr b { font: 600 19px/1.2 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #instr b.acc { color: var(--t-acc); }
+  :root[data-theme="light"] #instr b.acc { color: var(--t-fg); }          /* the light theme keeps red for selections */
+  #instr .note { font-size: 12px; color: var(--t-fg2); }
+  #instr .note.mono { font: 500 12px var(--mono); }
+  #instr .stack { display: flex; flex-direction: column; gap: 1px; font: 500 12px var(--mono); font-variant-numeric: tabular-nums; }
+  #instr .stack small { font: 500 11px var(--mono); color: var(--t-fg2); }
+  #instr .gauge { position: relative; height: 3px; margin: 4px 0 2px; background: var(--t-rule); }
+  #instr .gauge i { display: block; height: 100%; width: 0; background: var(--t-acc); }
+  #instr .gauge::after { content: ""; position: absolute; inset: -2px 0; pointer-events: none;   /* ticks every quarter */
+    background: linear-gradient(90deg, transparent calc(25% - 1px), var(--t-rule2) 0 25%, transparent 0 calc(50% - 1px),
+      var(--t-rule2) 0 50%, transparent 0 calc(75% - 1px), var(--t-rule2) 0 75%, transparent 0); }
+  #instr details.more > summary { cursor: pointer; list-style: none; font: 500 11px var(--mono); letter-spacing: 1px; text-transform: uppercase;
+    color: var(--t-fg2); }
+  #instr details.more > summary::before { content: "▸ "; }
+  #instr details.more[open] > summary::before { content: "▾ "; }
+  #instr details.more[open] { gap: 6px; }
+  #instr details.more > :not(summary) { margin-top: 4px; }
+  #iHud:empty { display: none; }
+  #instr #hud { position: static !important; min-width: 0 !important; width: auto; border: 0 !important; box-shadow: none !important;
+    border-bottom: 1px solid var(--t-rule) !important; padding: 12px 18px !important; }
+
+  /* the panel keeps the settings; what the column and the top bar show is not repeated in sentences */
+  #sceneInfo, #sumSignal { display: none !important; }
+  #instr #iCredits details.credits { margin-top: 6px; font-size: 12px; }
+  #instr #iCredits details.credits p { color: var(--t-fg2); line-height: 1.45; }
+  #viewHint { position: fixed; left: calc(var(--pw) + 12px); bottom: 12px; z-index: 6; max-width: calc(100vw - var(--pw) - var(--iw) - 24px);
+    pointer-events: none; }
+  #viewHint p { margin: 0; padding: 5px 9px; font: 12px var(--mono); color: var(--t-fg); background: color-mix(in srgb, var(--t-bg) 82%, transparent); }
+  body:has(#timeline:not(.hidden)) #viewHint, body.sim-on #viewHint, body.live-on #viewHint { display: none; }
+
+  /* settings that read at a glance: one row per setting, the switch on the right, air between groups */
+  #pbody section { padding: 18px 0 14px !important; margin-top: 0 !important; }
+  #pbody h2 { margin-bottom: 12px !important; font-size: 12px !important; }
+  #pbody label.row:has(> input[type=checkbox]:first-child) { flex-direction: row-reverse; justify-content: space-between; gap: 14px;
+    min-height: 44px; margin: 0; padding: 6px 0; border-bottom: 1px solid var(--t-rule); }
+  #pbody label.row:has(> input[type=checkbox]:first-child) > input { flex: none; }
+  #pbody select { min-height: 40px; margin: 4px 0 10px; }
+  #pbody p.small, #pbody .small.muted { line-height: 1.5; }
+  #pbody .chips { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px !important; margin: 10px 0 !important;
+    font: 12px var(--mono) !important; }
+  #pbody .summary { margin: 0 0 14px !important; }
+  #pbody details.adv { margin-top: 10px; }
+  #losLink { display: none; }                    /* the column names the link */
+  #pbody .chips i { outline: 1px solid var(--t-rule2); }   /* a black swatch ("Both") on the dark panel */
+
+  /* the flight readout, at the column's width */
+  #instr #hud { max-width: none !important; padding: 10px 14px !important; overflow: hidden; }
+  #instr #hud .tiles { gap: 3px; }
+  #instr #hud .sigs { grid-template-columns: minmax(0, 1fr); }
+  #instr #hud .sig { min-width: 0; }
+  #instr #hud .tile { padding: 4px 3px !important; }
+  #instr #hud .tile b { font-size: 15px !important; }
+  #instr #hud .tile span { font-size: 10px !important; letter-spacing: .3px; }
+  #instr #hud .sig .h { align-items: baseline; font-size: 12px !important; }
+  #instr #hud .sig .h > span:first-child { flex: 1; min-width: 0; }
+  #instr #hud .sig .h > span:last-child { flex: none; white-space: nowrap; }
+  #instr #hud .sig .h b { font-size: 13px !important; }
+  #instr #hud .zone { font-size: 12px !important; }
+
+  /* what floats over the 3D view stays inside it */
+  /* the playback bar: docked along the bottom of the view, full width, no longer floating in the middle */
+  #timeline { left: var(--pw) !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important;
+    transform: none !important; border: 0 !important; border-top: 1px solid var(--t-rule) !important; box-shadow: none !important;
+    padding: 6px 12px !important; gap: 10px !important; }
+  #timeline .grip { display: none !important; }    /* docked: nothing to drag */
+  body.tl-min #timeline { display: none !important; }
+  #tlShow { display: none; }
+  body.tl-min:has(#timeline:not(.hidden)):not(.sim-on):not(.live-on) #tlShow { display: block; position: fixed; left: calc(var(--pw) + 12px);
+    bottom: 12px; z-index: 7; padding: 6px 12px; background: var(--t-bg); color: var(--t-fg); border: 1px solid var(--t-rule2);
+    font: 600 12px var(--mono); letter-spacing: .5px; cursor: pointer; }
+  body:has(#timeline:not(.hidden)):not(.tl-min) #profile { bottom: 56px !important; }
+  #warnBox { left: calc(var(--pw) + (100vw - var(--pw) - var(--iw)) / 2); top: calc(var(--tb) + 12px); }
+  body.sim-on #warnBox { top: calc(var(--tb) + 70px); }
+  body.sim-on #simOsd, body.sim-on #simVideoFx { inset: var(--tb) var(--iw) 0 var(--pw) !important; }
+  #simLive { top: calc(var(--tb) + 12px) !important; left: calc(var(--pw) + 12px) !important; }
+  #profile { left: calc(var(--pw) + 12px) !important; right: calc(var(--iw) + 12px) !important; }
+  #videoBox { right: calc(var(--iw) + 12px); }
+  body.video-main #videoBox { inset: var(--tb) var(--iw) 0 var(--pw) !important; }
+  body.video-main #view { inset: auto calc(var(--iw) + 12px) 80px auto !important; }
+  body.video-main #videoHead { top: calc(var(--tb) + 12px); }
+}
+
+/* a laptop-sized window: the same columns, a little narrower */
+@media (min-width: 1000px) and (max-width: 1279px) and (min-height: 501px) {
+  :root { --pw: 340px; --iw: 0px; --cw: 230px; --bw: 260px; }
+  #instr b { font-size: 17px !important; }
+}
+
+/* ---------- phones and small windows: a slim top bar, the panel floats over the view as before ---------- */
+@media not all and (min-width: 1000px) and (min-height: 501px) {
+  :root { --tb: 48px; }
+  #topbar { gap: 10px; padding: 0 10px; }
+  #topbar .by, #topbar .grow, #camBtns { display: none; }
+  #tlHide { display: none; }
+  #topbar select { flex: 1; min-width: 0; max-width: none; }
+  #view { top: var(--tb) !important; }
+  #hud { top: calc(var(--tb) + 8px) !important; }
+  #warnBox, #videoBox { top: calc(var(--tb) + 8px) !important; }
+  #panel { top: calc(var(--tb) + 8px); }
+}
+@media (max-width: 520px) {
+  #topbar h1 { display: none; }                  /* room for the place's name; the tabs are just below */
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  #panel { top: var(--tb) !important; }
+}

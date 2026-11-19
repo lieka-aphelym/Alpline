@@ -178,22 +178,23 @@ class Tiles:
         self.dir = Path(cache) / STYLE
         self.lock = threading.Lock()
 
-    def path(self, z, x, y, zones=False, ov=False):
-        """ov: a tile of the overview picture (always the map, also at its edges), kept apart from the view's tiles."""
-        return self.dir / f"{z}{'ov' if ov else ''}" / f"{x}_{y}{'_z' if zones else ''}.png"
+    def path(self, z, x, y, zones=False, ov=False, sat=False):
+        """ov: a tile of the overview picture (always the map, also at its edges), kept apart from the view's tiles.
+        sat: the satellite picture of a tile inside the WIDE box (shown around Switzerland, under its map)."""
+        return self.dir / f"{z}{'ov' if ov else ''}{'sat' if sat else ''}" / f"{x}_{y}{'_z' if zones else ''}.png"
 
     def have(self, z, x, y, ov=False):
         return self.path(z, x, y, ov=ov).exists()
 
-    def load(self, z, x, y, ov=False):
+    def load(self, z, x, y, ov=False, sat=False):
         """(RGB, zones RGBA or None) from disk, or None."""
         from PIL import Image
-        p = self.path(z, x, y, ov=ov)
+        p = self.path(z, x, y, ov=ov, sat=sat)
         if not p.exists():
             return None
         try:
             rgb = Image.open(p).convert("RGB")
-            pz = self.path(z, x, y, True, ov)
+            pz = self.path(z, x, y, True, ov, sat)
             zo = Image.open(pz).convert("RGBA") if pz.exists() else None
             return rgb, zo
         except Exception:
@@ -218,6 +219,46 @@ class Tiles:
         elif pz.exists():
             pz.unlink()
         return rgb, zo
+
+    def get_sat(self, z, x, y):
+        """The satellite picture of any tile, also inside the WIDE box (where get() gives the map)."""
+        rgb = style_world(fetch_world(z, x, y))
+        p = self.path(z, x, y, sat=True)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        rgb.save(tmp, "PNG", optimize=False)
+        os.replace(tmp, p)
+        return rgb, None
+
+    def overview_mask(self, workers=6):
+        """Where Switzerland is, over the overview's area (255 inside, 0 outside), from swisstopo's border layer:
+        the launcher clips its map to the border with it and shows the satellite picture around."""
+        from PIL import Image
+        tx0, ty0, tx1, ty1 = tile_range(WIDE, ZOV)
+        folder = self.dir / f"{ZOV}mask"
+        folder.mkdir(parents=True, exist_ok=True)
+
+        def one(k):
+            f = folder / f"{k[0]}_{k[1]}.png"
+            if not f.exists():
+                t = fetch("mask", ZOV, *k)
+                (t.getchannel("A") if t is not None else Image.new("L", (256, 256), 0)).save(f)
+        keys = [(x, y) for x in range(tx0, tx1 + 1) for y in range(ty0, ty1 + 1)]
+        with ThreadPoolExecutor(workers) as ex:
+            list(ex.map(one, keys))
+        out = Image.new("L", ((tx1 - tx0 + 1) * 256, (ty1 - ty0 + 1) * 256), 0)
+        for x, y in keys:
+            with Image.open(folder / f"{x}_{y}.png") as t:
+                out.paste(t.convert("L").point(lambda a: 255 if a > 10 else 0), ((x - tx0) * 256, (y - ty0) * 256))
+        # the layer draws Switzerland's outline at these zooms, not its area: fill it from outside (a corner far from
+        # the border) and take what the fill cannot reach as the inside; the outline is thickened first so no gap leaks
+        from PIL import ImageDraw, ImageFilter
+        line = out.filter(ImageFilter.MaxFilter(5))
+        ImageDraw.floodfill(line, (0, 0), 128)
+        out = line.point(lambda v: 0 if v == 128 else 255)
+        gx0, gy0 = merc(WIDE[0], WIDE[3], ZOV)
+        gx1, gy1 = merc(WIDE[2], WIDE[1], ZOV)
+        return out.crop((round(gx0 - tx0 * 256), round(gy0 - ty0 * 256), round(gx1 - tx0 * 256), round(gy1 - ty0 * 256)))
 
     def clear(self):
         shutil.rmtree(self.dir, ignore_errors=True)

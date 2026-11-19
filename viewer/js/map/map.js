@@ -16,6 +16,8 @@ const LV95 = 'EPSG:2056';
 // a rectangle of the grid `crs` (metres) as map corners
 const gridRect = (crs, e0, n0, e1, n1) => [toWGS(e0, n0, crs), toWGS(e1, n0, crs), toWGS(e1, n1, crs), toWGS(e0, n1, crs)];
 const fmtLV = (e, n) => `${Math.round(e).toLocaleString('de-CH')} / ${Math.round(n).toLocaleString('de-CH')}`;
+// 46.7614, 6.9845 -> "46.76140 N · 6.98450 E" (as the viewer's top bar writes a position)
+const fmtDeg = (lat, lon) => `${Math.abs(lat).toFixed(5)} ${lat >= 0 ? 'N' : 'S'} · ${Math.abs(lon).toFixed(5)} ${lon >= 0 ? 'E' : 'W'}`;
 
 // ---------------------------------------------------------------- map + basemaps
 const map = L.map('map', { preferCanvas: true, zoomControl: false }).setView([46.8, 8.2], 8);
@@ -128,8 +130,9 @@ function drawCache(inv, world = []) {
   const nDtm = new Set(Object.values(inv.lod?.dtm || {}).flat()).size, nDsm = new Set(Object.values(inv.lod?.dsm || {}).flat()).size;
   const nRaw = new Set(Object.values(inv.raw || {}).flat()).size;
   const nWorld = world.filter((w) => !isSwiss(w.crs) && w.lod.dtm).reduce((a, w) => a + new Set(Object.values(w.lod.dtm).flat()).size, 0);
-  $('cacheSummary').textContent = `Cached: ${nDtm} km² bare ground, ${nDsm} km² trees+buildings, ${nRaw} km² with raw downloads`
-    + (nWorld ? `, ${nWorld} km² outside Switzerland.` : '.');
+  const rows = [['Bare ground', nDtm], ['Trees + buildings', nDsm], ['Raw downloads', nRaw]];
+  if (nWorld) rows.push(['Outside Switzerland', nWorld]);
+  $('cacheSummary').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v.toLocaleString('de-CH')} km²</dd></div>`).join('');
 }
 
 function drawLocations(locs) {
@@ -137,12 +140,12 @@ function drawLocations(locs) {
   const ul = $('locList'); ul.innerHTML = '';
   $('fRadio').innerHTML = '<option value="">defaults</option>' + locs.filter((l) => !l.error).map((l) => `<option value="${esc(l.name)}">${esc(l.title)}</option>`).join('');
   if (!locs.length) {                      // empty: a hovering drone and how to make the first location
-    ul.innerHTML = '<li class="droneEmpty"><span id="noLocDrone"></span><span class="small">No locations yet. Click the map where you fly, then <b>Save &amp; build</b>.</span></li>';
+    ul.innerHTML = '<li class="droneEmpty"><span id="noLocDrone"></span><span class="small">No locations yet. Click the map where you fly, then <b>Save &amp; build</b> in New.</span></li>';
     mountDrone($('noLocDrone'), { size: 44 }).loop('hover');
   }
   for (const l of locs) {
     const li = document.createElement('li');
-    if (l.error) { li.innerHTML = `<span class="t">[error] ${esc(l.file)}</span><span class="badge">error</span>`; li.title = l.error; ul.appendChild(li); continue; }
+    if (l.error) { li.innerHTML = `<span class="t">${esc(l.file)}</span><span class="badge">error</span>`; li.title = l.error; ul.appendChild(li); continue; }
     const crs = l.crs || LV95, [ce, cn] = toGrid(...l.center, crs), h = l.half_size_m;
     let poly;
     if (l.corridor) {
@@ -155,7 +158,7 @@ function drawLocations(locs) {
         .bindTooltip(`<b>${esc(l.title)}</b><br>${(2 * h / 1000).toFixed(1)} km · ${l.resolution_m} m · ${l.surface}${l.built ? '' : '<br>not built yet'}`, { className: 'tip', sticky: true });
     }
     poly.addTo(groups.locs);
-    const pin = L.marker(l.pilot, { icon: L.divIcon({ className: 'tag tagloc', html: '[p]', iconSize: [26, 16], iconAnchor: [13, 21] }) })
+    const pin = L.marker(l.pilot, { icon: L.divIcon({ className: 'locpin', html: '', iconSize: [10, 10], iconAnchor: [5, 5] }) })
       .bindTooltip(`${esc(l.title)} - pilot${l.pilot_from_log ? ' (from first log)' : ''}`, { className: 'tip' }).addTo(groups.locs);
     const pick = (fromMap) => { map.fitBounds(poly.getBounds(), { padding: [40, 40] }); loadIntoForm(l); if (fromMap === true) tabs.show('new', { keepOpen: true }); };
     // while drawing a route, a click on an existing location adds a point instead of opening it
@@ -163,12 +166,12 @@ function drawLocations(locs) {
     pin.on('click', (e) => { if (drawingRoute()) onMapClick(e); else pick(true); });
     li.innerHTML = `<span class="t">${esc(l.title)}</span>
       <span class="badge ${l.built ? 'ok' : ''}">${l.built ? 'built' : 'not built'}</span>
-      ${l.built ? `<a href="index.html?scene=${encodeURIComponent(l.name)}">[3d]</a>` : ''}`;
+      ${l.built ? `<a href="index.html?scene=${encodeURIComponent(l.name)}" title="Open in the 3D viewer">3D</a>` : ''}`;
     li.querySelector('.t').onclick = pick;
-    const ren = document.createElement('button'); ren.className = 'iconbtn'; ren.textContent = '[rename]'; ren.title = 'Rename';
+    const ren = document.createElement('button'); ren.className = 'iconbtn'; ren.textContent = 'Rename'; ren.title = 'Rename';
     ren.onclick = () => openRename(li, l);
     li.appendChild(ren);
-    const del = document.createElement('button'); del.className = 'iconbtn'; del.textContent = '[delete]'; del.title = 'Delete';
+    const del = document.createElement('button'); del.className = 'iconbtn'; del.textContent = 'Delete'; del.title = 'Delete';
     del.onclick = () => openDelete(li, l);
     li.appendChild(del);
     ul.appendChild(li);
@@ -183,7 +186,7 @@ function openRename(li, l) {
   const box = document.createElement('div'); box.className = 'renbox';
   box.innerHTML = `<label class="row small">Title <input class="rt"></label>
     <label class="row small">File name <input class="rn" spellcheck="false"></label>
-    <div class="row"><button class="primary go">[rename]</button><button class="no">[cancel]</button><span class="small m"></span></div>`;
+    <div class="row"><button class="primary go">Rename</button><button class="no">Cancel</button><span class="small m"></span></div>`;
   li.after(box);
   box.scrollIntoView({ block: 'nearest' });
   const rt = box.querySelector('.rt'), rn = box.querySelector('.rn'), m = box.querySelector('.m');
@@ -216,7 +219,7 @@ function openDelete(li, l) {
   const box = document.createElement('div'); box.className = 'renbox delbox';
   box.innerHTML = `<div class="small">Delete <b>${esc(l.title)}</b>? Its location file${l.built ? ', 3D scene' : ''} and training flights
     move to the <code>deleted/</code> folder; you can restore them. Cached terrain and your own logs are kept.</div>
-    <div class="row"><button class="danger go">[delete]</button><button class="no">[cancel]</button><span class="small m"></span></div>`;
+    <div class="row"><button class="danger go">Delete</button><button class="no">Cancel</button><span class="small m"></span></div>`;
   li.after(box);
   box.scrollIntoView({ block: 'nearest' });
   box.querySelector('.no').onclick = () => box.remove();
@@ -248,7 +251,7 @@ function drawBin(rows) {
   for (const d of rows) {
     const li = document.createElement('li');
     li.innerHTML = `<span class="t">${esc(d.title || d.name)}</span><span class="badge">${(d.deleted || '').slice(5)}</span>`;
-    const b = document.createElement('button'); b.className = 'iconbtn'; b.textContent = '[restore]'; b.title = 'Restore';
+    const b = document.createElement('button'); b.className = 'iconbtn'; b.textContent = 'Restore'; b.title = 'Restore';
     b.onclick = () => restore(d.folder);
     li.appendChild(b); $('binList').appendChild(li);
   }
@@ -266,8 +269,8 @@ async function refresh() {
 // ---------------------------------------------------------------- draft location (pilot + area)
 const draft = { center: null, pilot: null, shape: 'square', route: [], pilotAuto: true };
 const routeL = L.layerGroup(), routeMarks = L.layerGroup();
-const pilotM = L.marker([0, 0], { draggable: true, icon: L.divIcon({ className: 'tag tagpilot', html: '[pilot]', iconSize: [52, 18], iconAnchor: [26, 24] }) });
-const centerM = L.marker([0, 0], { draggable: true, icon: L.divIcon({ className: 'tag', html: '[+]', iconSize: [28, 18], iconAnchor: [14, 9] }) });
+const pilotM = L.marker([0, 0], { draggable: true, icon: L.divIcon({ className: 'tag tagpilot', html: 'pilot', iconSize: [48, 18], iconAnchor: [24, 25] }) });
+const centerM = L.marker([0, 0], { draggable: true, icon: L.divIcon({ className: 'tag tagcenter', html: '+', iconSize: [18, 18], iconAnchor: [9, 9] }) });
 const areaR = L.polygon([], { color: '#ff9f1a', weight: 2, fillOpacity: 0.06 });
 const tilesL = L.layerGroup();
 pilotM.on('drag', () => { const p = pilotM.getLatLng(); draft.pilot = [p.lat, p.lng]; updatePreview(false); });
@@ -282,7 +285,7 @@ function draftCrs() {
   return p ? crsFor(p[0], p[1]) : LV95;
 }
 // what is different about a place outside Switzerland, said once under the area
-const abroadNote = (crs) => (isSwiss(crs) ? '' : '<br><span class="muted">Outside Switzerland: terrain from the worldwide 30 m model '
+const abroadNote = (crs) => (isSwiss(crs) ? '' : '<span class="muted">Outside Switzerland: terrain from the worldwide 30 m model '
   + '(coarse; a finer detail only smooths it), satellite photo of about 10 m, no drone zones.</span>');
 function routeCenter() {
   const crs = draftCrs(), pts = draft.route.map((q) => toGrid(...q, crs)), es = pts.map((q) => q[0]), ns = pts.map((q) => q[1]);
@@ -346,7 +349,7 @@ function onMapClick(e) {
 let heightReq = 0;
 async function updatePreview(full = true) {
   $('fHalfOut').textContent = `${(2 * +$('fHalf').value / 1000).toFixed(1)} × ${(2 * +$('fHalf').value / 1000).toFixed(1)} km`;
-  $('fWidthOut').textContent = `${+$('fWidth').value} m (strip ${(2 * +$('fWidth').value / 1000).toFixed(1)} km wide)`;
+  $('fWidthOut').textContent = `${+$('fWidth').value} m · strip ${(2 * +$('fWidth').value / 1000).toFixed(1)} km`;
   if (draft.shape === 'route') { updateRoutePreview(); if (full && draft.pilot) pilotHeight(); return; }
   if (!draft.center) return;
   const crs = draftCrs(), gn = gridName(crs);
@@ -354,8 +357,10 @@ async function updatePreview(full = true) {
   pilotM.setLatLng(draft.pilot).addTo(map); centerM.setLatLng(draft.center).addTo(map);
   areaR.setLatLngs(gridRect(crs, ce - h, cn - h, ce + h, cn + h)).addTo(map);
   const inside = Math.abs(pe - ce) <= h && Math.abs(pn - cn) <= h;
-  $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">${gn} ${fmtLV(pe, pn)}</span>${inside ? '' : '<br><b style="color:var(--bad)">outside the map area</b>'}`;
-  $('oArea').innerHTML = `${(2 * h / 1000).toFixed(1)} km square around ${gn} ${fmtLV(ce, cn)}${abroadNote(crs)}`;
+  $('oPilot').innerHTML = `${fmtDeg(...draft.pilot)}<span class="sub">${gn} ${fmtLV(pe, pn)}</span>`
+    + (inside ? '' : '<span class="bad">outside the map area</span>');
+  const km = (2 * h / 1000).toFixed(1);
+  $('oArea').innerHTML = `${km} × ${km} km<span class="sub">centre ${gn} ${fmtLV(ce, cn)}</span>${abroadNote(crs)}`;
 
   // which 1 km tiles are needed, and how many are already cached at this detail
   const res = +$('fRes').value, kind = $('fSurface').value;
@@ -365,7 +370,8 @@ async function updatePreview(full = true) {
   const { lod, raw } = cachedFor(crs, kind, res);
   const nLod = keys.filter((k) => lod.has(k)).length, nRaw = keys.filter((k) => !lod.has(k) && raw.has(k)).length;
   const toDl = keys.length - nLod - nRaw;
-  $('oTiles').innerHTML = `${keys.length} km²: <b>${nLod}</b> ready, ${nRaw} from earlier downloads, ${downloadText(crs, toDl, kind, res)}`;
+  $('oTiles').innerHTML = `${keys.length} km² · <b>${nLod}</b> ready${nRaw ? ` · ${nRaw} downloaded earlier` : ''}`
+    + `<span class="sub">${downloadText(crs, toDl, kind, res)}</span>`;
   showSize(Math.pow(Math.round(2 * h / res) + 1, 2), kind);
   tilesL.clearLayers().addTo(map);
   for (const k of keys) {
@@ -394,9 +400,9 @@ function showSize(cells, kind) {
   const layer = cells * 4 / 1e6, scene = layer * (kind === 'dsm' ? 2 : 1) + 5, ram = layer * 6 / 1000;
   draft.est = { scene, ram };
   const mbs = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)} GB` : `${Math.round(v)} MB`);
-  $('oSize').innerHTML = `scene ≈ <b>${mbs(scene)}</b>, building needs ≈ <b>${ram.toFixed(1)} GB</b> of memory`
-    + (ram > 8 ? '<br><b class="warn">Very large: most PCs will run out of memory. Use a coarser detail or a smaller area.</b>'
-      : ram > 4 ? '<br><b class="warn">Large: the build will take long and may fail on a PC with 8 GB or less.</b>' : '');
+  $('oSize').innerHTML = `scene ≈ <b>${mbs(scene)}</b><span class="sub">building needs ≈ ${ram.toFixed(1)} GB of memory</span>`
+    + (ram > 8 ? '<span class="warnline">Very large: most PCs will run out of memory. Use a coarser detail or a smaller area.</span>'
+      : ram > 4 ? '<span class="warnline">Large: the build will take long and may fail on a PC with 8 GB or less.</span>' : '');
 }
 
 function updateRoutePreview() {
@@ -406,7 +412,7 @@ function updateRoutePreview() {
   if (draft.route.length < 2) {
     $('oArea').textContent = draft.route.length ? 'add at least one more point' : 'click the map to add route points';
     $('oTiles').textContent = '–';
-    if (draft.pilot) $('oPilot').textContent = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}`;
+    if (draft.pilot) $('oPilot').textContent = fmtDeg(...draft.pilot);
     return;
   }
   const crs = draftCrs();
@@ -431,15 +437,17 @@ function updateRoutePreview() {
   const len = routeLength(pts), area = stripArea(pts, w);
   const es = pts.map((q) => q[0]), ns = pts.map((q) => q[1]);
   const sq = Math.pow(Math.max(Math.max(...es) - Math.min(...es), Math.max(...ns) - Math.min(...ns)) + 2 * w, 2) / 1e6;
-  $('oArea').innerHTML = `route ${(len / 1000).toFixed(2)} km · strip ≈ ${area.toFixed(1)} km²<br><span class="muted">a square around it would be ${sq.toFixed(0)} km²</span>${abroadNote(crs)}`;
+  $('oArea').innerHTML = `route ${(len / 1000).toFixed(2)} km · strip ≈ ${area.toFixed(1)} km²`
+    + `<span class="sub">a square around it: ${sq.toFixed(0)} km²</span>${abroadNote(crs)}`;
   const cells = boxCells(pts, w, pil, res);
-  $('oTiles').innerHTML = `${keys.length} km² on the strip: <b>${nLod}</b> ready, ${nRaw} from earlier downloads, `
-    + downloadText(crs, toDl, kind, res)
-    + (ctx.length ? `<br><span class="muted">+ ${ctx.length} km² coarse context between pilot and route (10 m, small)</span>` : '')
-    + (cells > 150e6 ? `<br><b class="warn">Large box (${Math.round(cells / 1e6)} M cells at ${res} m): choose a coarser detail or split the route.</b>` : '');
+  $('oTiles').innerHTML = `${keys.length} km² on the strip · <b>${nLod}</b> ready${nRaw ? ` · ${nRaw} downloaded earlier` : ''}`
+    + `<span class="sub">${downloadText(crs, toDl, kind, res)}</span>`
+    + (ctx.length ? `<span class="sub">+ ${ctx.length} km² coarse context between pilot and route (10 m, small)</span>` : '')
+    + (cells > 150e6 ? `<span class="warnline">Large box (${Math.round(cells / 1e6)} M cells at ${res} m): choose a coarser detail or split the route.</span>` : '');
   showSize(cells, kind);
   const [pe, pn] = pil || pts[0];
-  $('oPilot').innerHTML = `${draft.pilot[0].toFixed(5)}, ${draft.pilot[1].toFixed(5)}<br><span class="muted">${gridName(crs)} ${fmtLV(pe, pn)}${draft.pilotAuto ? ' · start of the route' : ''}</span>`;
+  $('oPilot').innerHTML = `${fmtDeg(...draft.pilot)}`
+    + `<span class="sub">${gridName(crs)} ${fmtLV(pe, pn)}${draft.pilotAuto ? ' · start of the route' : ''}</span>`;
 }
 
 async function pilotHeight() {
@@ -447,7 +455,7 @@ async function pilotHeight() {
   $('oHeight').textContent = '…';
   try {
     const r = await (await fetch(`/api/height?lat=${draft.pilot[0]}&lon=${draft.pilot[1]}`)).json();
-    if (id === heightReq) $('oHeight').innerHTML = r.height == null ? `<span class="muted">${r.source}</span>` : `${r.height.toFixed(0)} m <span class="muted">(${r.source})</span>`;
+    if (id === heightReq) $('oHeight').innerHTML = r.height == null ? `<span class="muted">${r.source}</span>` : `${r.height.toFixed(0)} m <span class="muted">${r.source}</span>`;
   } catch { if (id === heightReq) $('oHeight').textContent = '–'; }
 }
 // default terrain detail of a new location: Full mode 2 m, Lite mode 5 m
@@ -577,14 +585,14 @@ $('search').addEventListener('input', () => {
     try {
       const world = $('fWorldSearch').checked;
       const res = await (await fetch(`/api/search?q=${encodeURIComponent(q)}${world ? '&world=1' : ''}`)).json();
-      $('results').innerHTML = res.length ? '' : `<li class="muted">no match (or offline)${world ? '' : '. For places outside Switzerland, tick the box below or type a position (47.26 11.39).'}</li>`;
+      $('results').innerHTML = res.length ? '' : `<li class="muted">No match (or offline)${world ? '' : '. For places outside Switzerland, tick the box below or type a position (47.26 11.39).'}</li>`;
       for (const r of res) {
         const li = document.createElement('li'); li.textContent = r.label;
         li.onclick = () => {
           map.setView([r.lat, r.lon], 14);
           draft.center = [r.lat, r.lon]; draft.pilot = [r.lat, r.lon];
           if (!$('fTitle').value) { $('fTitle').value = r.label.split(/[,(]/)[0].trim(); $('fTitle').dispatchEvent(new Event('input')); }
-          updatePreview(); $('results').innerHTML = '';
+          updatePreview(); $('results').innerHTML = ''; document.activeElement?.blur?.();   // the drop-down closes
         };
         $('results').appendChild(li);
       }
@@ -593,7 +601,27 @@ $('search').addEventListener('input', () => {
 });
 
 const tabs = initTabs($('panel'), { storageKey: 'fpv3d:maptab', fallback: 'new' });
-$('panel').querySelector('h1').onclick = () => tabs.toggle();
+$('topbar').querySelector('h1').onclick = () => tabs.toggle();
+
+// ---------------------------------------------------------------- top bar: the position under the mouse, the ··· menu
+const showPos = (lat, lon) => {
+  const crs = crsFor(lat, lon), [e, n] = toGrid(lat, lon, crs);
+  $('topCoords').textContent = `${fmtDeg(lat, lon)} · ${gridName(crs)} ${fmtLV(e, n)}`;
+};
+const showCentre = () => { const c = map.getCenter().wrap(); showPos(c.lat, c.lng); };
+map.on('mousemove', (e) => { const w = e.latlng.wrap(); showPos(w.lat, w.lng); });
+map.on('mouseout', showCentre);
+map.on('moveend', () => { if (!$('map').matches(':hover')) showCentre(); });
+showCentre();
+// theme.js puts the dark / light switch next to the name once the page is there: it belongs in the menu, as in the viewer
+addEventListener('DOMContentLoaded', () => {
+  const sw = document.querySelector('#topbar .themeSw'), mode = document.querySelector('#topbar small.lite');
+  if (sw) $('themeSlot').appendChild(sw);
+  if (mode) $('modeSlot').appendChild(mode);
+});
+document.addEventListener('click', (ev) => { if (!$('topMenu').contains(ev.target)) $('topMenu').open = false; });
+// the map's box changes when the panel folds or the window turns: Leaflet has to measure it again
+new ResizeObserver(() => map.invalidateSize({ pan: false })).observe($('map'));
 addEventListener('keydown', (e) => {
   if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
   const b = $('panel').querySelectorAll('.rail button[data-tab]')[+e.key - 1];

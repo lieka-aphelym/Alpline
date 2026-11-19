@@ -23,6 +23,8 @@ import { createDroneMarker } from './marker.js';
 import { createPilotMarker, createRangeRings } from './pilotmark.js';
 import { esc } from '../core/esc.js';
 import { gridName, isSwiss } from '../core/geo.js';
+import { initInstruments, updateInstrSignal } from './instruments.js';
+import { createSurround } from './surround.js';
 import { initBattery } from '../battery/battery.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits } from './geozones.js';
 import { terrainVS, terrainFS } from './terrain_shaders.js';
@@ -171,10 +173,34 @@ function buildTerrain() {
       uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uHole: { value: new THREE.Vector4(1, 1, -1, -1) },
       uCor: { value: corridorUniform() }, uCorN: { value: Math.min(64, S.meta.corridor?.points.length || 0) },
       uCorW: { value: S.meta.corridor?.width_m || 0 },
+      ...softEdgeUniforms(),
     },
   });
   S.terrain = new THREE.Mesh(geo, S.terrainMat);
   scene3.add(S.terrain);
+}
+
+// the soft ending of the map: how wide the fade along its edge is, and where the haze starts and ends
+function softEdgeUniforms() {
+  // the sky colour as written (sRGB): the terrain program works in sRGB, while three.js keeps colours linear
+  const span = Math.max(S.W, S.H), sky = new THREE.Color().setHex(scene3.background.getHex(), THREE.LinearSRGBColorSpace);
+  let on = true; try { on = localStorage.getItem('fpv3d:softEdges') !== '0'; } catch { /* private mode */ }
+  return {
+    uSky: { value: new THREE.Vector3(sky.r, sky.g, sky.b) }, uSoft: { value: on && !S.meta.corridor ? 1 : 0 },
+    uEdge: { value: (S.edgeFade = Math.min(700, Math.max(120, span * 0.09))) },
+    uHaze: { value: new THREE.Vector3(span * 0.3, span * 2.2, 0.6) },
+  };
+}
+
+// the surroundings on: the area's own edge no longer needs to fade (the ring around it does that at its rim)
+function surroundOn() {
+  try { return localStorage.getItem('fpv3d:surround') !== '0'; } catch { return true; }
+}
+function applySurround() {
+  const on = !!S.surround && surroundOn();
+  S.surround?.setVisible(on);
+  S.terrainMat.uniforms.uEdge.value = on ? 0.001 : S.edgeFade;
+  S.requestRender?.(300);
 }
 
 function corridorUniform() {
@@ -191,6 +217,7 @@ function setExaggeration(e) {
     pos.needsUpdate = true; S.terrain.geometry.computeVertexNormals();
   }
   S.detail?.rebuild();
+  S.surround?.setExag(e);
   S.bld?.set({ exag: e });
   S.prof?.setExag();
   S.spheres.forEach((s) => { const k = s.userData.k || 1; s.scale.set(k, k * e, k); });
@@ -209,7 +236,7 @@ function buildPilot() {
   S.pilotMarker = createPilotMarker({ THREE, scene3, camera, viewEl: $('view') });
   S.pilot = S.pilotMarker.group;
   S.rings = createRangeRings({ THREE, scene3, camera, viewEl: $('view'), toWorld, groundWorldY: (x, y) => (demHeight(x, y) - S.hBase) * S.exag });
-  let ringsOn = true; try { ringsOn = localStorage.getItem('fpv3d:rings') !== '0'; } catch { /* private mode */ }
+  let ringsOn = false; try { ringsOn = localStorage.getItem('fpv3d:rings') === '1'; } catch { /* private mode */ }   // clean view by default
   $('ringsOn').checked = ringsOn; S.rings.setVisible(ringsOn);
   $('ringsOn').onchange = () => {
     S.rings.setVisible($('ringsOn').checked);
@@ -458,6 +485,7 @@ function updateSignalSummary(agl, layer) {
   const range = l.range_m;                // already follows the radio setup
   const rangeTxt = range >= 1000 ? `${(range / 1000).toFixed(1)} km` : `${Math.round(range)} m`;
   let txt = `${l.name.split(' ')[0]} reaches about <b>${rangeTxt}</b> (open sky).`;
+  const fig = { rangeTxt, linkName: l.name, agl, sight: null, usable: null, hiddenPct: null };
   if (S.vol?.ceilAt) {                     // share of the area within range where the drone stays in sight / keeps signal
     const cor = m.corridor, p = m.pilot, N = 90;
     let n = 0, vis = 0, ok = 0;
@@ -469,12 +497,17 @@ function updateSignalSummary(agl, layer) {
       if (c == null) continue;
       n++; if (c <= agl) vis++; if (c <= agl && (c2 == null || c2 <= agl)) ok++;
     }
-    if (n) txt += ` Flying at ${agl} m, the drone stays <b>in sight over ${Math.round((100 * vis) / n)}%</b> of that ${cor ? 'route' : 'area'}`
-      + `, with a usable signal over ${Math.round((100 * ok) / n)}%.`;
+    if (n) {
+      fig.sight = Math.round((100 * vis) / n); fig.usable = Math.round((100 * ok) / n);
+      txt += ` Flying at ${agl} m, the drone stays <b>in sight over ${fig.sight}%</b> of that ${cor ? 'route' : 'area'}`
+        + `, with a usable signal over ${fig.usable}%.`;
+    }
   } else if (layer) {
-    txt += ` Flying at ${agl} m, the drone is hidden by terrain over ${Math.round(layer.blocked * 100)}% of the map.`;
+    fig.hiddenPct = Math.round(layer.blocked * 100);
+    txt += ` Flying at ${agl} m, the drone is hidden by terrain over ${fig.hiddenPct}% of the map.`;
   }
   $('sumSignal').innerHTML = txt;
+  updateInstrSignal(fig);
 }
 function corDistLocal(pts, x, y) {
   let d = Infinity;
@@ -627,6 +660,9 @@ function initGroundUi() {
 }
 
 // ------------------------------------------------------------------ UI wiring
+function remembered(k) { try { return localStorage.getItem(k) === '1'; } catch { return false; } }
+function remember(k, on) { try { localStorage.setItem(k, on ? '1' : '0'); } catch { /* private mode */ } }
+
 function initUI() {
   const m = S.meta;
   const pilotFrom = m.pilot.source === 'config' ? 'set in the location file' : m.pilot.source === 'map centre' ? 'map centre' : m.pilot.source.replace('first fix of', 'start of the log');
@@ -641,34 +677,61 @@ function initUI() {
   // satellite photo, 10 m (the 2021 picture, the 2016 one where that has nothing): the credits are required too
   const sat = m.ortho ? (m.ortho_sources || []).filter((s) => s.name === 'worldcover' || s.name === 'sentinel2') : [];
   for (const s of sat) credits.push(`Photo (satellite, 10 m): ${esc(s.credit)}`);
+  // the surroundings come from the worldwide sources too: their credits, unless already listed
+  for (const s of m.surround?.sources || []) {
+    if ((s.name === 'copernicus' && world.length) || sat.some((x) => x.name === s.name)) continue;
+    credits.push(`Surroundings (${s.name === 'copernicus' ? 'heights, 30 m' : 'satellite photo'}): ${esc(s.credit)}`);
+  }
   // any other source that took part (a country's own heights or photo): its credit is shown as it is given
   const known = ['swisstopo', 'copernicus', 'sentinel2', 'worldcover'];
   for (const [what, list] of [['Heights', m.terrain_sources || []], ['Photo', m.ortho ? m.ortho_sources || [] : []]])
     for (const s of list) if (!known.includes(s.name) && s.credit) credits.push(`${what}: ${esc(s.credit)}`);
   const creditBox = credits.length ? `<details class="credits"><summary>Data credits (${credits.length})</summary>${credits.map((c) => `<p>${c}</p>`).join('')}</details>` : '';
+  S.info = { pilotFrom, ground: onlyWorld ? 'coarse: trees and roofs partly in it' : ground, creditBox };   // instruments.js
   $('sceneInfo').innerHTML = (m.corridor
     ? `Route ${(m.corridor.length_m / 1000).toFixed(1)} km, ${2 * m.corridor.width_m} m wide`
     : `${(S.W / 1000).toFixed(1)} × ${(S.H / 1000).toFixed(1)} km area`) + ` · terrain every ${m.grid.res} m, ${ground}<br>Pilot position: ${pilotFrom}` + mixed + creditBox;
   initGroundUi();
   $('orthoOn').disabled = !m.ortho;
+  $('surroundRow').classList.toggle('hidden', !S.surround);
+  $('surroundOn').checked = surroundOn();
+  $('surroundOn').onchange = () => {
+    try { localStorage.setItem('fpv3d:surround', $('surroundOn').checked ? '1' : '0'); } catch { /* private mode */ }
+    applySurround();
+  };
+  $('softEdges').checked = S.terrainMat.uniforms.uSoft.value > 0.5;
+  $('softEdges').disabled = !!m.corridor;           // a route strip already ends along its own edges
+  $('softEdges').onchange = () => {
+    S.terrainMat.uniforms.uSoft.value = $('softEdges').checked ? 1 : 0;
+    try { localStorage.setItem('fpv3d:softEdges', $('softEdges').checked ? '1' : '0'); } catch { /* private mode */ }
+  };
   $('orthoOn').onchange = () => { S.terrainMat.uniforms.uUseOrtho.value = $('orthoOn').checked && m.ortho ? 1 : 0; };
   $('exag').oninput = () => setExaggeration(+$('exag').value);
   $('losLink').textContent = `(${m.links[m.primary_link].name})`;
   $('losAgl').innerHTML = m.los_layers.map((l) => `<option value="${l.agl}">${l.agl} m above the ground</option>`).join('');
   $('losAgl').onchange = () => { $('losFollow').checked = false; S.lastAgl = null; pickLosLayer(); };
-  $('losOn').onchange = applyShadowMode;
+  // a clean map by default: the signal colours and the range circle only when asked for (the instruments still give
+  // the figures); what each person switches on is remembered
+  $('losOn').checked = remembered('fpv3d:losOn');
+  $('losOn').onchange = () => { remember('fpv3d:losOn', $('losOn').checked); applyShadowMode(); };
   $('vol3d').onchange = applyShadowMode;
   $('vol2dToo').onchange = applyShadowMode;
   document.querySelectorAll('.volLayer').forEach((cb) => cb.onchange = applyShadowMode);
   $('volCap').oninput = () => { $('volCapOut').textContent = `${$('volCap').value} m`; applyShadowMode(); };
   $('volOpacity').oninput = applyShadowMode;
   $('losOpacity').oninput = () => { S.terrainMat.uniforms.uLosOpacity.value = +$('losOpacity').value; };
-  $('linkList').innerHTML = m.links.map((l, i) => `<label class="link"><input type="checkbox" data-i="${i}" ${i === m.primary_link ? 'checked' : ''}>
+  const rangeOn = remembered('fpv3d:rangeOn');
+  $('linkList').innerHTML = m.links.map((l, i) => `<label class="link"><input type="checkbox" data-i="${i}" ${i === m.primary_link && rangeOn ? 'checked' : ''}>
       <span class="sw" style="background:${l.color}"></span>${esc(l.name)}<span class="r" id="lnkRange${i}">${fmtDist(l.range_m)}</span></label>`).join('');
   LINKS.init();
-  $('linkList').querySelectorAll('input[data-i]').forEach((cb) => cb.onchange = () => {
-    S.spheres[+cb.dataset.i].visible = cb.checked; updateRangeUniforms();
+  $('linkList').querySelectorAll('input[data-i]').forEach((cb) => {
+    if (S.spheres?.[+cb.dataset.i]) S.spheres[+cb.dataset.i].visible = cb.checked;
+    cb.onchange = () => {
+      S.spheres[+cb.dataset.i].visible = cb.checked; updateRangeUniforms();
+      remember('fpv3d:rangeOn', [...$('linkList').querySelectorAll('input[data-i]')].some((x) => x.checked));
+    };
   });
+  updateRangeUniforms();
   $('sphereOpacity').oninput = () => S.spheres.forEach((s) => {
     s.userData.fill.material.opacity = +$('sphereOpacity').value;
     s.userData.wire.material.opacity = Math.min(1, +$('sphereOpacity').value * 2.5);
@@ -708,7 +771,12 @@ function initUI() {
   S.tabs = initTabs($('panel'), { storageKey: 'fpv3d:tab4', fallback: 'map' });
   S.bat.tabChanged(S.tabs.current);
   if (params.get('tab')) S.tabs.show(params.get('tab'), { keepOpen: true });   // e.g. ?tab=fly from the launcher
-  $('panel').querySelector('h1').onclick = () => S.tabs.toggle();
+  $('topbar').querySelector('h1').onclick = () => S.tabs.toggle();
+  // a wide screen opens on the terrain: the panel starts closed until a tab is clicked (then that choice is kept)
+  try {
+    if (matchMedia('(min-width: 1000px) and (min-height: 501px)').matches && localStorage.getItem('fpv3d:tab4:collapsed') == null
+      && !params.get('tab')) S.tabs.toggle(true);
+  } catch { /* private mode */ }
   // keys 1..6 jump to a panel tab
   addEventListener('keydown', (e) => {
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey || document.body.classList.contains('sim-on')) return;
@@ -974,10 +1042,15 @@ async function loadScene(name) {
     const t = await loadTex(S.base + S.meta.ortho);
     S.terrainMat.uniforms.uOrtho.value = t; S.terrainMat.uniforms.uUseOrtho.value = 1;
   }
+  try {
+    S.surround = await createSurround({ THREE, S, scene3, loadTex, maxSide: PHONE ? 250 : LITE ? 350 : 500 });
+  } catch (e) { console.warn('surroundings', e); S.surround = null; }
+  applySurround();
   try { S.bld = await loadBuildings({ S, scene3 }); } catch (e) { console.warn('buildings', e); S.bld = null; }
   S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS: TERRAIN_FS, api: S.view.api, which: S.view.which });
   buildPilot();
   initUI();
+  initInstruments({ S });
   await pickLosLayer();
   loadStep(`${S.meta.title || name} · signal shadows…`);
   try { S.vol = await loadVolumes({ scene3, S, demHeight }); } catch (e) { console.warn('3D volumes', e); S.vol = null; }

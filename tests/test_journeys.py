@@ -239,7 +239,18 @@ def test_location_outside_switzerland():
     assert (d.dir / "cache" / "copernicus" / "32632" / "lod" / "dtm" / "10m").exists()
     assert not (d.dir / "cache" / "lod").exists()                       # nothing was asked of swisstopo
     assert (d.dir / "cache" / "worldcover" / "32632" / "lod" / "ortho" / "10m").exists()
-    assert not (d.dir / "cache" / "sentinel2").exists()                 # the 2016 picture was not needed
+    assert not (d.dir / "cache" / "sentinel2" / "32632" / "lod" / "ortho" / "2m").exists()    # the 2016 picture: not for the area
+    # the surroundings: a coarse ring (worldwide heights, the 2016 photo) around the 2 km area, meeting its border
+    su = m["surround"]
+    sg = su["grid"]
+    assert su["file"] == "surround.f32" and su["photo"] == "surround.jpg" and sg["res"] == 25 and sg["crs"] == g["crs"]
+    assert sg["min_e"] <= g["min_e"] - 2000 and sg["max_n"] >= g["max_n"] + 2000
+    ring = np.fromfile(d.dir / "scenes" / "010_abroad" / "surround.f32", dtype="<f4").reshape(sg["rows"], sg["cols"])
+    assert np.isfinite(ring).all() and ring[0].mean() > ring[-1].mean()          # rises to the north, like the area
+    r0, c0 = int((sg["max_n"] - g["max_n"]) / sg["res"]), int((g["min_e"] - sg["min_e"]) / sg["res"])
+    assert abs(float(ring[r0 + 40, c0 + 40]) - float(dem[100, 100])) < 30          # where they overlap, the same heights
+    assert Image.open(d.dir / "scenes" / "010_abroad" / "surround.jpg").size == (sg["cols"] * 25 // 10, sg["rows"] * 25 // 10)
+    assert {s["name"] for s in su["sources"]} == {"copernicus", "sentinel2"}
     # cleaning the cache keeps what this location needs (downloads and tiles) and drops the rest
     raw = d.dir / "cache" / "copernicus" / "raw"
     junk = [raw / "Copernicus_DSM_COG_10_N10_00_E010_00_DEM.tif", d.dir / "cache" / "worldcover" / "raw" / "32632_1-1_N10E010.tif",

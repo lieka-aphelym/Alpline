@@ -4,6 +4,8 @@ scenes/<name>/
     scene.json        metadata (grid, pilot, links, layers, tracks)
     terrain.f32       elevation, float32 little-endian, row-major, row 0 = north
     ortho.jpg         SWISSIMAGE aerial photo (optional)
+    surround.f32      coarse heights of a ring around the area (optional; drawn as context, no signal data)
+    surround.jpg      coarse satellite photo of that ring (optional)
     los_<agl>.png     signal-shadow overlay for a drone flying <agl> m above ground
     tracks/<log>.json flight track with per-sample LOS / Fresnel / predicted margin
 """
@@ -95,6 +97,66 @@ def build_terrain(cfg: LocationConfig, out: Path, cache: Path, skip_ortho=False,
             log(f"[ortho] skipped: {ex}")
     credits = lambda ss: [dict(name=s.name, credit=s.credit) for s in ss]  # noqa: E731
     return grid, dem, has_ortho, credits(used), credits(oused)
+
+
+def surround_grid(grid: Grid) -> Grid:
+    """The area plus a ring around it: as wide as the area itself on each side, at least 2 km, at most 6 km.
+    Coarse (25 m, 50 m for a large one): it only shows what lies around, the signal is computed inside."""
+    span = max(grid.max_e - grid.min_e, grid.max_n - grid.min_n)
+    margin = min(6000.0, max(2000.0, span))
+    res = 25.0 if span + 2 * margin <= 16000 else 50.0
+    snap = lambda v, up: (np.ceil if up else np.floor)(v / res) * res  # noqa: E731
+    return Grid(float(snap(grid.min_e - margin, False)), float(snap(grid.min_n - margin, False)),
+                float(snap(grid.max_e + margin, True)), float(snap(grid.max_n + margin, True)), res, grid.crs)
+
+
+def build_surround(cfg: LocationConfig, out: Path, cache: Path, grid: Grid, dem, refresh=False):
+    """The surroundings of the area, so the 3D map does not end like a cut slab: worldwide heights (30 m model)
+    and the 2016 satellite photo, on a ring around the area. Light on purpose (shared 1 degree files, small photo
+    tiles), whatever the country: the sharp national data stays for the area itself. Returns the scene.json entry,
+    or None (route locations, no data, offline: the viewer then just fades the area's edges)."""
+    if cfg.corridor is not None:
+        return None
+    from . import sources
+    from .tilecache import TileCache
+    sgrid = surround_grid(grid)
+    try:
+        log(f"[surroundings] {sgrid.cols}x{sgrid.rows} cells @ {sgrid.res:g} m around the area")
+        hsrc = sources.worldwide(grid.crs)
+        h = TileCache(cache, hsrc).mosaic("dtm", sgrid, refresh)
+        if not np.isfinite(h).any():
+            raise RuntimeError("no heights")
+        h[np.isnan(h)] = np.nanmin(h)
+        # the worldwide model is a surface model of its own: lift or lower it so it meets the area's border
+        t = Terrain(h, sgrid)
+        edge = np.concatenate([dem[0], dem[-1], dem[:, 0], dem[:, -1]])
+        xs = np.concatenate([np.arange(grid.cols), np.arange(grid.cols), np.zeros(grid.rows), np.full(grid.rows, grid.cols - 1)])
+        ys = np.concatenate([np.zeros(grid.cols), np.full(grid.cols, grid.rows - 1), np.arange(grid.rows), np.arange(grid.rows)])
+        ex = grid.min_e - sgrid.min_e + (xs + 0.5) * grid.res
+        ny = (grid.max_n - (ys + 0.5) * grid.res) - sgrid.min_n
+        ok = np.isfinite(edge)
+        shift = float(np.median(t.height(ex[ok], ny[ok]) - edge[ok])) if ok.any() else 0.0
+        h -= shift
+        h.astype("<f4").tofile(out / "surround.f32")
+        entry = dict(file="surround.f32", grid=sgrid.to_dict(), shift_m=round(shift, 1),
+                     sources=[dict(name=hsrc.name, credit=hsrc.credit)], photo=None)
+        if cfg.terrain.ortho:
+            try:
+                psrc = sources.worldwide_photo(grid.crs)
+                pgrid = sgrid.with_resolution(10.0 if sgrid.res <= 25 else 20.0)
+                img = TileCache(cache, psrc).mosaic("ortho", pgrid, refresh)
+                Image.fromarray(img).save(out / "surround.jpg", quality=82)
+                entry["photo"] = "surround.jpg"
+                entry["sources"].append(dict(name=psrc.name, credit=psrc.credit))
+            except (Exception, SystemExit) as ex:            # the ring is then drawn with relief colours
+                log(f"[surroundings] photo skipped: {str(ex)[:160]}")
+        log(f"[surroundings] done (worldwide model {'lowered' if shift > 0 else 'raised'} {abs(shift):.1f} m to meet the area)")
+        return entry
+    except (Exception, SystemExit) as ex:                    # optional: offline or no data, the area is all that matters
+        log(f"[surroundings] skipped: {str(ex)[:160]}")
+        for f in ("surround.f32", "surround.jpg"):
+            (out / f).unlink(missing_ok=True)
+        return None
 
 
 def load_terrain(out: Path):
@@ -554,6 +616,8 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
     terrain = Terrain(dem, grid)
     pilot = pilot_position(cfg, terrain, tracks_for_pilot)
     extras = build_extras(cfg, out, cache, grid, dem, refresh)
+    progress.emit("phase", id="surround", label="Surroundings (coarse)")
+    extras["surround"] = build_surround(cfg, out, cache, grid, dem, refresh)
     extras["detail"] = detail_ortho(cfg, cache, grid, pilot, refresh)
     layers, shadow3d = build_los_layers(cfg, terrain, pilot, out)
     redo, keep = previous_tracks(cfg, out, log_paths)

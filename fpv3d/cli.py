@@ -168,9 +168,10 @@ def cmd_prefetch(a):
     print("\n".join(tc.info()))
 
 
-def location_tile_keys(margin_km: int = 1) -> dict:
+def location_tile_keys(margin_km: int = 1, surround: bool = False) -> dict:
     """1 km tile keys ("E-N") used by the location files, + a margin of tiles around each one, per grid:
-    {"EPSG:2056": {...}, "EPSG:32632": {...}} (a location abroad is on the UTM grid of its place)."""
+    {"EPSG:2056": {...}, "EPSG:32632": {...}} (a location abroad is on the UTM grid of its place).
+    surround: also the ring of coarse surroundings around each square location (worldwide sources only)."""
     from .config import LocationConfig
     from .tilecache import tile_keys
     keep: dict = {}
@@ -183,6 +184,9 @@ def location_tile_keys(margin_km: int = 1) -> dict:
             ks = set(cfg.corridor.tile_keys()) | set(cfg.corridor.context_keys(cfg.pilot_en()))
         else:
             ks = set(tile_keys(cfg.grid(10)))
+            if surround:
+                from .scene import surround_grid
+                ks |= set(tile_keys(surround_grid(cfg.grid(10))))
         for e, n in ks:
             for de in range(-margin_km, margin_km + 1):
                 for dn in range(-margin_km, margin_km + 1):
@@ -197,7 +201,7 @@ def cmd_cache(a):
     if a.action == "prune":                     # swisstopo's tiles, then the worldwide model and photo
         keep = location_tile_keys()
         files, size = tc.prune(keep.get(tc.source.crs, set()), dry_run=a.dry_run)
-        wf, ws = terrain.prune_world(tc.root, keep, dry_run=a.dry_run)
+        wf, ws = terrain.prune_world(tc.root, location_tile_keys(surround=True), dry_run=a.dry_run)
         files, size = files + wf, size + ws
         print(f"{'would free' if a.dry_run else 'freed'} {size / 1e6:.0f} MB ({files} tiles not used by any location file)")
         return

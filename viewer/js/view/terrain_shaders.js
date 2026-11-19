@@ -5,12 +5,14 @@ export const terrainVS = /* glsl */`
   #include <common>
   #include <logdepthbuf_pars_vertex>
   attribute float aH;
-  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH;
+  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH; varying float vDist;
   uniform vec2 uSize;
   void main() {
     vUv = uv; vNormal = normalize(normal); vH = aH;
     vReal = vec3(position.x, aH, position.z);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vDist = -mv.z;                                 // how far from the camera: for the haze
+    gl_Position = projectionMatrix * mv;
     #include <logdepthbuf_vertex>
   }`;
 export const terrainFS = (maxLinks) => /* glsl */`
@@ -30,7 +32,10 @@ export const terrainFS = (maxLinks) => /* glsl */`
     return d;
   }
   uniform vec3 uPilot; uniform vec4 uRanges; uniform vec3 uColors[${maxLinks}]; uniform vec4 uRangeOn;
-  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH;
+  varying vec2 vUv; varying vec3 vNormal; varying vec3 vReal; varying float vH; varying float vDist;
+  // soft ending: the last metres of the area melt into the sky colour, and far terrain gets paler (haze), so the
+  // map does not stop like a cut slab. uSoft = 0 turns both off.
+  uniform vec2 uSize; uniform vec3 uSky; uniform float uSoft, uEdge; uniform vec3 uHaze;   // haze: near, far, strongest
   vec3 hypso(float t) {
     vec3 a = vec3(0.36,0.52,0.30), b = vec3(0.62,0.66,0.45), c = vec3(0.62,0.55,0.46), d = vec3(0.95,0.95,0.97);
     return t < .4 ? mix(a,b,t/.4) : t < .8 ? mix(b,c,(t-.4)/.4) : mix(c,d,(t-.8)/.2);
@@ -63,6 +68,11 @@ export const terrainFS = (maxLinks) => /* glsl */`
       float fc = max(fwidth(cd), 0.3);
       col = mix(col, vec3(1.0), 0.55 * (1.0 - smoothstep(0.0, 2.0 * fc, uCorW - cd)));
       col = mix(col, vec3(1.0, 0.62, 0.1), 0.85 * (1.0 - smoothstep(fc, 2.5 * fc, cd)));
+    }
+    if (uSoft > 0.5) {
+      float e = min(uSize.x * 0.5 - abs(vReal.x), uSize.y * 0.5 - abs(vReal.z));    // metres to the area's edge
+      col = mix(uSky, col, smoothstep(0.0, uEdge, e));                             // gone into the sky at the very edge
+      col = mix(col, uSky, uHaze.z * smoothstep(uHaze.x, uHaze.y, vDist));
     }
     gl_FragColor = vec4(col, 1.0);   // all colour maths done directly in sRGB space
   }`;

@@ -95,6 +95,31 @@ def test_world_tiles():
     assert not in_wide(9, *[int(v // 256) for v in merc(11.95, 47.0, 9)])     # past the east edge
 
 
+def test_border_mask_is_filled(tmp=None):
+    """swisstopo's border layer only draws the outline at the overview's zoom: the launcher fills it, so the map shows
+    inside Switzerland and the satellite picture around it. A fake ring around Bern stands for the border."""
+    import tempfile
+    from pathlib import Path
+    from PIL import Image, ImageDraw
+    from fpv3d import launcher_tiles as lt
+    cx, cy = merc(7.4474, 46.948, lt.ZOV)
+
+    def fake(key, z, x, y, timeout=10):
+        t = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+        ImageDraw.Draw(t).ellipse([cx - 300 - x * 256, cy - 200 - y * 256, cx + 300 - x * 256, cy + 200 - y * 256],
+                                  outline=(255, 0, 0, 255), width=2)
+        return t
+    old, lt.fetch = lt.fetch, fake
+    try:
+        m = lt.Tiles(Path(tmp or tempfile.mkdtemp())).overview_mask(workers=2)
+    finally:
+        lt.fetch = old
+    gx0, gy0 = merc(lt.WIDE[0], lt.WIDE[3], lt.ZOV)
+    at = lambda lat, lon: m.getpixel(tuple(int(v - o) for v, o in zip(merc(lon, lat, lt.ZOV), (gx0, gy0))))  # noqa: E731
+    assert at(46.948, 7.4474) == 255 and at(48.14, 11.58) == 0 and at(45.46, 9.19) == 0    # Bern in, Munich and Milan out
+    assert m.size == (round(merc(lt.WIDE[2], 0, lt.ZOV)[0] - gx0), round(merc(0, lt.WIDE[1], lt.ZOV)[1] - gy0))
+
+
 def test_tiles_cover_switzerland():
     x0, y0, x1, y1 = tile_range(CH_BOX, 9)
     assert (x1 - x0 + 1) * (y1 - y0 + 1) < 80                                 # overview stays a small download

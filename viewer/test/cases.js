@@ -4,7 +4,7 @@
 //   python tests/run_all.py            (uses Node when it is installed)
 //   http://localhost:8000/viewer/test/  (any browser, while the server runs)
 import { createWarner } from '../js/drone/warn.js';
-import { linkBudget, rangeFor, presetIndex, presetKind, fsplDb } from '../js/view/links.js';
+import { linkBudget, rangeFor, presetIndex, presetKind, presetValues, PRESETS, fsplDb } from '../js/view/links.js';
 import { slugify, noEmoji } from '../js/view/rename.js';
 import { telName } from '../js/view/hud.js';
 import { createBatteryWatch } from '../js/battery/batwarn.js';
@@ -233,6 +233,16 @@ test('radio: presets are recognised by band', () => {
   eq([presetKind(5800), presetKind(2400), presetKind(868), presetKind(1300)], ['video', 'ctl24', 'ctl900', 'other']);
   eq(presetIndex({ freq_mhz: 5800, tx_power_dbm: 10 * Math.log10(500), tx_gain_dbi: 2, rx_gain_dbi: 8 }), 4);
   eq(presetIndex({ freq_mhz: 5800, tx_power_dbm: 20, tx_gain_dbi: 7, rx_gain_dbi: 7 }), -1);
+});
+test('radio: a digital system reaches the range its maker gives, and is recognised again', () => {
+  for (const pr of PRESETS.video.filter((x) => x.km)) {
+    const v = presetValues(pr, 5800, 'video').values, km = rangeFor(linkBudget(v), 5800) / 1000;
+    ok(Math.abs(km - pr.km) / pr.km < 0.05, `${pr.label}: ${km.toFixed(2)} km, rated ${pr.km} km`);
+    eq(presetIndex({ freq_mhz: 5800, ...v }), PRESETS.video.indexOf(pr), pr.label);
+  }
+  const o4 = PRESETS.video.find((x) => x.label?.startsWith('DJI O4 Air Unit · CE'));
+  ok(rangeFor(linkBudget(presetValues(o4, 5800, 'video').values), 5800) > 5 * rangeFor(linkBudget(presetValues(PRESETS.video[0], 5800, 'video').values), 5800),
+    'the O4 reaches far beyond 25 mW analog');
 });
 test('file names: clean ASCII, no emoji', () => {
   eq(slugify('Vol à Gruyères #2 🚁'), 'vol_a_gruyeres_2');
