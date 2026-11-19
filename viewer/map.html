@@ -33,7 +33,7 @@
 
   <section data-tab="new">
     <h2>Find a place</h2>
-    <div class="row"><input id="search" type="search" placeholder="Moléson, 1630 Bulle, Innsbruck, 47.26 11.39…" autocomplete="off"></div>
+    <div class="row"><input id="search" type="search" placeholder="a place or address, or a position: 47.26 11.39" autocomplete="off"></div>
     <ul id="results" class="results"></ul>
     <label class="row small" title="Off: only Swiss places are found (swisstopo), and a typed position such as 47.26 11.39 works anywhere. On: what you type is also sent to Photon, the OpenStreetMap place search run by Komoot."><input type="checkbox" id="fWorldSearch"> also search outside Switzerland <span class="muted">(sends what you type to Photon / OpenStreetMap)</span></label>
   </section>
@@ -62,7 +62,7 @@
     <h2>New location</h2>
     <label class="row">Name <input id="fName" placeholder="my_spot_east" spellcheck="false"></label>
     <div class="small muted">Saved with the next number in front, e.g. <code>015_my_spot_east</code>.</div>
-    <label class="row">Title <input id="fTitle" placeholder="Moléson east ridge"></label>
+    <label class="row">Title <input id="fTitle" placeholder="East ridge"></label>
     <div class="sq">
       <label class="row">Map size <output id="fHalfOut"></output></label>
       <input type="range" id="fHalf" min="250" max="6000" step="250" value="2000">

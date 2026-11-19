@@ -7,7 +7,7 @@
   --t-bg2: #10141a;         /* inputs, blocks */
   --t-bg3: #171c24;         /* hover */
   --t-fg: #f2f5f8;          /* text */
-  --t-fg2: #a9b4c2;         /* labels */
+  --t-fg2: #b7c1ce;         /* labels */
   --t-rule: #2a313c;        /* hairlines */
   --t-rule2: #4a5462;       /* control borders */
   --t-acc: #ffd60a;         /* accent: OSD yellow */
@@ -29,7 +29,7 @@
   --ok: #0a8a3a; --warn: #a86400; --bad: #8c0a16;   /* danger is a darker crimson so it never looks like 'selected' */
 }
 
-:root { --c-cur: #4cc9f0; --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace; font-size: 13px; }
+:root { --c-cur: #4cc9f0; --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace; font-size: 14px; }
 
 /* ---------- surfaces: opaque, square ---------- */
 #panel, #hud, #timeline, #pick, #profile, #simLive, #videoHead, #vTimes, .leaflet-tooltip.tip {
@@ -42,23 +42,32 @@
 /* ---------- rail: text tabs with an accent bar ---------- */
 .rail { background: var(--t-bg2) !important; border-right: 1px solid var(--t-rule) !important; padding: 0 !important; gap: 0 !important; }
 .rail button, #panel .rail button { border: 0 !important; border-left: 3px solid transparent !important; padding: 10px 0 9px !important; background: none !important; }
-.rail button span { color: var(--t-fg2) !important; font: 600 11px/1 var(--mono) !important; letter-spacing: .3px; }
+.rail button span { color: var(--t-fg2) !important; font: 600 12px/1 var(--mono) !important; letter-spacing: .3px; }
 #panel .rail button:hover, .rail button:hover { background: var(--t-bg3) !important; }
 #panel .rail button.on, .rail button.on { border-left-color: var(--t-acc) !important; background: var(--t-bg) !important; }
 .rail button.on span { color: var(--t-fg) !important; }
-.rail .railCollapse { font: 10px var(--mono) !important; color: var(--t-fg2) !important; }
+.rail .railCollapse { font: 11px var(--mono) !important; color: var(--t-fg2) !important; }
 
 /* ---------- type ---------- */
 #panel h1 { font: 700 15px var(--mono); letter-spacing: .5px; text-transform: uppercase; }
-#pbody h2 { display: flex; align-items: center; gap: 8px; font: 700 11px var(--mono) !important; letter-spacing: 1px;
+#pbody h2 { display: flex; align-items: center; gap: 8px; font: 700 12px var(--mono) !important; letter-spacing: 1px;
   text-transform: uppercase; color: var(--t-fg) !important; margin: 0 0 8px; }
 #pbody h2::after { content: ''; flex: 1; height: 1px; background: var(--t-rule); }
 #pbody h2 .muted { font-weight: 400; color: var(--t-fg2) !important; }
 #pbody section { border-top: 0 !important; padding-top: 12px; margin-top: 4px; }
 .muted { color: var(--t-fg2) !important; }
-#sceneInfo { font-family: var(--mono); font-size: 11px; color: var(--t-fg2); border-left: 2px solid var(--t-rule2); padding-left: 7px; margin: 6px 0 2px; }
+#sceneInfo { font-size: 13px; color: var(--t-fg2); border-left: 2px solid var(--t-rule2); padding-left: 7px; margin: 6px 0 2px; }
 output, .r, #lnkRange0, #lnkRange1, #lnkRange2, #lnkRange3, #clock { font-family: var(--mono) !important; font-variant-numeric: tabular-nums; }
 .lite { color: var(--t-acc) !important; border: 1px solid var(--t-acc) !important; border-radius: 0 !important; font-family: var(--mono); }
+
+/* the data credits in the scene's info box: one line until it is clicked */
+details.credits { margin-top: 3px; }
+details.credits > summary { cursor: pointer; list-style: none; color: var(--t-fg2); }
+details.credits > summary::-webkit-details-marker { display: none; }
+details.credits > summary::before { content: "▸ "; }
+details.credits[open] > summary::before { content: "▾ "; }
+details.credits > summary:hover { color: var(--t-fg); }
+details.credits p { margin: 3px 0 0 12px; }
 
 /* ---------- summary = readout ---------- */
 .summary { background: var(--t-bg2) !important; border: 1px solid var(--t-rule) !important; border-left: 3px solid var(--t-acc) !important;
@@ -72,7 +81,7 @@ output, .r, #lnkRange0, #lnkRange1, #lnkRange2, #lnkRange3, #clock { font-family
   background: var(--t-bg2) !important; color: var(--t-fg) !important; border: 1px solid var(--t-rule2) !important; border-radius: 0 !important;
 }
 #panel select:hover, #panel button:hover { background: var(--t-bg3) !important; }
-#panel button, #timeline button, #hud button { font-family: var(--mono); font-size: 12px; }
+#panel button, #timeline button, #hud button { font-family: var(--mono); font-size: 13px; }
 #panel button.primary, .mappage button.primary { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }
 .rail button { font-family: inherit; }
 input[type=checkbox], input[type=radio] { accent-color: var(--t-acc); width: 15px; height: 15px; }
@@ -80,40 +89,40 @@ input[type=range] { accent-color: var(--t-acc); }
 :focus-visible { outline: 2px solid var(--t-acc) !important; outline-offset: 1px; }
 a, .navlink { color: var(--t-acc) !important; font-family: var(--mono); }
 details.adv { border-top: 1px dashed var(--t-rule) !important; }
-details.adv > summary { font: 600 11px var(--mono) !important; color: var(--t-fg2) !important; letter-spacing: .8px; }
+details.adv > summary { font: 600 12px var(--mono) !important; color: var(--t-fg2) !important; letter-spacing: .8px; }
 details.help summary { font-family: var(--mono); }
 .filebtn { background: var(--t-bg2) !important; border: 1px dashed var(--t-rule2) !important; border-radius: 0 !important; font-family: var(--mono); }
 .linkedit details.lnk, #zoneDetail, .renbox, .zonelist li:hover { background: var(--t-bg2) !important; border-radius: 0 !important; }
 
 /* legend swatches: small squares */
 .chips i, .legend i, .sw, .sw3, .linkedit .setup .sw, .linkedit summary .sw { border-radius: 0 !important; }
-.chips { font-family: var(--mono); font-size: 11px !important; color: var(--t-fg2) !important; }
+.chips { font-family: var(--mono); font-size: 12px !important; color: var(--t-fg2) !important; }
 
 /* ---------- flight info box: instrument readout ---------- */
 #hud { font-family: var(--mono); }
-#hud .status { border-radius: 0 !important; font: 700 12px var(--mono) !important; letter-spacing: 1px; border-left: 4px solid currentColor; text-align: left !important; padding: 5px 8px !important; }
+#hud .status { border-radius: 0 !important; font: 700 13px var(--mono) !important; letter-spacing: 1px; border-left: 4px solid currentColor; text-align: left !important; padding: 5px 8px !important; }
 #hud .tiles { gap: 0 !important; border: 1px solid var(--t-rule); }
 #hud .tile { background: none !important; border-right: 1px solid var(--t-rule); text-align: left !important; padding: 5px 7px !important; }
 #hud .tile:last-child { border-right: 0; }
 #hud .tile b { font: 700 19px var(--mono) !important; }
-#hud .tile span { font: 600 10px var(--mono) !important; letter-spacing: .8px; color: var(--t-fg2) !important; }
-#hud .sig .h { font-size: 12px; }
+#hud .tile span { font: 600 11px var(--mono) !important; letter-spacing: .8px; color: var(--t-fg2) !important; }
+#hud .sig .h { font-size: 13px; }
 #hud .sig .bar { background: var(--t-bg3) !important; height: 4px !important; }
 #hud table td { border-bottom: 1px solid var(--t-rule); padding: 2px 0 !important; }
-#hud table td:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+#hud table td:first-child { font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
 #hud button.more { border: 1px solid var(--t-rule) !important; background: none !important; color: var(--t-fg2) !important; }
 
 /* tables, compare */
-#cmpTable table, .livevals { font-family: var(--mono); font-size: 12px; }
+#cmpTable table, .livevals { font-family: var(--mono); font-size: 13px; }
 .livevals div { border-bottom: 1px solid var(--t-rule) !important; }
 
 /* timeline + profile */
 #timeline input[type=range] { accent-color: var(--t-acc); }
-#profile .profHead span { font-family: var(--mono); font-size: 11px; color: var(--t-fg2); }
+#profile .profHead span { font-family: var(--mono); font-size: 12px; color: var(--t-fg2); }
 
 /* header switch */
 .themeSw { display: inline-flex; border: 1px solid var(--t-rule2); }
-#panel .themeSw button, .themeSw button { border: 0 !important; padding: 1px 6px !important; font: 600 11px var(--mono) !important; background: none !important; color: var(--t-fg2) !important; }
+#panel .themeSw button, .themeSw button { border: 0 !important; padding: 1px 6px !important; font: 600 12px var(--mono) !important; background: none !important; color: var(--t-fg2) !important; }
 #panel .themeSw button.on, .themeSw button.on { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; }
 
 /* light theme: a few hard-coded dark bits */
@@ -148,13 +157,13 @@ input[type=range]::-moz-range-thumb { width: 8px; height: 14px; background: var(
 /* ---------- playback bar: compact, movable ---------- */
 #timeline { width: min(480px, calc(100% - 24px)) !important; gap: 6px !important; padding: 3px 6px 3px 0 !important; }
 #timeline .grip { align-self: stretch; display: flex; align-items: center; padding: 0 5px; cursor: grab; user-select: none; touch-action: none;
-  color: var(--t-fg2); font: 12px/1 var(--mono); letter-spacing: -2px; border-right: 1px solid var(--t-rule); }
+  color: var(--t-fg2); font: 13px/1 var(--mono); letter-spacing: -2px; border-right: 1px solid var(--t-rule); }
 #timeline .grip:hover { color: var(--t-acc); background: var(--t-bg3); }
 #timeline .grip:active { cursor: grabbing; }
-#timeline button { min-width: 0 !important; padding: 2px 6px !important; font-size: 11px !important; }
-#timeline select { padding: 1px 2px !important; font: 11px var(--mono) !important; width: auto; }
+#timeline button { min-width: 0 !important; padding: 2px 6px !important; font-size: 12px !important; }
+#timeline select { padding: 1px 2px !important; font: 12px var(--mono) !important; width: auto; }
 #timeline #scrub { flex: 1; min-width: 80px; }
-#clock { min-width: 0 !important; font-size: 11px !important; white-space: nowrap; }
+#clock { min-width: 0 !important; font-size: 12px !important; white-space: nowrap; }
 #profile { bottom: 50px; }
 body:has(#timeline.moved) #profile { bottom: 14px; }
 
@@ -163,14 +172,14 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 .soundboard label { display: flex; align-items: center; gap: 6px; font-size: 13px; border-bottom: 1px solid var(--t-rule); padding: 2px 0; }
 .soundboard label:has(input:not(:checked)) { color: var(--t-fg2); text-decoration: line-through; }
 .soundboard span { display: flex; gap: 3px; justify-content: flex-end; }
-#panel .soundboard button { padding: 2px 6px !important; font-size: 11px !important; white-space: nowrap; }
+#panel .soundboard button { padding: 2px 6px !important; font-size: 12px !important; white-space: nowrap; }
 
 /* app name: ALPLINE by lieka */
-#panel h1 .by { text-transform: none; font: 400 11px var(--mono); letter-spacing: 0; color: var(--t-fg2); margin-left: 2px; }
+#panel h1 .by { text-transform: none; font: 400 12px var(--mono); letter-spacing: 0; color: var(--t-fg2); margin-left: 2px; }
 
 /* training flight box: foldable to one line (H) */
 #simLive .simhead { display: flex; align-items: center; gap: 8px; }
-#simLive .simhead b { font: 700 11px var(--mono); letter-spacing: 1px; flex: 1; }
+#simLive .simhead b { font: 700 12px var(--mono); letter-spacing: 1px; flex: 1; }
 #simLive .simhead .muted { font-family: var(--mono); border: 1px solid var(--t-rule); padding: 0 4px; }
 #simLive #simHide { padding: 2px 8px; }
 #simLive #simBody { margin-top: 6px; }
@@ -186,7 +195,7 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 #warnBox[data-size="compact"] #warnText { font-size: 12px !important; margin-top: 0; }
 #warnBox { border-radius: 0; }
 #simLive button, #simLive input { background: var(--t-bg2) !important; color: var(--t-fg) !important; border: 1px solid var(--t-rule2) !important;
-  border-radius: 0 !important; font-family: var(--mono); font-size: 12px; }
+  border-radius: 0 !important; font-family: var(--mono); font-size: 13px; }
 #simLive button.primary { background: var(--t-acc) !important; color: var(--t-acc-fg) !important; border-color: var(--t-acc) !important; font-weight: 700; }
 
 /* logo in front of ALPLINE */
@@ -324,33 +333,33 @@ svg.drn.l-hover .dr { animation: drn-hover 2.4s ease-in-out infinite; }
 .lvHero > div { min-width: 0; }
 .lvHero b { display: block; font: 700 13px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 .lvHero[data-state="lost"] b { color: var(--bad); }
-.lvHero #liveStatus { display: block; font-size: 12px; color: var(--t-fg2); line-height: 1.35; }
-.lvLbl { font: 700 11px var(--mono); color: var(--t-fg2); letter-spacing: .08em; text-transform: uppercase; margin: 2px 0 4px; }
+.lvHero #liveStatus { display: block; font-size: 13px; color: var(--t-fg2); line-height: 1.35; }
+.lvLbl { font: 700 12px var(--mono); color: var(--t-fg2); letter-spacing: .08em; text-transform: uppercase; margin: 2px 0 4px; }
 #liveConnectBox { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 #liveConnectBox > select { width: 100%; }
 #panel button.lvWide, button.lvWide { width: 100%; padding: 7px; }
-.lvNote { font-size: 12px; color: var(--t-fg2); background: var(--t-bg2); border-left: 3px solid var(--t-acc); padding: 6px 8px; }
+.lvNote { font-size: 13px; color: var(--t-fg2); background: var(--t-bg2); border-left: 3px solid var(--t-acc); padding: 6px 8px; }
 .lvTiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 0 0 8px; transition: opacity .3s; }
 .lvTiles > div { background: var(--t-bg2); border: 1px solid var(--t-rule); padding: 6px 2px; text-align: center; min-width: 0; }
 .lvTiles b { display: block; font: 700 16px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.lvTiles b small { font-size: 10px; font-weight: 400; color: var(--t-fg2); }
-.lvTiles span { font-size: 10px; color: var(--t-fg2); text-transform: uppercase; letter-spacing: .05em; }
+.lvTiles b small { font-size: 11px; font-weight: 400; color: var(--t-fg2); }
+.lvTiles span { font-size: 11px; color: var(--t-fg2); text-transform: uppercase; letter-spacing: .05em; }
 .lvTiles.dim { opacity: .5; }
 .lvLost { background: color-mix(in srgb, var(--bad) 16%, var(--t-bg)); border: 1px solid var(--bad); padding: 8px; margin: 0 0 8px;
   display: flex; flex-direction: column; gap: 4px; }
 .lvLost > b { color: var(--bad); font: 700 13px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 html[data-theme="dark"] .lvLost > b, html:not([data-theme]) .lvLost > b { color: #ff4d5e; }
-.lvConn { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 12px var(--mono); color: var(--t-fg2);
+.lvConn { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 13px var(--mono); color: var(--t-fg2);
   border-top: 1px solid var(--t-rule); padding: 6px 0 2px; margin-bottom: 4px; }
 details.lvFold { border-top: 1px dashed var(--t-rule); padding: 6px 0 2px; }
-details.lvFold > summary { cursor: pointer; font: 12px var(--mono); list-style: none; }
+details.lvFold > summary { cursor: pointer; font: 13px var(--mono); list-style: none; }
 details.lvFold > summary::before { content: "▸ "; color: var(--t-fg2); }
 details.lvFold[open] > summary::before { content: "▾ "; }
-details.lvFold > summary em { display: block; font-style: normal; font-size: 11px; color: var(--t-fg2); margin-left: 14px; }
+details.lvFold > summary em { display: block; font-style: normal; font-size: 12px; color: var(--t-fg2); margin-left: 14px; }
 details.lvFold[open] > summary { margin-bottom: 6px; }
 .lvPilot { border-top: 1px solid var(--t-rule); padding: 6px 0; margin-bottom: 4px; }
 .lvPilot .btns { flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.lvPilot button { font-size: 11px !important; padding: 2px 6px !important; }
+.lvPilot button { font-size: 12px !important; padding: 2px 6px !important; }
 #lvPilotSave { margin-top: 4px; }
 
 /* flights tab: blackbox download */
@@ -362,13 +371,13 @@ details.lvFold[open] > summary { margin-bottom: 6px; }
 
 /* 3D view: height above ground next to the drone's drop line (marker.js) */
 .droneAgl { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; white-space: nowrap;
-  font: 700 11px var(--mono, Consolas, monospace); color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
+  font: 700 12px var(--mono, Consolas, monospace); color: #fff; text-shadow: 0 1px 2px #000, 0 0 3px #000; }
 body.sim-on .droneAgl { display: none !important; }
 
 /* an error on the page (theme.js): small, at the bottom, closable; the details go to logs/errors.txt */
 .alpOops { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 9999; max-width: min(720px, calc(100vw - 24px));
   display: flex; gap: 10px; align-items: center; padding: 8px 10px 8px 12px; background: #2a1215; color: #ffd6d6;
-  border: 1px solid #ff6b6b; font: 12px/1.35 var(--mono, Consolas, monospace); box-shadow: 0 4px 18px #0008; }
+  border: 1px solid #ff6b6b; font: 13px/1.35 var(--mono, Consolas, monospace); box-shadow: 0 4px 18px #0008; }
 .alpOops span { flex: 1; overflow-wrap: anywhere; }
 .alpOops button { background: transparent; border: 1px solid #ff6b6b80; color: inherit; font: inherit; padding: 2px 8px; cursor: pointer; }
 
@@ -376,16 +385,16 @@ body.sim-on .droneAgl { display: none !important; }
 .batTiles { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin: 8px 0; }
 .batTile { background: var(--t-bg2); border: 1px solid var(--t-rule); padding: 5px 7px; min-width: 0; }
 .batTile b { display: block; font: 700 15px var(--mono); color: var(--t-fg); }
-.batTile span { font: 10px var(--mono); color: var(--t-fg2); text-transform: uppercase; letter-spacing: .5px; }
-.batTile div { font-size: 11px; line-height: 1.3; color: var(--t-fg2); }
+.batTile span { font: 11px var(--mono); color: var(--t-fg2); text-transform: uppercase; letter-spacing: .5px; }
+.batTile div { font-size: 12px; line-height: 1.3; color: var(--t-fg2); }
 .batCanvas { display: block; width: 100%; height: 120px; }
-.batH { font: 700 11px var(--mono); letter-spacing: 1px; text-transform: uppercase; margin: 10px 0 4px; }
+.batH { font: 700 12px var(--mono); letter-spacing: 1px; text-transform: uppercase; margin: 10px 0 4px; }
 #batPack { width: 100%; }
 #batPack.ask { border-color: var(--t-acc); color: var(--t-acc); }
 #timeline.withBat { flex-wrap: wrap; width: min(860px, calc(100vw - 24px)) !important; padding-bottom: 4px !important; }
 #timeline.withBat #batStrip { margin-left: 6px; }
 #batStrip { flex: 1 0 100%; width: 100%; height: 74px; cursor: crosshair; }
-.batAt { font: 11px var(--mono); color: var(--t-fg2); white-space: nowrap; padding-right: 4px; }
+.batAt { font: 12px var(--mono); color: var(--t-fg2); white-space: nowrap; padding-right: 4px; }
 #timeline:not(.withBat) .batAt { display: none; }
 .batAt .volt { color: var(--t-acc); } .batAt .cur { color: var(--c-cur); }
 .warnTxt { color: var(--warn, #ffb000); }
@@ -400,7 +409,7 @@ body:has(#timeline.withBat:not(.hidden)) #profile { bottom: 150px; }
    Corners are square everywhere (only round things are round). Buttons read [lowercase] and come in three kinds:
    normal, .primary (filled with the accent: the one thing to do next) and .danger (outlined in red: it deletes). */
 button, select, input, textarea { border-radius: 0; }
-button { font-family: var(--mono); font-size: 12px; }
+button { font-family: var(--mono); font-size: 13px; }
 button { cursor: pointer; }
 button { padding: 4px 8px; }
 select { padding: 4px 6px; }

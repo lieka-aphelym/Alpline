@@ -33,6 +33,18 @@ def wait_until(pg, js, seconds):
         pg.wait_for_timeout(250)
 
 
+def shot(pg, path, tries=3):
+    """A picture of the page. The first one after the browser starts can fail ("Unable to capture screenshot")
+    while its drawing process is still coming up, although the page itself is fine: try again shortly after."""
+    for i in range(tries):
+        try:
+            return pg.screenshot(path=str(path))
+        except Exception:                                  # noqa: BLE001
+            if i == tries - 1:
+                raise
+            pg.wait_for_timeout(2000)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scene", help="location to open (default: the first one that is built)")
@@ -104,7 +116,7 @@ def main():
                     pg.wait_for_timeout(1500)
                     if pg.evaluate("!!document.querySelector('.alpOops')"):       # the page's own error notice
                         errors.append("error notice on the page: " + pg.inner_text(".alpOops"))
-                    pg.screenshot(path=str(out / f"{name.replace(' ', '_')}.png"))
+                    shot(pg, out / f"{name.replace(' ', '_')}.png")
                 except Exception as ex:                    # noqa: BLE001
                     errors.append(f"{ex.__class__.__name__}: {str(ex).splitlines()[0]}")
                 print(f"  {'ok  ' if not errors else 'FAIL'}  {name:12} {path}" + "".join(f"\n        {e}" for e in errors[:5])

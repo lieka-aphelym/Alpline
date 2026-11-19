@@ -16,9 +16,9 @@ Click the map to set the pilot and the area, or drag the [pilot] / [+] markers. 
 ## A new spot
 
 ```bash
-python -m fpv3d new gantrisch --lat 46.712 --lon 7.444 --title "Gantrisch"
-# edit locations/gantrisch.yaml (pilot position, radio settings), then
-python -m fpv3d build locations/gantrisch.yaml
+python -m fpv3d new my_spot --lat 46.557 --lon 8.561 --title "My spot"
+# edit locations/my_spot.yaml (pilot position, radio settings), then
+python -m fpv3d build locations/my_spot.yaml
 ```
 
 Things you'll want to edit in a location file:
@@ -53,9 +53,12 @@ What is different there:
 - **Terrain** comes from the Copernicus worldwide model, measured about every 30 m (swisstopo: 0.5 m). Tree tops and
   roofs are partly in it and there is no bare-ground version, so `dtm` and `dsm` give the same heights. A finer
   `resolution_m` only smooths it. Signal shadows are a rough guide there: a ridge is right, a row of trees is not.
-- **The photo** is the Sentinel-2 cloudless satellite mosaic of 2016, about 10 m per pixel (swisstopo: 10 cm): fine
-  to recognise valleys, forests and villages, not single trees or paths. A finer `ortho_resolution_m` is ignored
-  there, and there is no sharp close-up around the pilot.
+- **The photo** is a Sentinel-2 satellite picture of 2021 (ESA WorldCover), about 10 m per pixel (swisstopo:
+  10 cm): fine to recognise valleys, forests and villages, not single trees or paths. A finer
+  `ortho_resolution_m` is ignored there, and there is no sharp close-up around the pilot. It is the average of a
+  whole year, so ground that is under snow for months looks pale, and where snow lies all year (glaciers, the
+  highest summits) it has no picture: those parts come from the older Sentinel-2 cloudless mosaic of 2016 and
+  look flat white.
 - **No drone zones**: check the official drone map of the country you fly in.
 - **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
 - The **map page** works there too: type a position (`47.26 11.39`) or tick *also search outside Switzerland* and
@@ -64,7 +67,8 @@ What is different there:
 - Positions must be lat/lon. The scene uses the UTM grid of the place (shown in the viewer, for example "UTM 32N").
 
 Terrain downloads are 1 x 1 degree files (20 to 50 MB each), kept in `cache/copernicus/` and reused by every
-location nearby. The photo comes as small map tiles, kept in `cache/sentinel2/`. `prefetch` fetches both, and
+location nearby. The photo is read in small pieces from large files on the server and kept in `cache/worldcover/` (the 2016
+mosaic, where it is needed, in `cache/sentinel2/`). `prefetch` fetches both, and
 `cache prune` (the launcher's *[clean unused tiles]*) removes what no location needs any more, as for swisstopo.
 
 Just across the Swiss border (roughly 45.7 to 47.9 north, 5.8 to 10.6 east) a location stays on the Swiss grid:
@@ -112,7 +116,7 @@ Location options (`terrain:`): `buildings: true|false`, `ortho_detail_m: auto|0.
 Buildings come from the public OpenStreetMap servers (Overpass API), which limit how many requests one computer can make in a row. fpv3d retries a busy server and then tries two other public servers. If a scene still ends up without buildings, the viewer says why (*View* tab), and you can retry only the missing ones:
 ```bash
 python -m fpv3d buildings                          # every built scene that has no buildings yet
-python -m fpv3d buildings locations/moleson.yaml   # one scene (redone even if it has some)
+python -m fpv3d buildings locations/my_spot.yaml   # one scene (redone even if it has some)
 python -m fpv3d buildings --all                    # redo all of them
 ```
 The same thing is available as the *Buildings* button on the map page ([saved]).
@@ -122,12 +126,12 @@ The same thing is available as the *Buildings* button on the map page ([saved]).
 Every 1 km swisstopo tile is downloaded once and resampled once per resolution. Results are kept in `cache/lod/<dtm|dsm|ortho>/<res>m/`, and every later build and location that touches those tiles reuses them. A new resolution of an area you already downloaded is made from the saved downloads, with no network needed. LOS shadow maps are also reused when terrain, pilot and radio settings haven't changed.
 
 ```bash
-python -m fpv3d prefetch locations/moleson.yaml --res 2 5 10 --ortho-res 1 2   # get several detail levels now, use them later or offline
-python -m fpv3d prefetch locations/moleson.yaml --surface both                  # bare ground + trees/buildings
-python -m fpv3d build locations/moleson.yaml --resolution 2 --name moleson_2m  # high-detail variant next to the normal scene
+python -m fpv3d prefetch locations/my_spot.yaml --res 2 5 10 --ortho-res 1 2   # get several detail levels now, use them later or offline
+python -m fpv3d prefetch locations/my_spot.yaml --surface both                  # bare ground + trees/buildings
+python -m fpv3d build locations/my_spot.yaml --resolution 2 --name my_spot_2m  # high-detail variant next to the normal scene
 python -m fpv3d cache info                                                      # what's cached and how big
 python -m fpv3d cache clear --raw                                               # free space, keep the resampled tiles
-python -m fpv3d build locations/moleson.yaml --refresh                         # re-download (new swisstopo acquisition)
+python -m fpv3d build locations/my_spot.yaml --refresh                         # re-download (new swisstopo acquisition)
 ```
 
 ## Drone zones (FOCA)
@@ -150,7 +154,7 @@ python -m fpv3d refresh-all               # all built scenes: new features, fres
 python -m fpv3d refresh-all --zones-only  # only re-download the drone zones (fastest)
 python -m fpv3d refresh-all --full        # also rebuild the terrain from the cache
 python -m fpv3d refresh-all --missing     # also build locations that were never built
-python -m fpv3d refresh-all --only moleson teysachaux
+python -m fpv3d refresh-all --only my_spot my_other_spot
 ```
 The same thing is available as buttons on the map page (*Update all scenes*). One scene failing doesn't stop the others, and a summary is printed at the end.
 
@@ -162,9 +166,9 @@ File names are kept plain: lowercase letters, digits, `_` and `-`, with no space
 - **On the map page:** use *[saved] → [rename]* next to a location.
 
 ```bash
-python -m fpv3d rename location t gruyere_north --title "Gruyère north"   # yaml, scene folder, logs/sim/<name>/
-python -m fpv3d rename location moleson --title "Moléson (FR)"           # title only
-python -m fpv3d rename log teysachaux teysachaux_sim_2026-10-11_1525 first_ridge_run
+python -m fpv3d rename location t my_spot_north --title "My spot, north" # yaml, scene folder, logs/sim/<name>/
+python -m fpv3d rename location my_spot --title "My spot (east side)"    # title only
+python -m fpv3d rename log my_spot my_spot_sim_2026-10-11_1525 first_ridge_run
 python -m fpv3d tidy            # show what would be cleaned (titles, old sim_YYYYMMDD_HHMMSS names)
 python -m fpv3d tidy --apply    # do it
 ```
@@ -177,8 +181,8 @@ On the map page, *[saved] → [delete]* next to a location (or *[map] → This l
 - **Kept:** the terrain cache (shared by all locations) and your own flight logs outside `logs/sim/` are never touched.
 
 ```bash
-python -m fpv3d delete teysachaux          # asks for confirmation (-y to skip)
+python -m fpv3d delete my_spot             # asks for confirmation (-y to skip)
 python -m fpv3d restore                    # list what can be restored
-python -m fpv3d restore teysachaux
+python -m fpv3d restore my_spot
 python -m fpv3d deleted --purge            # empty deleted/ for good (--older-than 30 = only old ones)
 ```

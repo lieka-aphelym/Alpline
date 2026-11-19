@@ -7,7 +7,8 @@ page), per 256 px tile:
     mask    ch.swisstopo.swissboundaries3d-land-flaeche.fill Switzerland's area: everything outside is dimmed
     zones   ch.bazl.einschraenkungen-drohnen                 FOCA drone restrictions
 The rest of the world is a satellite picture: the Sentinel-2 cloudless mosaic of 2016 by EOX (CC BY 4.0, the same
-as the photo of scenes abroad, see fpv3d/sentinel2.py), darkened to sit with the map.
+as the photo of scenes abroad, see fpv3d/sentinel2.py), darkened to sit with the map. Zoomed far out (below zoom
+ZMAP) everything is satellite, Switzerland too: one picture of the world, without a dark map patch in it.
 
 Each tile is styled once (dark map shaded by the relief, dimmed outside Switzerland; zones as red outlines with a
 hatch; satellite darkened) and stored in cache/launcher/tiles_v2/<z>/<x>_<y>.png (+ _z.png for the zones), so it
@@ -35,6 +36,8 @@ CH_BOX = (5.85, 45.75, 10.6, 47.9)        # Switzerland itself ([CH] button)
 ZOV = 9                                    # zoom of the overview
 ZMAX = 13                                  # deepest detail zoom (about 13 m per pixel at 46°: towns, roads, rivers)
 ZMIN = 2                                   # the whole world in a handful of tiles
+ZMAP = 8                                   # below this zoom the view is "the world": satellite everywhere, Switzerland
+#                                            included (a small dark map in the middle of a satellite picture looked odd)
 WORLD_URL = os.environ.get("ALPLINE_WORLD_TILES", "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g") \
     + "/{z}/{y}/{x}.jpg"
 URL = "https://wmts.geo.admin.ch/1.0.0/{layer}/default/current/3857/{z}/{x}/{y}.{ext}"
@@ -75,7 +78,10 @@ def group_points(pts, radius):
 
 
 def in_wide(z, x, y) -> bool:
-    """A tile that lies wholly inside the WIDE box is a swisstopo map tile; any other is satellite."""
+    """A tile that lies wholly inside the WIDE box is a swisstopo map tile; any other is satellite, and so is
+    every tile of the zoomed-out world view (zoom below ZMAP)."""
+    if z < ZMAP:
+        return False
     x0, y0 = merc(WIDE[0], WIDE[3], z)
     x1, y1 = merc(WIDE[2], WIDE[1], z)
     return x * 256 >= x0 and (x + 1) * 256 <= x1 and y * 256 >= y0 and (y + 1) * 256 <= y1

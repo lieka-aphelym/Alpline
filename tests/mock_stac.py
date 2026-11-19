@@ -1,8 +1,8 @@
 """Offline test helper: serves a fake swisstopo STAC API with synthetic terrain tiles
-(a Moléson-like peak) so the full pipeline can be tested without internet.
+(one peak with a side ridge) so the full pipeline can be tested without internet.
 
     python tests/mock_stac.py  &      # serves on :8765
-    FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9 python -m fpv3d build locations/moleson.yaml
+    FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9 python -m fpv3d build locations/my_spot.yaml
 """
 import http.server
 import os
@@ -30,7 +30,7 @@ PEAK = wgs84_to_lv95(46.5486, 7.0181)
 def height(E, N):
     dx, dy = (E - PEAK[0]) / 1000, (N - PEAK[1]) / 1000
     h = 1050 + 950 * np.exp(-(dx ** 2 / 1.1 + dy ** 2 / 0.6))           # main peak
-    h += 300 * np.exp(-((dx - 1.6) ** 2 / 0.3 + (dy + 0.8) ** 2 / 1.5))  # side ridge (Teysachaux-ish)
+    h += 300 * np.exp(-((dx - 1.6) ** 2 / 0.3 + (dy + 0.8) ** 2 / 1.5))  # a side ridge
     h += 25 * np.sin(E / 170.0) * np.cos(N / 230.0)
     return h.astype(np.float32)
 
@@ -104,6 +104,29 @@ def make_photo_tile(z, x, y):
     buf = io.BytesIO()
     Image.fromarray(rgb).save(buf, "JPEG", quality=95)
     return buf.getvalue()
+
+
+def make_worldcover(folder, lat, lon, n=2400, hole=None):
+    """One 1 degree file of the fake 2021 satellite picture, where the real ones are (rgbnir/2021/N47/...), in the
+    real layout: red, green, blue, infrared as reflectance x 10000. It shows the same colours as make_photo_tile
+    (red grows east, green north around PHOTO_SPOT) once Alpline has turned it into an ordinary picture.
+    `hole` (west, south, east, north in degrees): no picture there, as the real files have over glaciers."""
+    from fpv3d.worldcover import GAMMA, WHITE, square_path
+    p = Path(folder) / square_path(lat, lon)
+    if not p.exists():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        lons = lon + (np.arange(n) + 0.5) / n
+        lats = lat + 1 - (np.arange(n) + 0.5) / n
+        LO, LA = np.meshgrid(lons, lats)
+        seen = np.stack([np.clip(128 + 1500 * (LO - PHOTO_SPOT[1]), 0, 255), np.clip(128 + 1500 * (LA - PHOTO_SPOT[0]), 0, 255),
+                         np.full(LO.shape, 120.0), np.full(LO.shape, 200.0)])
+        dn = np.maximum(1, np.round(WHITE * (seen / 255.0) ** GAMMA)).astype(np.uint16)     # undo the picture curve
+        if hole:
+            dn[:, (LO > hole[0]) & (LO < hole[2]) & (LA > hole[1]) & (LA < hole[3])] = 0
+        with rasterio.open(p, "w", driver="GTiff", width=n, height=n, count=4, dtype="uint16", crs="EPSG:4326", nodata=0,
+                           tiled=True, compress="deflate", transform=from_origin(lon, lat + 1, 1 / n, 1 / n)) as d:
+            d.write(dn)
+    return p
 
 
 def make_square(lat, lon, n=1200):

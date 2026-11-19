@@ -2,7 +2,7 @@
 the viewer before you have a real flight log. The path takes off at the pilot, climbs,
 flies a loop that goes behind the terrain, and comes home. RSSI/LQ are simulated.
 
-    python tests/make_demo_log.py scenes/moleson logs/demo_moleson_edgetx.csv
+    python tests/make_demo_log.py scenes/my_spot logs/demo_my_spot_edgetx.csv
 """
 import csv
 import json

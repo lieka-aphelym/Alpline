@@ -140,7 +140,8 @@ def cmd_prefetch(a):
     tc = TileCache(cache)
     kinds = ["dtm", "dsm"] if a.surface == "both" else [a.surface or cfg.terrain.surface]
     # every source the place needs (swisstopo, and the worldwide model / photo abroad and across the border)
-    ortho_res = lambda g: [max(r, terrain.photo_native_m(cfg.crs)) for r in (a.ortho_res or [cfg.ortho_res(g)])]  # noqa: E731
+    native = terrain.photo_native_m(cfg.crs, terrain._where(cfg.grid(10)))
+    ortho_res = lambda g: [max(r, native) for r in (a.ortho_res or [cfg.ortho_res(g)])]  # noqa: E731
     if cor is not None:                       # route-shaped location: only the strip's tiles
         keys = cor.tile_keys()
         for res in a.res or [cfg.terrain.resolution_m]:

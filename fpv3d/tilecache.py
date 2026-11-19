@@ -32,6 +32,21 @@ from .geo import Grid
 
 TILE = 1000  # cache tiles are 1 x 1 km on the kilometre grid of the source's coordinate system (LV95 for swisstopo)
 
+# The Swiss grid, spelled out, for warping data that comes in another system (the worldwide sources) onto it.
+# Named as "EPSG:2056" the warper left bands of a tile empty south of Switzerland (seen around Mont Blanc, LV95
+# N 1072-1073 km), although every single point converts fine and to the same place with both spellings.
+_WARP_CRS = {"EPSG:2056": "+proj=somerc +lat_0=46.9524055555556 +lon_0=7.43958333333333 +k_0=1 +x_0=2600000 +y_0=1200000 "
+                          "+ellps=bessel +towgs84=674.374,15.056,405.346,0,0,0,0 +units=m +no_defs"}
+
+
+def _same_crs(file_crs, crs: str) -> bool:
+    """Is the file already on the grid `crs` (swisstopo's own files)? Then nothing needs converting."""
+    try:
+        return file_crs is None or f"EPSG:{file_crs.to_epsg()}" == crs
+    except Exception:
+        return False
+
+
 KIND_RESAMPLING = {
     "dtm": Resampling.average,   # bare ground: smooth average
     "dsm": Resampling.max,       # surface: keep tree tops / roofs, they block the signal
@@ -83,9 +98,24 @@ class TileCache:
             return None
         return np.asarray(Image.open(p).convert("RGB")) if kind == "ortho" else np.load(p)
 
+    def _drop_faulty(self):
+        """Worldwide data fitted onto the Swiss grid before the warp was corrected (_WARP_CRS) can have an empty
+        band along a tile edge. Such tiles cannot be told from good ones, so the first time this cache is used
+        again they are all thrown away once; they are made again from the downloads that are kept, without the
+        internet. A note in the folder says it was done."""
+        lod, note = self.base / "lod", self.base / "_warp2"
+        if not self.source.cache_prefix or self.source.crs not in _WARP_CRS or note.exists():
+            return
+        if lod.exists():
+            log(f"  {self.source.name}: tiles made by an earlier version are made again (they could have an empty band)")
+            shutil.rmtree(lod, ignore_errors=True)
+        self.base.mkdir(parents=True, exist_ok=True)
+        note.touch()
+
     # ------------------------------------------------------------ fill
     def ensure(self, kind: str, res: float, keys, refresh=False) -> Dict[str, int]:
         """Make sure every tile in `keys` exists at `res` (downloading only what is missing)."""
+        self._drop_faulty()
         if refresh:
             for k in keys:
                 for p in (self.tile_path(kind, res, k), self._none_path(kind, res, k)):
@@ -179,8 +209,11 @@ class TileCache:
             with rasterio.open(raw) as src:
                 for b in range(bands):
                     reproject(source=rasterio.band(src, min(b + 1, src.count)), destination=dst[b],
-                              src_crs=src.crs or crs, dst_crs=crs,
-                              dst_transform=tr, dst_nodata=nodata, resampling=how)
+                              src_crs=src.crs or crs, dst_crs=crs if _same_crs(src.crs, crs) else _WARP_CRS.get(crs, crs),
+                              dst_transform=tr, dst_nodata=nodata, resampling=how,
+                              # a few more source pixels than the warper thinks it needs: without them it left a
+                              # 10 m band of a tile empty at some places (seen at LV95 N 1073 km, Mont Blanc)
+                              SOURCE_EXTRA=8)
             if i:
                 hole = np.isnan(out) if kind != "ortho" else np.broadcast_to((out == 0).all(axis=0), out.shape)
                 out[hole] = dst[hole]

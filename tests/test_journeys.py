@@ -55,6 +55,7 @@ class Data:
                         FPV3D_STAC_BASE=f"http://127.0.0.1:{p}/api/stac/v0.9",
                         FPV3D_COPERNICUS_BASE=f"http://127.0.0.1:{p}/copernicus",
                         FPV3D_SENTINEL2_BASE=f"http://127.0.0.1:{p}/s2",
+                        FPV3D_WORLDCOVER_BASE=str(self.dir / "fake_worldcover"),      # a folder: no square exists yet
                         FPV3D_OVERPASS_URL=f"http://127.0.0.1:{p}/api/interpreter")
 
     def run(self, *args, ok=True, input_text=None):
@@ -200,10 +201,12 @@ def test_broken_location_file_does_not_break_the_rest():
 
 
 def test_location_outside_switzerland():
-    """A place abroad builds from the worldwide model and satellite photo: on its UTM grid, the right way up, with a
-    flight in the right spot, no Swiss drone zones, and a rebuild without internet."""
+    """A place abroad builds from the worldwide model and the 2021 satellite photo: on its UTM grid, the right way
+    up, with a flight in the right spot, no Swiss drone zones, and a rebuild without internet."""
     import numpy as np
+    import mock_stac
     d = Data()
+    mock_stac.make_worldcover(d.dir / "fake_worldcover", 47, 11)
     f = d.dir / "locations" / "010_abroad.yaml"
     f.write_text(LOC.format(name="010_abroad", title="Abroad").replace("lat: 46.553, lon: 7.022", "lat: 47.26, lon: 11.39")
                  .replace("lat: 46.5553, lon: 7.0305", "lat: 47.262, lon: 11.395").replace("ortho: false", "ortho: true, ortho_resolution_m: 2"),
@@ -217,8 +220,8 @@ def test_location_outside_switzerland():
     g = m["grid"]
     assert g["crs"] == "EPSG:32632" and [s["name"] for s in m["terrain_sources"]] == ["copernicus"]
     assert "Copernicus" in m["terrain_sources"][0]["credit"] and m["geozones"] is None
-    assert m["ortho"] == "ortho.jpg" and [s["name"] for s in m["ortho_sources"]] == ["sentinel2"]
-    assert "CC BY 4.0" in m["ortho_sources"][0]["credit"] and m["detail"] is None
+    assert m["ortho"] == "ortho.jpg" and [s["name"] for s in m["ortho_sources"]] == ["worldcover"]
+    assert "CC BY 4.0" in m["ortho_sources"][0]["credit"] and "2021" in m["ortho_sources"][0]["credit"] and m["detail"] is None
     from PIL import Image
     img = np.asarray(Image.open(d.dir / "scenes" / "010_abroad" / "ortho.jpg").convert("RGB")).astype(float)
     assert img.shape == (g["rows"], g["cols"], 3), img.shape                      # 10 m: the satellite's own detail, not the 2 m asked
@@ -235,10 +238,11 @@ def test_location_outside_switzerland():
     assert 0 < p["x"] < 2000 and 0 < p["y"] < 2000 and t["max_dist_m"] < 200     # pilot and flight sit inside the map
     assert (d.dir / "cache" / "copernicus" / "32632" / "lod" / "dtm" / "10m").exists()
     assert not (d.dir / "cache" / "lod").exists()                       # nothing was asked of swisstopo
-    assert (d.dir / "cache" / "sentinel2" / "32632" / "lod" / "ortho" / "10m").exists()
+    assert (d.dir / "cache" / "worldcover" / "32632" / "lod" / "ortho" / "10m").exists()
+    assert not (d.dir / "cache" / "sentinel2").exists()                 # the 2016 picture was not needed
     # cleaning the cache keeps what this location needs (downloads and tiles) and drops the rest
     raw = d.dir / "cache" / "copernicus" / "raw"
-    junk = [raw / "Copernicus_DSM_COG_10_N10_00_E010_00_DEM.tif", d.dir / "cache" / "sentinel2" / "raw" / "14-1-1.tif",
+    junk = [raw / "Copernicus_DSM_COG_10_N10_00_E010_00_DEM.tif", d.dir / "cache" / "worldcover" / "raw" / "32632_1-1_N10E010.tif",
             d.dir / "cache" / "copernicus" / "32632" / "lod" / "dtm" / "10m" / "300-4000.npy"]
     other = d.dir / "cache" / "copernicus" / "32654" / "lod" / "dtm" / "10m" / "293-3915.npy"      # a grid no location is on
     other.parent.mkdir(parents=True)
@@ -249,8 +253,9 @@ def test_location_outside_switzerland():
     assert "4 tiles" in d.run("cache", "prune").stdout
     assert not any(f.exists() for f in junk + [other]) and all(f.exists() for f in kept)
     info = d.run("cache", "info").stdout
-    assert "copernicus" in info and "sentinel2" in info and "EPSG:32632" in info
+    assert "copernicus" in info and "worldcover" in info and "EPSG:32632" in info
     d.env["FPV3D_COPERNICUS_BASE"] = d.env["FPV3D_SENTINEL2_BASE"] = "http://127.0.0.1:9/none"   # no internet: the cache is enough
+    d.env["FPV3D_WORLDCOVER_BASE"] = "http://127.0.0.1:9/none"
     d.run("build", "locations/010_abroad.yaml")
 
 

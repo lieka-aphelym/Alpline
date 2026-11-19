@@ -622,14 +622,16 @@ class SwissMap:
     def compose(self, W, H, fast):
         """The visible part of the map at the window's size, as one image: the overview, with sharper tiles on top
         when zoomed in (those not loaded yet are fetched in the background; the overview shows meanwhile). A view
-        that reaches beyond the overview gets the world's satellite tiles first, and the overview laid over them."""
+        that reaches beyond the overview gets the world's satellite tiles first, and the overview laid over them;
+        zoomed out further still (tile zoom below ZMAP) it is the satellite picture alone, Switzerland included."""
         from PIL import Image
-        from fpv3d.launcher_tiles import in_wide
+        from fpv3d.launcher_tiles import ZMAP, in_wide
         zones = self.zones.get()
         out = Image.new("RGB", (W, H), MAP_BG)
         z = self.detail_zoom(W, H)
         self.wanted = set()
         under = z <= ZM and not self.view_inside(W, H)        # the world goes under the overview
+        world = under and z < ZMAP                            # zoomed far out: satellite only, Switzerland included
 
         def tiles(skip_map):
             f = 2 ** (z - ZM)                         # tile pixels per map pixel
@@ -659,7 +661,9 @@ class SwissMap:
                     out.paste(zt, (L, T), zt)
 
         if under and self.tiles:
-            tiles(skip_map=True)
+            tiles(skip_map=not world)
+        if world:
+            return out
         key = "map_z" if zones and "map_z" in self.src else "map"
         k, size = 1.0, ""
         if self.s <= 0.14 and key + "_small" in self.src:         # the world view: the overview is tiny
