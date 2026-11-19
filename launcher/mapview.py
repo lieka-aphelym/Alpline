@@ -588,6 +588,16 @@ class SwissMap:
                 full = full.resize((round(self.span[0]), round(self.span[1])), Image.LANCZOS)
             self.src["map"] = soft_edges(full)
             self.src["mask"] = edge_mask(full.size)          # to lay the overview over the satellite picture
+            pm = MAP_DIR / "overview_mask.png"
+            if not pm.exists():                                # maps downloaded before it existed: fetch it once, quietly
+                self.fetch_border()
+            if pm.exists():                                    # Switzerland's outline: the map inside, satellite around
+                from PIL import ImageChops, ImageFilter
+                with Image.open(pm) as m:
+                    border = m.convert("L").resize(full.size, Image.BILINEAR).filter(ImageFilter.GaussianBlur(2.5))
+                self.src["border"] = ImageChops.multiply(border, self.src["mask"])
+                self.src["border_full"] = border             # zoomed in: which detail tiles are Swiss, which abroad
+                self.src["edge"] = border.filter(ImageFilter.FIND_EDGES).point(lambda p: min(255, p * 3))
             if pz.exists():
                 with Image.open(pz) as z:
                     ov = z.convert("RGBA").resize(full.size)
@@ -596,12 +606,29 @@ class SwissMap:
             for k in list(self.src):                  # half size: used when zoomed out (4x fewer pixels to scale)
                 self.src[k + "_half"] = self.src[k].resize((full.size[0] // 2, full.size[1] // 2), Image.LANCZOS)
             # small copies for the world view, where the whole overview is a few dozen pixels wide
-            for k in ("map", "map_z", "mask"):
+            for k in ("map", "map_z", "mask", "border"):
                 if k in self.src:
                     self.src[k + "_small"] = self.src[k].resize((full.size[0] // 8, full.size[1] // 8), Image.LANCZOS)
         except Exception as ex:                       # a damaged file: download again with [update map]
             unexpected(ex)
             self.hint = f"map file not readable ({ex.__class__.__name__}): [update map]"
+
+    def fetch_border(self):
+        """Background: Switzerland's outline for a map downloaded by an older launcher (small: one layer at zoom 9).
+        Offline, the map simply keeps its old look until the next try."""
+        if getattr(self, "_border_job", False) or not self.tiles:
+            return
+        self._border_job = True
+
+        def work():
+            try:
+                self.tiles.overview_mask().save(MAP_DIR / "overview_mask.png")
+            except Exception:
+                return                                  # no internet now: try again next start
+            def done():
+                self.load_sources(); self.draw()
+            self.app.root.after(0, done)
+        threading.Thread(target=work, daemon=True).start()
 
     def view_inside(self, W, H):
         """Is the whole view inside the overview picture (the usual case: Switzerland and its neighbours)?"""
@@ -630,10 +657,11 @@ class SwissMap:
         out = Image.new("RGB", (W, H), MAP_BG)
         z = self.detail_zoom(W, H)
         self.wanted = set()
-        under = z <= ZM and not self.view_inside(W, H)        # the world goes under the overview
+        clip = "border" in self.src and z <= ZM                # the map only inside Switzerland, satellite around it
+        under = z <= ZM and (clip or not self.view_inside(W, H))   # the world goes under the overview
         world = under and z < ZMAP                            # zoomed far out: satellite only, Switzerland included
 
-        def tiles(skip_map):
+        def tiles(skip_map, sat=False, border=None):
             f = 2 ** (z - ZM)                         # tile pixels per map pixel
             gx = lambda X: W / 2 + (X / f - self.org[0] - self.cx) * self.s       # global px at z -> screen
             gy = lambda Y: H / 2 + (Y / f - self.org[1] - self.cy) * self.s
@@ -647,21 +675,33 @@ class SwissMap:
                                  key=lambda t: (t[0] - ctr[0]) ** 2 + (t[1] - ctr[1]) ** 2):    # centre first
                 if skip_map and in_wide(z, tx, ty):   # the overview shows this part
                     continue
-                t = self.tile(z, tx, ty, load=not fast)
-                if t is None:
-                    continue
                 L, T = round(gx(tx * 256)), round(gy(ty * 256))
                 R, B = round(gx(tx * 256 + 256)), round(gy(ty * 256 + 256))
                 if R - L < 2 or B - T < 2:
                     continue
                 flt = Image.BILINEAR if fast or abs((R - L) - 256) > 64 else Image.LANCZOS
-                out.paste(t[0].resize((R - L, B - T), flt), (L, T))
+                cut = None
+                if border is not None:                # zoomed in: the map inside Switzerland, the satellite picture around
+                    ox, oy, ow = tx * 256 / f - self.org[0], ty * 256 / f - self.org[1], 256 / f
+                    cut = border.crop((math.floor(ox), math.floor(oy), math.ceil(ox + ow), math.ceil(oy + ow)))
+                    lo, hi = cut.getextrema()
+                    if lo < 255:                      # some of it is abroad: the satellite picture first
+                        st = self.tile(z, tx, ty, load=not fast, sat=in_wide(z, tx, ty))
+                        if st is not None:
+                            out.paste(st[0].resize((R - L, B - T), flt), (L, T))
+                    if hi == 0:                       # all abroad: no map tile needed
+                        continue
+                    cut = None if lo == 255 else cut.resize((R - L, B - T), Image.BILINEAR)
+                t = self.tile(z, tx, ty, load=not fast, sat=sat and in_wide(z, tx, ty))
+                if t is None:
+                    continue
+                out.paste(t[0].resize((R - L, B - T), flt), (L, T), cut)
                 if zones and t[1] is not None:
                     zt = t[1].resize((R - L, B - T), Image.BILINEAR)
                     out.paste(zt, (L, T), zt)
 
         if under and self.tiles:
-            tiles(skip_map=not world)
+            tiles(skip_map=not world and not clip, sat=clip)
         if world:
             return out
         key = "map_z" if zones and "map_z" in self.src else "map"
@@ -682,20 +722,26 @@ class SwissMap:
             dw, dh = max(1, round((box[2] - box[0]) * s)), max(1, round((box[3] - box[1]) * s))
             flt = Image.BILINEAR if fast else Image.LANCZOS
             part = im.crop(box).resize((dw, dh), flt)
-            if under:                                 # fade its edges into the satellite picture, not into the page
+            if clip:                                  # Switzerland only, with a faint line along its border
+                out.paste(part, (dx, dy), self.src["border" + size].crop(box).resize((dw, dh), Image.BILINEAR))
+                if not size and "edge" in self.src:
+                    line = self.src["edge"].crop(box).resize((dw, dh), Image.BILINEAR)
+                    out.paste(Image.new("RGB", (dw, dh), (190, 200, 212)), (dx, dy), line.point(lambda p: int(p * 0.55)))
+            elif under:                               # fade its edges into the satellite picture, not into the page
                 out.paste(part, (dx, dy), self.src["mask" + size].crop(box).resize((dw, dh), Image.BILINEAR))
             else:
                 out.paste(part, (dx, dy))
         if z > ZM and self.tiles:
-            tiles(skip_map=False)
+            tiles(skip_map=False, border=self.src.get("border_full"))
         return out
 
-    def tile(self, z, x, y, load=True):
-        """A styled tile from memory, else from disk (load=True), else asked for in the background (None)."""
-        key = (z, x, y)
+    def tile(self, z, x, y, load=True, sat=False):
+        """A styled tile from memory, else from disk (load=True), else asked for in the background (None).
+        sat: the satellite picture even inside the WIDE box (under the map clipped to the border)."""
+        key = (z, x, y, "sat") if sat else (z, x, y)
         t = self.tcache.pop(key, None)
         if t is None and load:
-            t = self.tiles.load(z, x, y)
+            t = self.tiles.load(z, x, y, sat=sat)
         if t is not None:
             self.tcache[key] = t                      # newest last
             while len(self.tcache) > 220:
@@ -716,7 +762,7 @@ class SwissMap:
         try:
             if key not in self.wanted:
                 return
-            t = self.tiles.get(*key)
+            t = self.tiles.get_sat(*key[:3]) if len(key) == 4 else self.tiles.get(*key)
             self.app.root.after(0, lambda: self._tile_arrived(key, t))
         except Exception as ex:
             unexpected(ex)
@@ -772,6 +818,10 @@ class SwissMap:
                 MAP_DIR.mkdir(parents=True, exist_ok=True)
                 rgb.save(MAP_DIR / "overview.png")
                 zo.save(MAP_DIR / "overview_zones.png")
+                try:
+                    self.tiles.overview_mask().save(MAP_DIR / "overview_mask.png")
+                except Exception as ex:               # the map still works, just with its old dark surroundings
+                    unexpected(ex)
                 for old in MAP_DIR.glob("ch_*.png"):  # older launchers' single-picture maps
                     try:
                         old.unlink()

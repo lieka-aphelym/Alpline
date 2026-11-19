@@ -13,6 +13,45 @@ What changed in each release of Alpline. Newest first.
   from the 2016 picture, which stays as the fallback.
 - **No more thin black lines in the photo south of Switzerland:** around Mont Blanc and Aosta a 10 to 20 m band
   along some 1 km tile edges stayed empty. Rebuild the location to get the corrected photo.
+- **New viewer layout:** a top bar with the place, its coordinates and the camera modes; the tabs with icons on
+  the left; the 3D view, no longer covered by the panel; and the instruments: video range, how much stays in sight at the
+  chosen height, the ground height and position of the pilot (degrees and grid) and where the heights and photo
+  come from. On a phone the layout stays
+  as it was, with a slim top bar.
+- **New locations map layout:** the map page now looks like the viewer. A top bar holds the name, the place search
+  (its results, and the opt-in worldwide search, drop down under it), the position under the mouse, the links to
+  the pages and a ··· menu for light / dark and the mode. The tabs (New, Saved, Layers) have icons and their panel
+  sits beside the map instead of over it. One setting per row, grouped as location, terrain and radio; the shape
+  and what a click sets are square switches; the summary (pilot, ground, area, tiles, size) is a list of figures.
+  Plain button labels, square markers on the map, and on a phone the panel is a bottom sheet under the map.
+- **Calmer viewer:** on a wide screen it opens on the terrain, with the panel closed until you click a tab. The
+  instruments show three figures (video range, in sight, ground at the pilot); the
+  position and data are one click away. The training flight starts from the Fly tab. The top bar keeps the place
+  and the camera; the area, light / dark and the mode are under its ··· menu.
+- **Clean view by default:** a location opens with just the terrain, the photo and the pilot. The signal colours,
+  the range bubble and the distance rings are one click away (*Signal* and *Map → Advanced*) and stay on once you
+  switch them on; the instruments still give the figures. No-fly zones still show.
+- **Digital video systems in the radio setup:** *Signal → Radio range* now offers DJI O4 Air Unit, O4 Air Unit Pro,
+  O3 Air Unit (CE and FCC versions) and Walksnail Avatar HD Pro next to the analog setups. Their range is the one
+  the maker gives for an open field (for example 6 km for the O4 in CE), instead of an analog receiver's 1 to 2 km.
+  Save the setup for the location to recompute its signal shadows.
+- **Surroundings:** a location is now built with a coarse ring of terrain around it (as wide as the area on each
+  side, 2 to 6 km; worldwide 30 m heights and the 2016 satellite photo), so the peaks and valleys around show and the
+  map fades out at the ring's rim instead of at the area's edge. It carries no signal data and is a little greyer
+  than the area. Rebuild a location to get it; *Map → Advanced → Surroundings* hides it. Route locations do not
+  get one. [cache clean-up] keeps its tiles.
+- **The map no longer ends like a cut slab:** the last few hundred metres of the area fade into the sky colour,
+  and far terrain is a little hazy, as in real air. *Map → Advanced → Soft edges* turns it off (route locations
+  keep their plain strip).
+- **Playback bar and instruments:** on a wide screen the playback bar is docked along the bottom of the 3D view
+  instead of floating in the middle, and *hide* tucks it away behind a small *playback* button (space still plays
+  and pauses). The instruments are a card in the view's top-right corner, as tall as what they show, that folds to
+  one line (range and in sight). Both choices are remembered.
+- **Launcher map:** Switzerland is the map, cut along its border, with the satellite picture all around it,
+  instead of a dark rectangle over the neighbouring countries. The outline is fetched once in the background.
+- **Lighter panel:** on a wide screen the tabs keep only the settings. The area, the pilot's source, the data
+  credits and the signal sentence moved to the column; the camera help is a quiet line on the 3D view. One row per
+  setting with its switch on the right, more space between groups, and buttons without the [brackets].
 - **Shorter info box in the viewer:** the data credits are folded into one line, *Data credits*, that opens
   with a click, instead of filling the top of the panel.
 - **Easier to read:** text in the viewer's panel is one size larger (nothing under 11 px any more), the help

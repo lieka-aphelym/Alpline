@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/theme.css">
 <link rel="stylesheet" href="css/mobile.css">
+<link rel="stylesheet" href="css/layout.css">
 <script src="/api/mode.js"></script>
 <script src="js/core/theme.js"></script>
 <script type="importmap">
@@ -20,29 +21,41 @@
 </script>
 </head>
 <body>
+<header id="topbar">
+  <h1>Alpline <small class="by">by lieka</small> <small class="lite">lite</small></h1>
+  <label class="vh" for="scenePick">Location</label>
+  <select id="scenePick" title="Location"></select>
+  <span class="grow"></span>
+  <div id="camBtns" class="seg" role="group" aria-label="Camera"></div>
+  <a class="navlink" href="map.html" title="The map: all your locations, create new ones">Locations</a>
+  <details id="topMenu"><summary title="More: area, look, mode" aria-label="More: area, look, mode">···</summary>
+    <div class="menu">
+      <span class="lbl">Area</span><span id="topCoords" class="coords"></span>
+      <span class="lbl">Look</span><div id="themeSlot"></div>
+      <span class="lbl">Mode</span><div id="modeSlot"></div>
+      <span class="note">Alpline by lieka</span>
+    </div>
+  </details>
+</header>
 <div id="view"></div>
+<div id="viewHint"></div>
 
 <aside id="panel">
   <nav class="rail">
-    <button data-tab="map" title="Map: photo, camera, no-fly zones, this location"><span>[map]</span></button>
-    <button data-tab="signal" title="Signal: where do I lose the drone, radio range"><span>[signal]</span></button>
-    <button data-tab="flights" title="Flights: your logs, comparison, video"><span>[flights]</span></button>
-    <button data-tab="fly" title="Fly: training flight, live flight with the radio + warnings"><span>[fly]</span></button>
-    <button data-tab="battery" title="Battery: voltage, current and pack health for this flight"><span>[battery]</span></button>
+    <button data-tab="map" title="Map: photo, camera, no-fly zones, this location"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg><span>Map</span></button>
+    <button data-tab="signal" title="Signal: where do I lose the drone, radio range"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12a7 7 0 0 1 14 0"/><path d="M8.5 12a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="15" r="1.5"/></svg><span>Signal</span></button>
+    <button data-tab="flights" title="Flights: your logs, comparison, video"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4-8 8 2 12-6s5-4 6-4"/></svg><span>Flights</span></button>
+    <button data-tab="fly" title="Fly: training flight, live flight with the radio + warnings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 8l8 8M16 8l-8 8"/></svg><span>Fly</span></button>
+    <button data-tab="battery" title="Battery: voltage, current and pack health for this flight"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="16" height="10" rx="1"/><path d="M21 11v2"/></svg><span>Battery</span></button>
     <button class="railCollapse" title="Hide / show the panel (or click the active tab)"></button>
   </nav>
   <div id="pbody">
-  <header>
-    <h1>Alpline <small class="by">by lieka</small> <small class="lite">lite</small></h1>
-    <select id="scenePick" title="Scene"></select>
-    <a class="navlink" href="map.html" title="The map: all your locations, create new ones">[locations]</a>
-  </header>
   <div id="sceneInfo" class="muted"></div>
 
   <section data-tab="map">
     <h2>Map</h2>
     <label class="row"><input type="checkbox" id="orthoOn" checked> Aerial photo</label>
-    <label class="row">Camera</label>
+    <label class="row" id="camModeLbl">Camera</label>
     <select id="camMode">
       <option value="orbit">Turn around the map</option>
       <option value="fly">Fly freely (keyboard)</option>
@@ -58,6 +71,8 @@
       <label class="row hidden" id="detailRow"><input type="checkbox" id="detailOn" checked> Extra detail near the centre of the view</label>
       <p id="meshInfo" class="muted small"></p>
       <label class="row"><input type="checkbox" id="ringsOn" checked> Distance rings around the pilot (500 m, 1 km, 2 km)</label>
+      <label class="row hidden" id="surroundRow"><input type="checkbox" id="surroundOn" checked> Surroundings: coarse terrain around the area (no signal data there)</label>
+      <label class="row"><input type="checkbox" id="softEdges" checked> Soft edges: the map fades out, far terrain is hazy</label>
       <label class="row">Exaggerate the relief <output id="exagOut">1.0×</output></label>
       <input type="range" id="exag" min="1" max="3" step="0.1" value="1">
     </details>
@@ -101,7 +116,7 @@
   <section data-tab="signal">
     <h2>Where do I lose the drone? <span class="muted" id="losLink"></span></h2>
     <p class="summary" id="sumSignal"></p>
-    <label class="row"><input type="checkbox" id="losOn" checked> Show it on the map, for a drone flying at</label>
+    <label class="row"><input type="checkbox" id="losOn"> Show it on the map, for a drone flying at</label>
     <select id="losAgl"></select>
     <label class="row"><input type="checkbox" id="losFollow"> Use the height of the flight being played</label>
     <div class="chips">
@@ -359,6 +374,34 @@
   </div>
 </aside>
 
+<aside id="instr" aria-label="Instruments">
+  <div class="ihead">
+    <span class="lbl">Instruments</span><span id="iMini" class="mini"></span>
+    <button id="iFold" type="button" aria-expanded="true" aria-controls="iBody" title="Fold / open the instruments">−</button>
+  </div>
+  <div id="iBody">
+  <div class="cell">
+    <div class="line"><span class="lbl">Video range</span><b id="iRange" class="acc">–</b></div>
+    <span id="iRangeNote" class="note"></span>
+  </div>
+  <div class="cell">
+    <div class="line"><span class="lbl" id="iSightLbl">In sight</span><b id="iSight" class="acc">–</b></div>
+    <div class="gauge" role="presentation"><i id="iSightBar"></i></div>
+    <span id="iSightNote" class="note"></span>
+  </div>
+  <div class="cell">
+    <div class="line"><span class="lbl">Ground at pilot</span><b id="iGround">–</b></div>
+    <span id="iPilotDeg" class="note mono"></span>
+  </div>
+  <details class="cell more"><summary>Position and data</summary>
+    <span id="iPilot" class="mono stack"></span><span id="iPilotNote" class="note"></span>
+    <span id="iData" class="mono stack"></span><span id="iDataNote" class="note"></span>
+    <div id="iCredits"></div>
+  </details>
+  <div id="iHud"></div>
+  </div>
+</aside>
+
 <div id="hud"></div>
 
 <div id="videoBox" class="hidden">
@@ -421,7 +464,9 @@
   </select>
   <span id="batAt" class="batAt"></span>
   <canvas id="batStrip" class="hidden" title="Click to jump there"></canvas>
+  <button id="tlHide" type="button" title="Hide the playback bar (space still plays and pauses)">hide</button>
 </footer>
+<button id="tlShow" type="button" title="Show the playback bar">playback ▴</button>
 
 <div id="loading">
   <span data-logo></span>
