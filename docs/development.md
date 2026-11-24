@@ -57,7 +57,7 @@ skips it once. Settings for all of these are in `pyproject.toml`.
 - **Warnings:** 33 situations with a fake hill, clock and sound: what the warning says (climb, turn, outside the map, weak signal) and what you hear in each mode (sentence once, climb sound repeating, "Climb" after three, muted groups silent, the lost tone). Needs [Node](https://nodejs.org); without it open `http://localhost:8000/viewer/test/` while Alpline runs. Run them after changing `viewer/js/drone/warn.js`.
 - **Browser:** opens the checks page, the map, the share page, the packs page and your first location in Full and Lite, and lists page errors. Screenshots in `logs/checks/`. Failed downloads (no internet) are noted, not counted as errors.
 
-Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. `drone.js` draws the drone icon (live link indicator, training box, build card, share page, empty pages). Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`. The logo animation (spin-up when a page opens, spinning while something loads or builds) is in `theme.css`; the launcher plays frames made from it by `tools/render_logo_frames.py` (run it again after changing the logo).
+Viewer code: `app.js` (scene, replay, panel), `hud.js` (info box), `links.js` (radio editor), `rename.js` (rename / delete), `warn.js` (warnings), `live.js`, `sim.js`, `detail.js`. `drone.js` draws the drone icon (live link indicator, training box, build card, share page, empty pages). Full / Lite / phone is decided once in `theme.js` and handed to the modules by `env.js`. The logo animation (spin-up when a page opens, spinning while something loads or builds) is in `theme.css`; the launcher plays frames made from it by `tools/render_logo_frames.py`. The logo itself (an edelweiss-propeller) is drawn by `tools/make_brand.py`, which writes every file in `viewer/brand/` and the `FLOWER` line of `theme.js`: change the geometry there, then run both tools.
 
 ## Where things are
 
@@ -119,7 +119,7 @@ server and `viewer/js/core/theme.js` puts it into every text and title. After ch
 - internal names stay (`ALPLINE_DATA`, `alpline-cli.exe`, backup file names, the firewall rule, the package `fpv3d`)
 - the installer (`packaging/alpline.iss`), `Alpline.bat`, `build_app.bat` and this documentation spell the name
   themselves: change them by hand
-- the logo images in `viewer/brand/` are pictures: replace them if the logo changes
+- the logo images in `viewer/brand/` are pictures made by `tools/make_brand.py`: run it again if the logo changes
 
 ## No personal data in the project
 

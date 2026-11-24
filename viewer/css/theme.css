@@ -203,40 +203,52 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 #panel h1 svg.logo { width: 22px; height: 22px; flex: none; }
 
 /* ---------------------------------------------------------------- logo animation
-   The arrow is a signal: three even waves on a stem. Spin-up once when a page opens (the propeller
-   spools up, the stem comes in and each wave travels out to its place: one signal sent). While something loads or
-   builds (html.alp-busy, set by alpBusy() in theme.js; always on the loading screen): steady spin and the waves
-   light up inner to outer, again and again (transmitting). */
-svg.logo .lg-sw { transform-origin: 32px 32px; }
+   The logo is an edelweiss that is also a propeller: three petal-blades, three small chevrons between them (the
+   signal) and a diamond heart. Spin-up once when a page opens (the propeller spools up, the heart comes in and each
+   chevron travels out to its place: one signal sent). While something loads or builds (html.alp-busy, set by alpBusy()
+   in theme.js; always on the loading screen): steady spin and the chevrons light up one after the other. */
+svg.logo .lg-sw, svg.logo .lg-hub, .spPop { transform-origin: 32px 32px; }
 @keyframes lg-spinup { 0% { transform: rotate(-540deg); opacity: 0; } 15% { opacity: 1; } 100% { transform: rotate(0); } }
-@keyframes lg-rise { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes lg-pop { from { opacity: 0; transform: scale(.2); } to { opacity: 1; transform: none; } }
 @keyframes lg-send { 0% { opacity: 0; transform: translateY(calc(-1 * var(--dy, 0px))); } 25% { opacity: 1; } 100% { opacity: var(--o, 1); transform: none; } }
 svg.logo.lg-intro .lg-sw { animation: lg-spinup 1.6s cubic-bezier(.15, .7, .2, 1) both; }
-svg.logo.lg-intro .lg-stem { animation: lg-rise .55s .5s cubic-bezier(.22, 1, .36, 1) both; }
-svg.logo.lg-intro .lg-w0 { animation: lg-send .55s .5s cubic-bezier(.22, 1, .36, 1) both; }
-svg.logo.lg-intro .lg-w1 { animation: lg-send .7s .7s cubic-bezier(.22, 1, .36, 1) both; }
-svg.logo.lg-intro .lg-w2 { animation: lg-send .85s .9s cubic-bezier(.22, 1, .36, 1) both; }
+svg.logo.lg-intro .lg-hub { animation: lg-pop .5s .45s cubic-bezier(.3, 1.5, .5, 1) both; }
+svg.logo.lg-intro .lg-w0 { animation: lg-send .55s .7s cubic-bezier(.22, 1, .36, 1) both; }
+svg.logo.lg-intro .lg-w1 { animation: lg-send .55s .85s cubic-bezier(.22, 1, .36, 1) both; }
+svg.logo.lg-intro .lg-w2 { animation: lg-send .55s 1s cubic-bezier(.22, 1, .36, 1) both; }
 @keyframes lg-spin { to { transform: rotate(360deg); } }
-@keyframes lg-tx { 0%, 45%, 100% { opacity: 1; filter: none; } 8% { opacity: .3; } 22% { opacity: 1; filter: brightness(1.4); } }
+@keyframes lg-tx { 0%, 45%, 100% { opacity: 1; } 8% { opacity: .25; } }
 html.alp-busy svg.logo:not(.lg-intro) .lg-sw, #loading svg.logo:not(.lg-intro) .lg-sw { animation: lg-spin 1.4s linear infinite; }
 html.alp-busy svg.logo:not(.lg-intro) .lg-w0, #loading svg.logo:not(.lg-intro) .lg-w0 { animation: lg-tx 1.4s 0s infinite; }
-html.alp-busy svg.logo:not(.lg-intro) .lg-w1, #loading svg.logo:not(.lg-intro) .lg-w1 { animation: lg-tx 1.4s .2s infinite; }
-html.alp-busy svg.logo:not(.lg-intro) .lg-w2, #loading svg.logo:not(.lg-intro) .lg-w2 { animation: lg-tx 1.4s .4s infinite; }
-/* launch screen of the viewer: logo, name, one line, then what is loading. Covers everything (also the panel) until the
-   scene is ready; the logo plays the spin-up first and transmits after that. */
+html.alp-busy svg.logo:not(.lg-intro) .lg-w1, #loading svg.logo:not(.lg-intro) .lg-w1 { animation: lg-tx 1.4s .47s infinite; }
+html.alp-busy svg.logo:not(.lg-intro) .lg-w2, #loading svg.logo:not(.lg-intro) .lg-w2 { animation: lg-tx 1.4s .93s infinite; }
+/* small logos (page headers): the chevrons are left out, as in the small icons */
+h1 svg.logo .lg-ch { display: none; }
+/* launch screen of the viewer: the Alps in three layers, the pilot, a line of sight drawn over the summit to the
+   flower (the drone), which comes in and spins; then the name, one line, and what is loading. Covers everything (also
+   the panel) until the scene is ready. */
+:root, :root[data-theme="dark"] { --sp-r1: var(--t-fg); --sp-r2: #59626d; --sp-r3: #2a3038; }
+:root[data-theme="light"] { --sp-r1: var(--t-fg); --sp-r2: #8e98a3; --sp-r3: #d3d8de; }
 #loading { z-index: 50; display: flex !important; flex-direction: column; align-items: center; justify-content: center; gap: 0;
   background: var(--t-bg, var(--bg)); transition: opacity .45s ease; }
 #loading.out { opacity: 0; pointer-events: none; }
-#loading svg.logo { width: 112px; height: 112px; display: block; margin: 0 0 18px; }
+#loading .spScene { width: min(520px, 86vw); height: auto; display: block; margin: 0 0 22px; }
+.spScene .spR1 { fill: var(--sp-r1); } .spScene .spR2 { fill: var(--sp-r2); } .spScene .spR3 { fill: var(--sp-r3); }
+.spScene .spPilot { fill: var(--t-acc); }
+.spScene .spLine { fill: none; stroke: var(--t-acc); stroke-width: 1.6; stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: sp-draw 1.3s cubic-bezier(.6, 0, .3, 1) .3s forwards; }
+.spScene .spPop { animation: lg-pop .45s 1.5s cubic-bezier(.3, 1.4, .5, 1) both; }
+@keyframes sp-draw { to { stroke-dashoffset: 0; } }
 #loading .spName { font: 700 26px/1.1 ui-monospace, Consolas, monospace; letter-spacing: .14em; color: var(--t-fg, var(--fg)); }
 #loading .spName small { font-size: 12px; font-weight: 400; letter-spacing: .04em; color: var(--muted); margin-left: 6px; }
 #loading .spTag { margin-top: 8px; font-size: 13px; color: var(--muted); text-align: center; padding: 0 20px; }
 #loading .spMsg { margin-top: 26px; font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-height: 1.4em;
   white-space: pre-wrap; text-align: center; padding: 0 20px; max-width: 640px; }
 #loading.err .spMsg { color: var(--bad); }
-#loading.err svg.logo * { animation: none !important; }
-@media (prefers-reduced-motion: reduce) {     /* no spinning: only the waves pulse while busy */
-  svg.logo .lg-sw, svg.logo.lg-intro * { animation: none !important; }
+#loading.err svg * { animation: none !important; }
+@media (prefers-reduced-motion: reduce) {     /* no spinning and no drawing: the scene is shown as it ends */
+  svg.logo .lg-sw, svg.logo.lg-intro *, .spScene * { animation: none !important; }
+  .spScene .spLine { stroke-dashoffset: 0; }
 }
 
 /* ---------------------------------------------------------------- drone icon (drone.js)
