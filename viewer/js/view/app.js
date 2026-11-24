@@ -1092,7 +1092,7 @@ const splashT0 = performance.now();
 const loadStep = (t) => { const m = $('loadMsg'); if (m) m.textContent = t; };
 async function closeSplash() {
   const l = $('loading'); if (!l) return;
-  const wait = 1900 - (performance.now() - splashT0);              // let the spin-up finish (signal sent)
+  const wait = 2300 - (performance.now() - splashT0);              // let the line reach the flower and the flower spin
   if (wait > 0) await new Promise((ok) => setTimeout(ok, wait));
   l.classList.add('out');
   window.alpBusy?.(false);
@@ -1162,8 +1162,8 @@ boot().catch((e) => {
   l.classList.add('err');
   const name = params.get('scene');
   loadStep(/: 404$/.test(e.message) && name ? `Location “${name}” was not found.\nPick another one in the launcher or on the locations map.` : e.message);
-  // nothing to show: the drone hovers instead of the logo
-  const lg = l.querySelector('svg.logo'); if (lg) lg.style.display = 'none';
+  // nothing to show: the drone hovers instead of the scene
+  const lg = l.querySelector('.spScene'); if (lg) lg.style.display = 'none';
   const box = document.createElement('div'); box.className = 'droneSplash'; l.prepend(box);
   mountDrone(box, { size: 112 }).loop('hover');
   const a = document.createElement('a'); a.href = 'map.html'; a.textContent = '[locations map]'; a.className = 'navlink';
