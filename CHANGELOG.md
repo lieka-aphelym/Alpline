@@ -4,6 +4,10 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **France in full detail:** places in France now get IGN's aerial photo (15-20 cm, instead of the 10 m satellite
+  picture) and its 1 m bare-ground heights (instead of the 30 m worldwide model): houses, paths and trees show,
+  and signal shadows follow the real ground. Places across the border get the best of each side: swisstopo in
+  Switzerland, IGN in France, the worldwide data elsewhere. Rebuild a French location to get it.
 - **Launcher map, zoomed out:** once you zoom out a little past Switzerland, the whole map is the satellite
   picture, Switzerland included, instead of a dark Swiss map sitting in the middle of it. Zoom back in and the
   Swiss map returns.

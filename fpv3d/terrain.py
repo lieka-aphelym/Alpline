@@ -22,9 +22,12 @@ def log(msg):
 
 
 def _where(grid: Grid):
-    """(lat, lon) of the middle of a grid: decides which regional sources are asked for it."""
-    lat, lon = unproject((grid.min_e + grid.max_e) / 2, (grid.min_n + grid.max_n) / 2, grid.crs)
-    return float(lat), float(lon)
+    """[(lat, lon)] of the middle and the corners of a grid: decides which regional sources are asked for it (one of
+    them inside a country is enough: an area across a border gets the data of both sides)."""
+    e = [(grid.min_e + grid.max_e) / 2, grid.min_e, grid.max_e, grid.min_e, grid.max_e]
+    n = [(grid.min_n + grid.max_n) / 2, grid.min_n, grid.min_n, grid.max_n, grid.max_n]
+    lat, lon = unproject(e, n, grid.crs)
+    return [(float(a), float(b)) for a, b in zip(lat, lon)]
 
 
 def _keys_with_gaps(dem: np.ndarray, grid: Grid, keys) -> list:

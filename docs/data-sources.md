@@ -20,6 +20,8 @@ before writing any code against it. A licence must allow free use for any purpos
 | Heights, rest of the world | Copernicus DEM GLO-30 | about 30 m | free, credit required |
 | Photo, rest of the world | ESA WorldCover Sentinel-2 composite **2021** | about 10 m | CC BY 4.0 |
 | Photo, where the 2021 one has none | Sentinel-2 cloudless **2016** by EOX | about 10 m | CC BY 4.0 |
+| Heights, France | IGN RGE ALTI, through the Geoplateforme height service | 1 m | Licence Ouverte 2.0 (Etalab) |
+| Photo, France | IGN BD ORTHO, through the Geoplateforme web-map tiles | 15-20 cm | Licence Ouverte 2.0 (Etalab) |
 
 ## A newer photo of the whole planet
 
@@ -50,7 +52,7 @@ many European rows below are open. Not every country has finished. [The regulati
 
 | Country | Heights | Photo | Licence | Notes |
 |---|---|---|---|---|
-| **France** | IGN LiDAR HD, 0.5 m, 1 km GeoTIFF tiles; coverage of the country still being completed | BD ORTHO, 20 cm (from memory) | Licence Ouverte / Etalab 2.0 (credit) | Some tiles are withheld (areas where aerial pictures are forbidden). [data.gouv.fr](https://www.data.gouv.fr/datasets/mnt-lidar-hd) |
+| **France** (**in use**) | RGE ALTI, 1 m, the whole country, through `data.geopf.fr/wms-r` (any box, any grid, 32 bit floats); LiDAR HD 0.5 m tiles still being completed | BD ORTHO, 15-20 cm, web-map tiles `data.geopf.fr/wmts` (zoom 19 at most, 404 outside France) | Licence Ouverte / Open License 2.0, read in IGN's catalogue records IGNF_BD-ORTHO and IGNF_RGE-ALTI on 24 November 2026 | Some tiles are withheld (areas where aerial pictures are forbidden). [data.gouv.fr](https://www.data.gouv.fr/datasets/mnt-lidar-hd) |
 | **Austria** | BEV ALS DTM, 1 m, whole country, GeoTIFF; a new country-wide mosaic each year | BEV orthophotos are published as open data; licence text not found | CC BY 4.0 (heights) | Stated accuracy 0.5 m, less in high mountains. Download from data.bev.gv.at. [Metadata record](https://inspire-geoportal.ec.europa.eu/srv/api/records/97908eb1-c386-42b7-bfab-4cf909058e30) |
 | **Italy** | TINITALY 1.1, 10 m, whole country, GeoTIFF | none national | CC BY 4.0, with a set citation | Three times finer than the worldwide model. Regions publish finer lidar separately. [Download page](https://tinitaly.pi.ingv.it/Download_Area1_1.html) |
 | **Czechia** | ČÚZK DMR 5G (bare ground) | orthophoto: licence not confirmed | CC BY 4.0 (heights) | Open data since late 2023, through the office's download services. [ČÚZK open data](https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx) |
