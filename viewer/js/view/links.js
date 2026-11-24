@@ -155,8 +155,8 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
       const ant = (v) => (ANT.some(([a]) => a === v) ? v : '');
       return `<details class="lnk" data-name="${esc(l0.name)}"><summary><span class="sw" style="background:${l0.color}"></span> ${esc(l0.name)}</summary>
         <label class="row">TX power <select data-k="mw">${MW.map((w) => `<option value="${w}" ${w === mw ? 'selected' : ''}>${w} mW (${(10 * Math.log10(w)).toFixed(1)} dBm)</option>`).join('')}${MW.includes(mw) ? '' : `<option selected value="${mw}">${mw} mW</option>`}</select></label>
-        <label class="row">Drone antenna <select data-k="tx_ant">${opt(ANT, ant(l.tx_gain_dbi))}</select><input type="number" step="0.5" data-k="tx_gain_dbi" value="${l.tx_gain_dbi}"> dBi</label>
-        <label class="row">Ground antenna <select data-k="rx_ant">${opt(ANT, ant(l.rx_gain_dbi))}</select><input type="number" step="0.5" data-k="rx_gain_dbi" value="${l.rx_gain_dbi}"> dBi</label>
+        <label class="row">Drone antenna <select data-k="tx_ant">${opt(ANT, ant(l.tx_gain_dbi))}</select><input type="number" step="0.5" data-k="tx_gain_dbi" aria-label="Drone antenna gain, dBi" value="${l.tx_gain_dbi}"> dBi</label>
+        <label class="row">Ground antenna <select data-k="rx_ant">${opt(ANT, ant(l.rx_gain_dbi))}</select><input type="number" step="0.5" data-k="rx_gain_dbi" aria-label="Ground antenna gain, dBi" value="${l.rx_gain_dbi}"> dBi</label>
         <label class="row">Receiver sensitivity <input type="number" step="1" data-k="rx_sensitivity_dbm" value="${l.rx_sensitivity_dbm}"> dBm</label>
         <label class="row">Cable / misc losses <input type="number" step="0.5" data-k="misc_losses_db" value="${l.misc_losses_db}"> dB</label>
         <label class="row">Safety (fade) margin <input type="number" step="1" data-k="fade_margin_db" value="${l.fade_margin_db}"> dB</label>
@@ -165,7 +165,7 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
     box.innerHTML = `<p class="muted small">Pick your video system and radio: the range, the colours on the map and the warnings follow right away.</p>${setups}
       <div id="lnkDirty" class="small hidden"><span style="color:var(--warn)">Changed, not saved yet.</span> <span id="lnkShadowNote"></span></div>
       <div class="row btns"><button id="lnkReset">[undo changes]</button><button id="lnkSave" class="primary">[save for this location]</button></div>
-      <div id="lnkMsg" class="small muted"></div>
+      <div id="lnkMsg" class="small muted" role="status"></div>
       <details class="adv" id="lnkAdv"><summary>Advanced: exact radio values</summary>${exact}
         <p class="muted small">Legal limits in Switzerland / EU (EIRP): 25 mW at 5.8 GHz, 100 mW at 2.4 GHz: the CE versions of the
         digital systems. Digital systems: the sensitivity is set from the maker's range, see the note under the choice.</p></details>`;

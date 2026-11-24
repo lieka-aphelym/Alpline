@@ -165,10 +165,10 @@ export async function askPacks(box, fids) {
   const opts = packs.packs.filter((p) => !p.retired)
     .map((p) => `<option value="${esc(p.id)}" ${p.id === packs.last_pack ? 'selected' : ''}>${esc(p.name)} · ${p.cells}S ${p.capacity} ${p.chem_label}</option>`).join('');
   div.innerHTML = `<b>Which pack did you fly?</b> <span class="muted">(${fids.length} flight${fids.length > 1 ? 's' : ''} with battery data)</span>
-    <div class="row"><select>${opts}<option value="+">+ new pack…</option><option value="">not now</option></select><button class="primary">[save]</button></div>
-    <div class="row hidden newp"><input placeholder="name" value="pack ${packs.packs.length + 1}"> <select class="c">${[2, 3, 4, 5, 6, 8].map((c) => `<option ${c === 6 ? 'selected' : ''}>${c}</option>`).join('')}</select>S
-      <input class="cap" type="number" value="1300" min="100" step="50" style="width:70px"> mAh <select class="chem"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
-    <div class="small msg"></div>`;
+    <div class="row"><select aria-label="Pack">${opts}<option value="+">+ new pack…</option><option value="">not now</option></select><button class="primary">[save]</button></div>
+    <div class="row hidden newp"><input aria-label="Pack name" placeholder="name" value="pack ${packs.packs.length + 1}"> <select class="c" aria-label="Cells">${[2, 3, 4, 5, 6, 8].map((c) => `<option ${c === 6 ? 'selected' : ''}>${c}</option>`).join('')}</select>S
+      <input class="cap" aria-label="Capacity in mAh" type="number" value="1300" min="100" step="50" style="width:70px"> mAh <select class="chem" aria-label="Chemistry"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
+    <div class="small msg" role="status"></div>`;
   box.appendChild(div);
   const [sel, btn] = [div.querySelector('select'), div.querySelector('button')];
   const syncNew = () => div.querySelector('.newp').classList.toggle('hidden', sel.value !== '+');

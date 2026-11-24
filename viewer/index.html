@@ -47,7 +47,7 @@
     <button data-tab="flights" title="Flights: your logs, comparison, video"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4-8 8 2 12-6s5-4 6-4"/></svg><span>Flights</span></button>
     <button data-tab="fly" title="Fly: training flight, live flight with the radio + warnings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8 8l8 8M16 8l-8 8"/></svg><span>Fly</span></button>
     <button data-tab="battery" title="Battery: voltage, current and pack health for this flight"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="16" height="10" rx="1"/><path d="M21 11v2"/></svg><span>Battery</span></button>
-    <button class="railCollapse" title="Hide / show the panel (or click the active tab)"></button>
+    <button class="railCollapse" aria-label="Settings panel" aria-controls="pbody" aria-expanded="true" title="Hide / show the panel (or click the active tab)"></button>
   </nav>
   <div id="pbody">
   <div id="sceneInfo" class="muted"></div>
@@ -55,7 +55,7 @@
   <section data-tab="map">
     <h2>Map</h2>
     <label class="row"><input type="checkbox" id="orthoOn" checked> Aerial photo</label>
-    <label class="row" id="camModeLbl">Camera</label>
+    <label class="row" id="camModeLbl" for="camMode">Camera</label>
     <select id="camMode">
       <option value="orbit">Turn around the map</option>
       <option value="fly">Fly freely (keyboard)</option>
@@ -64,7 +64,7 @@
     </select>
     <p class="muted small"><span id="camHint"></span>. Click the ground for its height and distance; <b>C</b> changes the camera.</p>
     <details class="adv"><summary>Advanced</summary>
-      <label class="row">Ground model</label>
+      <label class="row" for="groundMode">Ground model</label>
       <select id="groundMode"></select>
       <label class="row hidden" id="bldRow"><input type="checkbox" id="bldOn" checked> 3D buildings <output id="bldCount"></output></label>
       <p id="bldMissing" class="small muted hidden"></p>
@@ -73,7 +73,7 @@
       <label class="row"><input type="checkbox" id="ringsOn" checked> Distance rings around the pilot (500 m, 1 km, 2 km)</label>
       <label class="row hidden" id="surroundRow"><input type="checkbox" id="surroundOn" checked> Surroundings: coarse terrain around the area (no signal data there)</label>
       <label class="row"><input type="checkbox" id="softEdges" checked> Soft edges: the map fades out, far terrain is hazy</label>
-      <label class="row">Exaggerate the relief <output id="exagOut">1.0×</output></label>
+      <label class="row" for="exag">Exaggerate the relief <output id="exagOut">1.0×</output></label>
       <input type="range" id="exag" min="1" max="3" step="0.1" value="1">
     </details>
   </section>
@@ -81,7 +81,7 @@
   <section data-tab="map">
     <h2>No-fly zones</h2>
     <p class="summary" id="sumZones"></p>
-    <div class="row" style="gap:8px;align-items:center"><span id="zonesAge" class="small muted" style="flex:1"></span><button id="zonesRefresh" title="Download the current zones from FOCA (needs internet)">[refresh zones]</button></div>
+    <div class="row" style="gap:8px;align-items:center"><span id="zonesAge" role="status" class="small muted" style="flex:1"></span><button id="zonesRefresh" title="Download the current zones from FOCA (needs internet)">[refresh zones]</button></div>
     <div id="zonesBody" class="hidden">
       <label class="row"><input type="checkbox" id="zonesOn" checked> Show them on the map</label>
       <div class="chips">
@@ -103,13 +103,13 @@
     <div class="row"><span id="locNameShow" class="small"></span><span><button id="locRenBtn" class="iconbtn" title="Rename this location">[rename]</button> <button id="locDelBtn" class="iconbtn" title="Delete this location (restorable)">[delete]</button></span></div>
     <div id="locDel" class="renbox hidden">
       <div class="small">Delete this location? Its file, 3D scene and training flights move to the <code>deleted/</code> folder; you can restore them from the map page ([saved]).</div>
-      <div class="row"><button id="locDelOk" class="danger">[delete]</button><button id="locDelCancel">[cancel]</button><span id="locDelMsg" class="small"></span></div>
+      <div class="row"><button id="locDelOk" class="danger">[delete]</button><button id="locDelCancel">[cancel]</button><span id="locDelMsg" class="small" role="status"></span></div>
     </div>
     <div id="locRen" class="renbox hidden">
       <label class="row small">Title <input id="locRenTitle" placeholder="East ridge"></label>
       <label class="row small">File name <input id="locRenName" spellcheck="false" placeholder="my_spot_east"></label>
       <div class="row"><span class="muted small">file name: lowercase, digits, _ and -. Title: anything but emoji.</span></div>
-      <div class="row"><button id="locRenOk" class="primary">[rename]</button><button id="locRenCancel">[cancel]</button><span id="locRenMsg" class="small"></span></div>
+      <div class="row"><button id="locRenOk" class="primary">[rename]</button><button id="locRenCancel">[cancel]</button><span id="locRenMsg" class="small" role="status"></span></div>
     </div>
   </section>
 
@@ -117,7 +117,7 @@
     <h2>Where do I lose the drone? <span class="muted" id="losLink"></span></h2>
     <p class="summary" id="sumSignal"></p>
     <label class="row"><input type="checkbox" id="losOn"> Show it on the map, for a drone flying at</label>
-    <select id="losAgl"></select>
+    <select id="losAgl" aria-label="Drone height above the ground"></select>
     <label class="row"><input type="checkbox" id="losFollow"> Use the height of the flight being played</label>
     <div class="chips">
       <span><i style="background:#3a2e7a"></i>Hidden by terrain</span><span><i style="background:#ff2d55"></i>Signal lost</span>
@@ -127,14 +127,14 @@
     <p id="volMissing" class="muted small hidden">The 3D view needs an update of this scene: <code>python -m fpv3d refresh-all</code></p>
     <button id="profBtn" class="hidden wide" title="Side view along the route: where you lose sight and how high to fly">[side view along the route]</button>
     <details class="adv"><summary>Advanced</summary>
-      <label class="row">Colour strength on the map</label>
+      <label class="row" for="losOpacity">Colour strength on the map</label>
       <input type="range" id="losOpacity" min="0" max="1" step="0.05" value="0.85">
       <div id="volOpts" class="hidden">
         <label class="row"><input type="checkbox" class="volLayer" data-l="los" checked> <i class="sw3" style="background:#5b4bd6"></i> 3D: hidden by terrain</label>
         <label class="row"><input type="checkbox" class="volLayer" data-l="loss"> <i class="sw3" style="background:#ff2d55"></i> 3D: signal lost</label>
-        <label class="row">3D: show up to <output id="volCapOut">150 m</output> above the ground</label>
+        <label class="row" for="volCap">3D: show up to <output id="volCapOut">150 m</output> above the ground</label>
         <input type="range" id="volCap" min="20" max="600" step="10" value="150">
-        <label class="row">3D: transparency</label>
+        <label class="row" for="volOpacity">3D: transparency</label>
         <input type="range" id="volOpacity" min="0.1" max="0.9" step="0.05" value="0.45">
         <label class="row"><input type="checkbox" id="vol2dToo"> Keep the colours on the ground too</label>
         <details class="help"><summary>How to read the 3D view</summary><p class="muted small">Below the coloured lid the drone is out of reach: fly above it to keep the link. Faint lines every 25 m of height. A flat, lighter top means it goes higher than the limit you set.</p></details>
@@ -147,24 +147,24 @@
     <div id="linkList"></div>
     <div id="linkEdit" class="linkedit"></div>
     <details class="adv"><summary>Advanced</summary>
-      <label class="row">Range bubble transparency</label>
+      <label class="row" for="sphereOpacity">Range bubble transparency</label>
       <input type="range" id="sphereOpacity" min="0" max="0.4" step="0.01" value="0.06">
     </details>
   </section>
 
   <section data-tab="flights">
     <h2>Flights</h2>
-    <div class="pickrow"><select id="trackPick"></select><button id="trkRenBtn" class="iconbtn" title="Rename this log (file name too)">[rename]</button></div>
+    <div class="pickrow"><select id="trackPick" aria-label="Flight"></select><button id="trkRenBtn" class="iconbtn" title="Rename this log (file name too)">[rename]</button></div>
     <div id="trkRen" class="renbox hidden">
-      <input id="trkRenName" spellcheck="false" placeholder="e.g. east_ridge_2026-10-11">
+      <input id="trkRenName" aria-label="New file name" spellcheck="false" placeholder="e.g. east_ridge_2026-10-11">
       <div class="row"><span class="muted small">letters, digits, _ and - (accents and emoji are removed)</span></div>
-      <div class="row"><button id="trkRenOk" class="primary">[rename]</button><button id="trkRenCancel">[cancel]</button><span id="trkRenMsg" class="small"></span></div>
+      <div class="row"><button id="trkRenOk" class="primary">[rename]</button><button id="trkRenCancel">[cancel]</button><span id="trkRenMsg" class="small" role="status"></span></div>
     </div>
     <p id="trackInfo" class="summary"></p>
     <div class="bbBox">
       <button id="bbGet" title="Plug the drone in with its USB cable (no battery needed), then click">[download from the drone]</button>
       <label class="row small"><input type="checkbox" id="bbHere"> add every flight to this location</label>
-      <div id="bbLog" class="bbLog small hidden"></div>
+      <div id="bbLog" class="bbLog small hidden" role="status"></div>
       <details class="help"><summary>How it works</summary><p class="muted small">For Betaflight drones that log to the
         onboard flash or an SD card (F4 / G4 / F7 / H7 boards). Close Betaflight Configurator first. Alpline finds the drone,
         switches it to USB drive mode, copies the blackbox to <code>logs/blackbox/</code> and adds each flight with GPS to
@@ -172,10 +172,10 @@
         drone afterwards: it stays in drive mode until then. GPS must be logged: in the Configurator's Blackbox tab,
         check that GPS is among the logged fields.</p></details>
     </div>
-    <label class="row">Colour the path by</label>
+    <label class="row" for="colorMode">Colour the path by</label>
     <select id="colorMode"></select>
     <div id="colorLegend" class="gradient"></div>
-    <label class="row">Compare with another flight</label>
+    <label class="row" for="cmpPick">Compare with another flight</label>
     <select id="cmpPick"><option value="">(none)</option></select>
     <div id="cmpTable"></div>
     <details class="adv"><summary>Advanced</summary>
@@ -183,9 +183,9 @@
       <label class="row"><input type="checkbox" id="velOn"> <span class="sw" style="background:#22d3ee"></span> Speed arrow</label>
       <label class="row"><input type="checkbox" id="accOn"> <span class="sw" style="background:#c084fc"></span> Acceleration arrow</label>
       <label class="row"><input type="checkbox" id="combOn"> Arrows along the whole flight</label>
-      <label class="row">Arrow length <output id="vecScaleOut">1.00×</output></label>
+      <label class="row" for="vecScale">Arrow length <output id="vecScaleOut">1.00×</output></label>
       <input type="range" id="vecScale" min="0.25" max="5" step="0.25" value="1">
-      <label class="row">Smoothing <output id="smoothOut">1.0 s</output></label>
+      <label class="row" for="smooth">Smoothing <output id="smoothOut">1.0 s</output></label>
       <input type="range" id="smooth" min="0.2" max="3" step="0.1" value="1">
       <details class="help"><summary>What the arrows show</summary><p class="muted small">Speed arrow: where the drone will be in 2 s (at 1×). Acceleration arrow: how hard it speeds up, brakes or turns. Both come from the GPS positions, so very short spikes are smoothed out.</p></details>
     </details>
@@ -195,15 +195,15 @@
     <h2>Battery</h2>
     <p id="batSummary" class="summary"></p>
     <div id="batBody" class="hidden">
-      <div class="pickrow"><select id="batPack" title="The pack that flew this flight: its health and landing advice follow it"></select></div>
+      <div class="pickrow"><select id="batPack" aria-label="Pack" title="The pack that flew this flight: its health and landing advice follow it"></select></div>
       <div id="batNew" class="renbox hidden">
-        <div class="row"><input id="batNewName" spellcheck="false" placeholder="pack 1" maxlength="40"></div>
-        <div class="row"><select id="batNewCells"><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select> cells ·
-          <input id="batNewCap" type="number" min="100" max="30000" step="50" value="1300" style="width:80px"> mAh ·
-          <select id="batNewChem" title="LiPo: 4.2 V full, keep above 3.5 V · LiPo HV: 4.35 V full · Li-ion (18650 / 21700): goes down to about 3.0 V"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
+        <div class="row"><input id="batNewName" aria-label="Pack name" spellcheck="false" placeholder="pack 1" maxlength="40"></div>
+        <div class="row"><select id="batNewCells" aria-label="Cells"><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option><option>8</option></select> cells ·
+          <input id="batNewCap" aria-label="Capacity in mAh" type="number" min="100" max="30000" step="50" value="1300" style="width:80px"> mAh ·
+          <select id="batNewChem" aria-label="Chemistry" title="LiPo: 4.2 V full, keep above 3.5 V · LiPo HV: 4.35 V full · Li-ion (18650 / 21700): goes down to about 3.0 V"><option value="lipo" selected>LiPo</option><option value="lihv">LiPo HV</option><option value="liion">Li-ion</option></select></div>
         <div class="row"><button id="batNewOk" class="primary">[add the pack]</button><button id="batNewCancel">[cancel]</button></div>
       </div>
-      <div id="batMsg" class="small bad"></div>
+      <div id="batMsg" class="small bad" role="status"></div>
       <div id="batTiles" class="batTiles"></div>
       <label class="row small"><input type="checkbox" id="batStripOn" checked> chart under the playback bar (click it to jump)</label>
       <h3 class="batH">Sag vs current</h3>
@@ -215,9 +215,9 @@
       <p id="batAdvice" class="small"></p>
       <div id="batNotes" class="small"></div>
       <details id="batNoteBox" class="help"><summary>+ a note about this pack (crash, puffing…)</summary>
-        <div class="row"><select id="batNoteKind"><option value="crash">Crash / hard landing</option><option value="puffed">Puffed / swollen</option><option value="damage">Damaged wrap, leads or plug</option><option value="deep">Over-discharged</option><option value="hot">Came back hot</option><option value="cold">Flown in the cold</option><option value="storage">Left full / not at storage</option><option value="repair">Repaired (plug, wrap)</option><option value="other">Other</option></select></div>
-        <div class="row"><input id="batNoteText" maxlength="500" placeholder="what happened" style="width:100%"></div>
-        <div class="row"><button id="batNoteAdd" class="primary">[add (dated this flight)]</button><span id="batNoteMsg" class="small"></span></div>
+        <div class="row"><select id="batNoteKind" aria-label="Kind of note"><option value="crash">Crash / hard landing</option><option value="puffed">Puffed / swollen</option><option value="damage">Damaged wrap, leads or plug</option><option value="deep">Over-discharged</option><option value="hot">Came back hot</option><option value="cold">Flown in the cold</option><option value="storage">Left full / not at storage</option><option value="repair">Repaired (plug, wrap)</option><option value="other">Other</option></select></div>
+        <div class="row"><input id="batNoteText" aria-label="Note" maxlength="500" placeholder="what happened" style="width:100%"></div>
+        <div class="row"><button id="batNoteAdd" class="primary">[add (dated this flight)]</button><span id="batNoteMsg" class="small" role="status"></span></div>
       </details>
       <a class="navlink" href="packs.html" title="Every pack: health over time, flights, charger check">[all packs and their health]</a>
     </div>
@@ -230,31 +230,31 @@
     <div class="row btns"><button id="simStart" class="primary">[start training flight]</button><button id="simMapBtn">[radio setup]</button></div>
     <details class="simset"><summary class="small">Drone and camera settings</summary>
       <label class="row">Quad <select id="simPreset"></select></label>
-      <label class="row">Top speed <output id="simTopOut"></output> km/h</label><input type="range" id="simTop" min="30" max="250" step="5">
-      <label class="row">Responsiveness <output id="simRespOut"></output> ms</label><input type="range" id="simResp" min="10" max="120" step="5">
+      <label class="row" for="simTop">Top speed <output id="simTopOut"></output> km/h</label><input type="range" id="simTop" min="30" max="250" step="5">
+      <label class="row" for="simResp">Responsiveness <output id="simRespOut"></output> ms</label><input type="range" id="simResp" min="10" max="120" step="5">
       <label class="row">Mode <select id="simMode"><option value="angle">Angle (self-level)</option><option value="acro">Acro</option></select></label>
-      <label class="row">Center rate <output id="simCenterOut"></output> °/s</label><input type="range" id="simCenter" min="50" max="400" step="10">
-      <label class="row">Max rate <output id="simMaxOut"></output> °/s</label><input type="range" id="simMax" min="200" max="1200" step="10">
-      <label class="row">Expo <output id="simExpoOut"></output></label><input type="range" id="simExpo" min="0" max="1" step="0.05">
-      <label class="row">Max angle (angle mode) <output id="simAngleOut"></output>°</label><input type="range" id="simAngle" min="20" max="80" step="5">
-      <label class="row">Thrust / weight <output id="simTwrOut"></output></label><input type="range" id="simTwr" min="2" max="12" step="0.5">
+      <label class="row" for="simCenter">Center rate <output id="simCenterOut"></output> °/s</label><input type="range" id="simCenter" min="50" max="400" step="10">
+      <label class="row" for="simMax">Max rate <output id="simMaxOut"></output> °/s</label><input type="range" id="simMax" min="200" max="1200" step="10">
+      <label class="row" for="simExpo">Expo <output id="simExpoOut"></output></label><input type="range" id="simExpo" min="0" max="1" step="0.05">
+      <label class="row" for="simAngle">Max angle (angle mode) <output id="simAngleOut"></output>°</label><input type="range" id="simAngle" min="20" max="80" step="5">
+      <label class="row" for="simTwr">Thrust / weight <output id="simTwrOut"></output></label><input type="range" id="simTwr" min="2" max="12" step="0.5">
       <div id="simHover" class="muted small"></div>
-      <label class="row">Wind <output id="simWindOut"></output> km/h</label><input type="range" id="simWind" min="0" max="60" step="1">
-      <label class="row">Wind from <output id="simWindDirOut"></output></label><input type="range" id="simWindDir" min="0" max="355" step="5">
-      <label class="row">Gusts <output id="simGustOut"></output> %</label><input type="range" id="simGust" min="0" max="100" step="5">
-      <label class="row">Camera uptilt <output id="simUptiltOut"></output>°</label><input type="range" id="simUptilt" min="0" max="60" step="1">
-      <label class="row">Field of view <output id="simFovOut"></output>°</label><input type="range" id="simFov" min="60" max="130" step="5">
+      <label class="row" for="simWind">Wind <output id="simWindOut"></output> km/h</label><input type="range" id="simWind" min="0" max="60" step="1">
+      <label class="row" for="simWindDir">Wind from <output id="simWindDirOut"></output></label><input type="range" id="simWindDir" min="0" max="355" step="5">
+      <label class="row" for="simGust">Gusts <output id="simGustOut"></output> %</label><input type="range" id="simGust" min="0" max="100" step="5">
+      <label class="row" for="simUptilt">Camera uptilt <output id="simUptiltOut"></output>°</label><input type="range" id="simUptilt" min="0" max="60" step="1">
+      <label class="row" for="simFov">Field of view <output id="simFovOut"></output>°</label><input type="range" id="simFov" min="60" max="130" step="5">
       <label class="row"><input type="checkbox" id="simFx"> Simulate link loss (video breakup, failsafe)</label>
     </details>
     <details class="simset"><summary class="small">Battery, throttle and feel</summary>
       <label class="row"><input type="checkbox" id="simBat"> Battery: voltage drops as the pack empties and sags on punches</label>
-      <label class="row">Pack lasts <output id="simPackOut"></output> min hovering</label><input type="range" id="simPack" min="2" max="30" step="1">
-      <label class="row">Throttle mid <output id="simThrMidOut"></output></label><input type="range" id="simThrMid" min="0.2" max="0.8" step="0.05">
-      <label class="row">Throttle expo <output id="simThrExpoOut"></output></label><input type="range" id="simThrExpo" min="0" max="1" step="0.05">
+      <label class="row" for="simPack">Pack lasts <output id="simPackOut"></output> min hovering</label><input type="range" id="simPack" min="2" max="30" step="1">
+      <label class="row" for="simThrMid">Throttle mid <output id="simThrMidOut"></output></label><input type="range" id="simThrMid" min="0.2" max="0.8" step="0.05">
+      <label class="row" for="simThrExpo">Throttle expo <output id="simThrExpoOut"></output></label><input type="range" id="simThrExpo" min="0" max="1" step="0.05">
       <p class="muted small">Like thr_mid / thr_expo in Betaflight: copy yours so the throttle feels the same.</p>
-      <label class="row">Propwash <output id="simWashOut"></output></label><input type="range" id="simWash" min="0" max="1" step="0.1">
+      <label class="row" for="simWash">Propwash <output id="simWashOut"></output></label><input type="range" id="simWash" min="0" max="1" step="0.1">
       <label class="row"><input type="checkbox" id="simSound"> Motor sound</label>
-      <label class="row">Volume <output id="simVolOut"></output></label><input type="range" id="simVol" min="0" max="1" step="0.05">
+      <label class="row" for="simVol">Volume <output id="simVolOut"></output></label><input type="range" id="simVol" min="0" max="1" step="0.05">
       <label class="row"><input type="checkbox" id="simAutoRes"> Keep it smooth: lower the resolution a little when frames get slow</label>
     </details>
   </section>
@@ -279,27 +279,27 @@
   <section data-tab="fly" id="liveSection">
     <h2>Live flight</h2>
     <!-- layout A "flight first": the flight status on top; the connection form takes its place until connected -->
-    <div id="lvHero" class="lvHero" data-state="off"><span id="liveDrone"></span>
+    <div id="lvHero" class="lvHero" data-state="off" role="status"><span id="liveDrone"></span>
       <div><b id="liveLinkTxt">not connected</b><span id="liveStatus">pick the radio and connect</span></div></div>
     <div id="liveConnectBox">
-      <div class="lvLbl">Source</div>
+      <label class="lvLbl" for="liveSrc">Source</label>
       <select id="liveSrc">
         <option value="serial">My radio (USB cable)</option>
         <option value="replay">Replay a flight (test)</option>
       </select>
       <div id="liveSerialRow">
-        <div class="pickrow"><select id="livePort"></select><button id="livePortRefresh" class="iconbtn">[refresh]</button></div>
-        <div id="livePortMsg" class="small muted"></div>
+        <div class="pickrow"><select id="livePort" aria-label="Serial port"></select><button id="livePortRefresh" class="iconbtn" aria-label="Refresh the serial ports">[refresh]</button></div>
+        <div id="livePortMsg" class="small muted" role="status"></div>
       </div>
       <div id="liveReplayRow" class="hidden">
-        <select id="liveTrack"></select>
+        <select id="liveTrack" aria-label="Flight to replay"></select>
         <label class="row">Speed <select id="liveSpeed"><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></label>
       </div>
       <button id="liveConnect" class="primary lvWide">[connect]</button>
       <div class="lvNote">Radio: <b>SYS → Hardware → USB-VCP = Telemetry Mirror</b>, plug in as <b>USB Serial (VCP)</b>. Drone on and bound; connect while it is still on the ground.</div>
     </div>
     <div id="liveHint" class="summary small hidden"></div>
-    <div id="liveMsg" class="small"></div>
+    <div id="liveMsg" class="small" role="status"></div>
     <div id="liveSilent" class="summary small hidden"></div>
     <div id="liveLost" class="lvLost hidden">
       <b>Signal lost <span id="liveLostAge"></span></b>
@@ -338,7 +338,7 @@
       <label class="row"><input type="checkbox" id="batWarnOn" checked> Battery warnings (from the radio's telemetry)</label>
       <label class="row">Pack <select id="batWarnPack"><option value="">cells from the voltage, no capacity</option></select></label>
       <label class="row small">Land at <input id="batWarnPct" type="number" min="50" max="95" step="5" value="80" style="width:56px"> % of the pack ·
-        low under <input id="batWarnLow" type="number" min="3.0" max="3.6" step="0.05" value="3.3" style="width:62px"> V/cell</label>
+        low under <input id="batWarnLow" aria-label="Low cell voltage, V per cell" type="number" min="3.0" max="3.6" step="0.05" value="3.3" style="width:62px"> V/cell</label>
       <label class="row small"><input type="checkbox" id="batWarnHalf" checked> say "half pack"</label>
       <div class="small muted">Says "Half pack", "Land now" when the share is used (needs the pack's capacity and a current sensor),
         "Battery low, land" when the cells stay under the low level for 2 s, "Battery critical" below 3.4 V resting
@@ -350,7 +350,7 @@
       <option value="compact">Small, only when warning</option>
       <option value="off">Off (sound only)</option>
     </select></label>
-    <label class="row">Warn this far ahead <output id="warnLookOut"></output></label>
+    <label class="row" for="warnLook">Warn this far ahead <output id="warnLookOut"></output></label>
     <input type="range" id="warnLook" min="3" max="10" step="1" value="5">
     <label class="row"><input type="checkbox" id="warnSim" checked> Also warn during training flights</label>
     <div class="row btns"><button id="warnTest">[test a warning]</button></div>
@@ -377,7 +377,7 @@
 <aside id="instr" aria-label="Instruments">
   <div class="ihead">
     <span class="lbl">Instruments</span><span id="iMini" class="mini"></span>
-    <button id="iFold" type="button" aria-expanded="true" aria-controls="iBody" title="Fold / open the instruments">−</button>
+    <button id="iFold" type="button" aria-expanded="true" aria-controls="iBody" aria-label="Instruments" title="Fold / open the instruments">−</button>
   </div>
   <div id="iBody">
   <div class="cell">
@@ -410,7 +410,7 @@
     <button id="vLink" title="Link / unlink video and log">[linked]</button>
     <button id="vSyncHere" title="This video frame = current log time" disabled>[sync here]</button>
     <button id="vSwap" title="Swap: video full screen / 3D full screen">[swap]</button>
-    <button id="vClose" title="Hide player">[x]</button>
+    <button id="vClose" title="Hide player" aria-label="Hide the video player">[x]</button>
   </div>
   <div class="vwrap">
     <video id="video" playsinline preload="auto"></video>
@@ -429,7 +429,7 @@
   <div class="row btns"><button id="simReset">[reset (R)]</button><button id="simExit">[exit (Esc)]</button></div>
   <label class="row">Save as <input id="simName" placeholder="training 1" style="flex:1;min-width:0"></label>
   <div class="row btns"><button id="simSave" class="primary">[save training flight]</button></div>
-  <div id="simMsg" class="small muted"></div>
+  <div id="simMsg" class="small muted" role="status"></div>
   </div>
 </div>
 
@@ -450,23 +450,23 @@
   <div><div id="warnTitle"></div><div id="warnText"></div><div id="warnDetail"></div></div>
 </div>
 <div id="profile" class="hidden">
-  <div class="profHead"><span id="profInfo" class="small"></span><button id="profClose" title="Close">[x]</button></div>
+  <div class="profHead"><span id="profInfo" class="small"></span><button id="profClose" title="Close" aria-label="Close the side view">[x]</button></div>
   <canvas id="profCanvas"></canvas>
 </div>
 <footer id="timeline" class="hidden">
   <span class="grip" id="tlGrip" title="Drag to move the playback bar · double-click to put it back">⋮⋮</span>
   <button id="play" title="Play / pause (space)">[play]</button>
-  <input type="range" id="scrub" min="0" max="1000" value="0" step="1">
+  <input type="range" id="scrub" aria-label="Flight time" min="0" max="1000" value="0" step="1">
   <span id="clock">0:00</span>
-  <select id="speed" title="Playback speed">
+  <select id="speed" title="Playback speed" aria-label="Playback speed">
     <option value="0.5">0.5×</option><option value="1" selected>1×</option>
     <option value="2">2×</option><option value="5">5×</option><option value="10">10×</option>
   </select>
   <span id="batAt" class="batAt"></span>
   <canvas id="batStrip" class="hidden" title="Click to jump there"></canvas>
-  <button id="tlHide" type="button" title="Hide the playback bar (space still plays and pauses)">hide</button>
+  <button id="tlHide" type="button" aria-label="Hide the playback bar" title="Hide the playback bar (space still plays and pauses)">hide</button>
 </footer>
-<button id="tlShow" type="button" title="Show the playback bar">playback ▴</button>
+<button id="tlShow" type="button" aria-label="Show the playback bar" title="Show the playback bar">playback ▴</button>
 
 <div id="loading">
   <span data-scene></span>

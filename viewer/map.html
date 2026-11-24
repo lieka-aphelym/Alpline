@@ -48,15 +48,15 @@
     <button data-tab="new" title="Create a location: click the map, set it up, build (key 1)"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><rect x="4" y="4" width="16" height="16"/><path d="M12 8v8M8 12h8"/></svg><span>New</span></button>
     <button data-tab="locs" title="Your locations and update all scenes (key 2)"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="square"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>Saved</span></button>
     <button data-tab="layers" title="Map layers and terrain cache (key 3)"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="miter"><path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5"/></svg><span>Layers</span></button>
-    <button class="railCollapse" title="Hide / show the panel"></button>
+    <button class="railCollapse" aria-label="Settings panel" aria-controls="pbody" aria-expanded="true" title="Hide / show the panel"></button>
   </nav>
   <div id="pbody">
 
   <section data-tab="new">
     <h2>Shape</h2>
     <div class="seg" id="shapePick" role="group" aria-label="Shape">
-      <button type="button" data-shape="square" class="on" title="A square around a centre point">Square</button>
-      <button type="button" data-shape="route" title="A strip along a line: pilot → summit, along a ridge…">Route</button>
+      <button type="button" data-shape="square" class="on" aria-pressed="true" title="A square around a centre point">Square</button>
+      <button type="button" data-shape="route" aria-pressed="false" title="A strip along a line: pilot → summit, along a ridge…">Route</button>
     </div>
     <h2 class="sub">Click on the map sets</h2>
     <div class="seg" id="clickMode" role="radiogroup" aria-label="Click on the map sets">
@@ -112,12 +112,12 @@
       <button type="button" id="bSave">Save location</button>
       <button type="button" id="bBuild" class="primary">Save &amp; build</button>
     </div>
-    <div id="msg" class="small"></div>
+    <div id="msg" class="small" role="status"></div>
     <div id="prog" class="prog hidden">
       <div class="progHead"><span id="progDrone"></span><b id="progTitle">Building…</b><span id="progPct"></span></div>
       <ol id="progSteps" class="steps"></ol>
       <div class="bar"><i id="progBar"></i></div>
-      <div id="progNow" class="small"></div>
+      <div id="progNow" class="small" role="status"></div>
       <div id="progStats" class="small muted"></div>
       <div class="chips">
         <span><i class="lg lg-pending"></i>to get</span><span><i class="lg lg-dl"></i>downloading</span>
@@ -144,7 +144,7 @@
   <section data-tab="locs">
     <h2>Your locations</h2>
     <ul id="locList" class="loclist"></ul>
-    <div id="locMsg" class="small"></div>
+    <div id="locMsg" class="small" role="status"></div>
     <details id="binBox" class="help hidden"><summary>Recently deleted</summary><ul id="binList" class="loclist"></ul>
       <p class="hint">Deleted locations are kept in the <code>deleted/</code> folder until you empty it (<code>python -m fpv3d deleted --purge</code>).</p></details>
     <p class="hint">Click a name to zoom there and load it into New (edit / rebuild).</p>
@@ -158,7 +158,7 @@
       <button type="button" id="bBldAll" title="Add the 3D buildings to every scene that has none yet (or whose download failed)">Buildings</button>
     </div>
     <label class="set chk"><span class="k">Also build locations never built</span><input type="checkbox" id="fMissing"></label>
-    <div id="allMsg" class="small"></div>
+    <div id="allMsg" class="small" role="status"></div>
     <pre id="allLog" class="joblog hidden"></pre>
   </section>
 
