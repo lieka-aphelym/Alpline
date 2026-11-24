@@ -9,7 +9,7 @@
   --t-fg: #f2f5f8;          /* text */
   --t-fg2: #b7c1ce;         /* labels */
   --t-rule: #2a313c;        /* hairlines */
-  --t-rule2: #4a5462;       /* control borders */
+  --t-rule2: #68737f;       /* control borders: 3.5:1 or more on every panel shade (WCAG 1.4.11) */
   --t-acc: #ffd60a;         /* accent: OSD yellow */
   --t-acc-fg: #000;         /* text on accent */
   --t-shadow: 0 2px 12px rgba(0,0,0,.45);
@@ -22,7 +22,7 @@
   --t-fg: #0a0c0f;
   --t-fg2: #3b4552;
   --t-rule: #c9ced6;
-  --t-rule2: #7d8796;
+  --t-rule2: #6f7988;       /* 3.5:1 or more, hover shade included */
   --t-acc: #d52b1e;         /* accent: Swiss red */
   --t-acc-fg: #fff;
   --t-shadow: 0 2px 14px rgba(0,0,0,.28);
@@ -334,7 +334,7 @@ svg.drn.l-hover .dr { animation: drn-hover 2.4s ease-in-out infinite; }
 .lvHero b { display: block; font: 700 13px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 .lvHero[data-state="lost"] b { color: var(--bad); }
 .lvHero #liveStatus { display: block; font-size: 13px; color: var(--t-fg2); line-height: 1.35; }
-.lvLbl { font: 700 12px var(--mono); color: var(--t-fg2); letter-spacing: .08em; text-transform: uppercase; margin: 2px 0 4px; }
+.lvLbl { display: block; font: 700 12px var(--mono); color: var(--t-fg2); letter-spacing: .08em; text-transform: uppercase; margin: 2px 0 4px; }
 #liveConnectBox { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 #liveConnectBox > select { width: 100%; }
 #panel button.lvWide, button.lvWide { width: 100%; padding: 7px; }

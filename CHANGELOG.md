@@ -4,6 +4,11 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **Keyboard and screen readers (viewer and map page):** every setting, slider and drop-down has a name, buttons
+  say what they do and whether they are on or open, and messages (rename, battery, connection, build) are read
+  out. The no-fly zone list, saved location names and search results now work with Tab and Enter. Space presses
+  a button reached with Tab instead of playing the flight; after a mouse click it still plays. Esc closes the ···
+  menu. Control borders on the dark theme are a little lighter so they can be seen.
 - **Launcher map, zoomed out:** once you zoom out a little past Switzerland, the whole map is the satellite
   picture, Switzerland included, instead of a dark Swiss map sitting in the middle of it. Zoom back in and the
   Swiss map returns.
