@@ -20,8 +20,8 @@ export function fmtLatLon(lat, lon) {
 
 /** What the heights and the photo are made of, in a few words per line. */
 export function dataLines(m) {
-  const heights = { swisstopo: 'swisstopo 0.5 m', copernicus: 'worldwide 30 m' };
-  const photo = { swisstopo: 'swisstopo 10 cm', worldcover: 'satellite 10 m', sentinel2: 'satellite 10 m' };
+  const heights = { swisstopo: 'swisstopo 0.5 m', ign_alti: 'IGN 1 m', copernicus: 'worldwide 30 m' };
+  const photo = { swisstopo: 'swisstopo 10 cm', ign_photo: 'IGN 20 cm', worldcover: 'satellite 10 m', sentinel2: 'satellite 10 m' };
   const pick = (list, names) => [...new Set((list || []).map((s) => names[s.name] || s.name))].join(' + ');
   // scenes built before the sources were recorded are Swiss ones: swisstopo for both
   const swiss = [{ name: 'swisstopo' }], old = isSwiss(m.grid.crs);

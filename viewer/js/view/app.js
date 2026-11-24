@@ -671,7 +671,7 @@ function initUI() {
   const onlyWorld = world.length && m.terrain_sources.length === 1;
   const ground = onlyWorld ? 'from the worldwide 30 m model (coarse: trees and roofs partly included)'
     : m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
-  const mixed = world.length && !onlyWorld ? '<br>Outside Switzerland: worldwide 30 m model.' : '';
+  const mixed = world.length && !onlyWorld ? '<br>Where no national heights reach: worldwide 30 m model.' : '';
   // the credits the data must be shown with: long, so folded away behind one line (a click opens them)
   const credits = world.length ? [`Heights: ${esc(world[0].credit)}`] : [];
   // satellite photo, 10 m (the 2021 picture, the 2016 one where that has nothing): the credits are required too

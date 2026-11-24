@@ -213,6 +213,9 @@ def test_regional_source_comes_before_the_world(tmp=None):
         for k in keys:
             np.save(tc.tile_path("dtm", 10, k), np.full((100, 100), height, np.float32))
 
+    def land():
+        return next(r for r in sources.regional_sources() if r.name == "testland")
+
     crs = "EPSG:32633"
     sources.register_regional("testland", "Testland, fine model", ("dtm",), lambda lat, lon: 48 <= lat <= 50 and 14 <= lon <= 17, Land)
     try:
@@ -223,7 +226,7 @@ def test_regional_source_comes_before_the_world(tmp=None):
         assert [s.name for s in sources.chain(crs, "ortho", inside)] == ["worldcover", "sentinel2"]   # it has no photo
         assert [s.name for s in sources.chain("EPSG:2056", "dtm", inside)] == ["swisstopo", "testland", "copernicus"]
         g = Grid(534000, 5446000, 536000, 5447000, 10, crs)                                   # two tiles near 49.17 N, 15.48 E
-        tiles(sources.regional(sources.regional_sources()[0], crs), 700, [(534, 5446)])       # the country has the west tile
+        tiles(sources.regional(land(), crs), 700, [(534, 5446)])       # the country has the west tile
         tiles(sources.worldwide(crs), 300, [(534, 5446), (535, 5446)])                        # the world has both
         used = []
         dem = terrain.elevation(g, "dtm", root, used=used)
@@ -234,10 +237,11 @@ def test_regional_source_comes_before_the_world(tmp=None):
         assert any("testland" in line for line in terrain.world_info(root))
         files, _ = terrain.prune_world(root, {crs: {"535-5446"}}, dry_run=False)             # the west tile is no longer needed
         assert files == 2 and (dem.shape == (100, 200))
-        assert not TileCache(root, sources.regional(sources.regional_sources()[0], crs)).tile_path("dtm", 10, (534, 5446)).exists()
+        assert not TileCache(root, sources.regional(land(), crs)).tile_path("dtm", 10, (534, 5446)).exists()
     finally:
         sources.unregister_regional("testland")
-    assert sources.regional_sources() == [] and [s.name for s in sources.chain(crs, "dtm", inside)] == ["copernicus"]
+    assert "testland" not in [r.name for r in sources.regional_sources()]
+    assert [s.name for s in sources.chain(crs, "dtm", inside)] == ["copernicus"]
 
 
 def test_copernicus_squares():
