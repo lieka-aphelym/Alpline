@@ -4,6 +4,10 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **New logo:** an edelweiss that is also a propeller, with three small chevrons for the signal; the icon is the
+  same flower on the Swiss red square. The viewer's loading screen now shows the Alps in three layers: a line of
+  sight is drawn from the pilot over the summit to the flower, which then spins until the location is ready. The
+  logo is back in the viewer's top bar, where it had shrunk to nothing.
 - **Launcher map, zoomed out:** once you zoom out a little past Switzerland, the whole map is the satellite
   picture, Switzerland included, instead of a dark Swiss map sitting in the middle of it. Zoom back in and the
   Swiss map returns.
