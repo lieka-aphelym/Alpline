@@ -1,0 +1,54 @@
+# The online demo on GitHub Pages: builds the demo place (demo/*.yaml) with a demo flight, puts it together with a
+# copy of the viewer (tools/build_demo.py) and publishes it. Runs after every merge into main, or by hand.
+# Needs Pages switched on once: repository Settings > Pages > Source: GitHub Actions.
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # the downloaded terrain and photo tiles, kept between runs so swisstopo is asked only when the place changes
+      - uses: actions/cache@v4
+        with:
+          path: demo-data/cache
+          key: demo-cache-${{ hashFiles('demo/*.yaml') }}
+      - name: Build the demo place and its demo flight
+        env:
+          ALPLINE_DATA: ${{ github.workspace }}/demo-data
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          mkdir -p demo-data/locations demo-data/scenes demo-data/cache demo-data/logs
+          cp demo/*.yaml demo-data/locations/
+          cd demo-data
+          python -m fpv3d build locations/rochers_de_naye.yaml
+          python "$PYTHONPATH/tests/make_demo_log.py" scenes/rochers_de_naye logs/demo_flight.csv
+          python -m fpv3d build locations/rochers_de_naye.yaml --log logs/demo_flight.csv
+      - run: python tools/build_demo.py --scenes demo-data/scenes --pick rochers_de_naye --out _site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -9,6 +9,8 @@ Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**
 
 ## Get it
 
+- **Try it first in your browser:** the [online demo](https://lieka-aphelym.github.io/Alpline/) opens a ready-built
+  place with a demo flight, nothing to install (building your own places needs the app).
 - **Windows, no Python needed:** download `AlplineSetup.exe` from the
   [latest release](https://github.com/lieka-aphelym/Alpline/releases/latest) and run it. It installs for your user
   only (no administrator rights). The installer is not signed, so Windows SmartScreen may ask once: *More info* →
