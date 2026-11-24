@@ -109,6 +109,17 @@ phone app.
 The installed app contains orangebox (GPL-3), so every installer you publish must come with the matching source:
 the tag does that. `THIRD_PARTY.md` lists the libraries; update it when `requirements.txt` gains one.
 
+## The online demo
+
+`.github/workflows/pages.yml` builds the place in `demo/` with a demo flight (`tests/make_demo_log.py`), then
+`tools/build_demo.py` puts it together with a copy of `viewer/` as plain static files and GitHub Pages serves them.
+The viewer already runs without the server (it reads the whole terrain file then); the script only changes the copy:
+`demo.js` stands in for `/api/mode.js`, `demo.css` hides what needs the app (live flight, downloads from the drone,
+battery, renaming), and "Locations" leads to the download page. `tests/test_demo.py` fails when a change to
+`viewer/index.html` stops those patches from applying. Pages must be switched on once in the repository settings
+(Pages, source: GitHub Actions). Try it locally:
+`python tools/build_demo.py --scenes data/scenes --pick <a scene> --out _site`, then `python -m http.server` in `_site`.
+
 ## Renaming the app
 
 The name is defined once, in `fpv3d/brand.py` (`APP_NAME`, and `BY` for the maker's name). The launcher, its texts,

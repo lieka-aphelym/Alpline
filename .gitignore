@@ -27,3 +27,6 @@ dist/
 htmlcov/
 # design mockups: the pictures go to git, old update packages stay local
 design/*.zip
+# the online demo, put together by tools/build_demo.py and the pages workflow
+_site/
+demo-data/
