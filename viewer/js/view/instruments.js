@@ -20,8 +20,8 @@ export function fmtLatLon(lat, lon) {
 
 /** What the heights and the photo are made of, in a few words per line. */
 export function dataLines(m) {
-  const heights = { swisstopo: 'swisstopo 0.5 m', copernicus: 'worldwide 30 m' };
-  const photo = { swisstopo: 'swisstopo 10 cm', worldcover: 'satellite 10 m', sentinel2: 'satellite 10 m' };
+  const heights = { swisstopo: 'swisstopo 0.5 m', ign_alti: 'IGN 1 m', copernicus: 'worldwide 30 m' };
+  const photo = { swisstopo: 'swisstopo 10 cm', ign_photo: 'IGN 20 cm', worldcover: 'satellite 10 m', sentinel2: 'satellite 10 m' };
   const pick = (list, names) => [...new Set((list || []).map((s) => names[s.name] || s.name))].join(' + ');
   // scenes built before the sources were recorded are Swiss ones: swisstopo for both
   const swiss = [{ name: 'swisstopo' }], old = isSwiss(m.grid.crs);
@@ -61,6 +61,9 @@ export function initInstruments({ S }) {
   if (sw) $('themeSlot').appendChild(sw);
   if (mode) $('modeSlot').appendChild(mode);
   document.addEventListener('click', (ev) => { if (!$('topMenu').contains(ev.target)) $('topMenu').open = false; });
+  $('topMenu').addEventListener('keydown', (ev) => {   // Esc closes the menu and goes back to its ··· button
+    if (ev.key === 'Escape' && $('topMenu').open) { $('topMenu').open = false; $('topMenu').querySelector('summary').focus(); }
+  });
 
   // camera modes as buttons; the drop-down stays the one source of truth (the C key cycles it)
   const sel = $('camMode'), short = { orbit: 'Orbit', fly: 'Fly', chase: 'Follow', drone: 'Drone' };
@@ -71,7 +74,8 @@ export function initInstruments({ S }) {
   });
   box.onclick = (ev) => {
     const b = ev.target.closest('button'); if (!b) return;
-    sel.value = b.dataset.v; sel.onchange?.(); b.blur();
+    sel.value = b.dataset.v; sel.onchange?.();
+    if (ev.detail) b.blur();   // a mouse click hands W/A/S/D back to the camera; Enter or Space keeps the focus here
   };
   const change = sel.onchange;
   sel.onchange = () => { change?.(); sync(); };
@@ -88,8 +92,9 @@ export function initInstruments({ S }) {
   $('iFold').onclick = () => fold(!$('instr').classList.contains('folded'));
   fold(kept('fpv3d:instrFolded'));
   const tl = (on) => { document.body.classList.toggle('tl-min', on); keep('fpv3d:tlHidden', on); };
-  $('tlHide').onclick = () => tl(true);
-  $('tlShow').onclick = () => tl(false);
+  // the pressed button disappears: the focus moves to the one that brings the bar back (and back again)
+  $('tlHide').onclick = () => { tl(true); $('tlShow').focus(); };
+  $('tlShow').onclick = () => { tl(false); $('tlHide').focus(); };
   tl(kept('fpv3d:tlHidden'));
 
   // the flight readout (hud.js) sits in the column on a wide screen, and floats over the view on a phone

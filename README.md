@@ -270,7 +270,8 @@ Ideas for future versions. These are intentions, not promises, and there are no 
 - **Terrain outside Switzerland:** (high priority) a first step is in since 1.1.0: a location anywhere
   builds from the Copernicus 30 m model and a Sentinel-2 satellite photo (10 m, from 2021), see
   [docs/locations.md](docs/locations.md#outside-switzerland); the map page and the launcher's map cover the world.
-  Still to come: finer national elevation data and photos. Drone zones stay Switzerland-only at first; zones of
+  France has IGN's aerial photo (20 cm) and 1 m heights since the next version; other countries' national data is
+  still to come. Drone zones stay Switzerland-only at first; zones of
   other countries come later.
 - **Better training flight:** today it feels floaty. More realistic physics, wind, and a more direct feel. (moderate priority)
 - **A better-looking 3D world:** bridges, more detailed buildings, trees and other vegetation. (low priority, this could be a nice cosmetic change)
@@ -284,7 +285,8 @@ Have a wish or want to help ? Open an [issue](https://github.com/lieka-aphelym/A
 
 Data in Switzerland: © swisstopo (swissALTI3D, swissSURFACE3D Raster, SWISSIMAGE 10 cm), free under the swisstopo open-data terms (OGD). It is fetched via the STAC API at `data.geo.admin.ch`.
 
-Data elsewhere: terrain from the Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved), photo from the ESA WorldCover Sentinel-2 composite of 2021 (© ESA WorldCover project 2021 / contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, CC BY 4.0) and, where that has no picture, from Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016, CC BY 4.0). Details: [THIRD_PARTY.md](THIRD_PARTY.md).
+Data in France: aerial photo and heights from IGN (BD ORTHO, RGE ALTI), Licence Ouverte / Open License 2.0
+(Etalab). Data elsewhere: terrain from the Copernicus DEM GLO-30 (© DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the European Union and ESA; all rights reserved), photo from the ESA WorldCover Sentinel-2 composite of 2021 (© ESA WorldCover project 2021 / contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, CC BY 4.0) and, where that has no picture, from Sentinel-2 cloudless 2016 by EOX IT Services GmbH (contains modified Copernicus Sentinel data 2016, CC BY 4.0). Details: [THIRD_PARTY.md](THIRD_PARTY.md).
 
 To test without internet: `python tests/mock_stac.py` and set `FPV3D_STAC_BASE=http://127.0.0.1:8765/api/stac/v0.9`. That serves synthetic terrain.
 

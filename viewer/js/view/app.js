@@ -6,7 +6,7 @@ import { initVideo } from './video.js';
 import { initCameraModes } from './camera.js';
 import { initSim } from '../sim/sim.js';
 import { loadVolumes } from './volume.js';
-import { initTabs } from '../core/tabs.js';
+import { initTabs, pressable } from '../core/tabs.js';
 import { LITE, PHONE, LIGHT } from '../core/env.js';
 import { createHud } from './hud.js';
 import { createLinks } from './links.js';
@@ -671,7 +671,7 @@ function initUI() {
   const onlyWorld = world.length && m.terrain_sources.length === 1;
   const ground = onlyWorld ? 'from the worldwide 30 m model (coarse: trees and roofs partly included)'
     : m.surface === 'dsm' ? 'with trees and buildings' : 'bare ground';
-  const mixed = world.length && !onlyWorld ? '<br>Outside Switzerland: worldwide 30 m model.' : '';
+  const mixed = world.length && !onlyWorld ? '<br>Where no national heights reach: worldwide 30 m model.' : '';
   // the credits the data must be shown with: long, so folded away behind one line (a click opens them)
   const credits = world.length ? [`Heights: ${esc(world[0].credit)}`] : [];
   // satellite photo, 10 m (the 2021 picture, the 2016 one where that has nothing): the credits are required too
@@ -784,7 +784,13 @@ function initUI() {
     if (b && /^[1-9]$/.test(e.key)) b.click();
   });
   setTimeout(() => S.tabs.refreshDim(), 0);
-  addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); togglePlay(); } });
+  // space plays / pauses, except on a control reached with the keyboard (Tab): there it presses that control.
+  // After a mouse click space still plays. (:focus-visible cannot tell the two apart: any key press turns it on.)
+  let tabbed = false;
+  addEventListener('pointerdown', () => { tabbed = false; }, true);
+  addEventListener('keydown', (e) => { if (e.key === 'Tab') tabbed = true; }, true);
+  const ownSpace = (t) => tabbed && t.matches?.('button, summary, select, textarea, [role=button]');
+  addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target.tagName !== 'INPUT' && !ownSpace(e.target)) { e.preventDefault(); togglePlay(); } });
 }
 
 function setPlayingUi(on) { S.playing = on; $('play').textContent = on ? '[pause]' : '[play]'; }
@@ -943,7 +949,7 @@ function fillZoneUi() {
       <i style="background:${zn.info.color}"></i><span class="t">${esc(zn.name)}</span>
       <span class="muted">${zn.info.label}${isActive(zn) ? '' : ' · not active now'}</span></li>`).join('')
     : '<li class="muted">No zone in this map area (per FOCA data).</li>';
-  $('zoneList').querySelectorAll('li[data-i]').forEach((li) => li.onclick = () => showZone(z.zones[+li.dataset.i]));
+  $('zoneList').querySelectorAll('li[data-i]').forEach((li) => pressable(li, () => showZone(z.zones[+li.dataset.i])));
 }
 
 function showZone(zn) {

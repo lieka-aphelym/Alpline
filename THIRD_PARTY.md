@@ -37,7 +37,13 @@ Terrain outside Switzerland: Copernicus DEM GLO-30, read from its public copy on
 WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH 2014-2018, provided under COPERNICUS by the
 European Union and ESA; all rights reserved. Free to use with this credit, which the viewer shows on such scenes.
 
-Photo outside Switzerland: the ESA WorldCover Sentinel-2 composite of 2021 (red, green and blue bands), read from
+France: the aerial photo BD ORTHO (15-20 cm) and the heights RGE ALTI (1 m) of IGN, the French national mapping
+agency, read from its Geoplateforme (<https://data.geopf.fr>), under the
+[Licence Ouverte / Open License 2.0](https://www.etalab.gouv.fr/licence-ouverte-open-licence/) (Etalab), which
+asks for the source to be named: "IGN - BD ORTHO" and "IGN - RGE ALTI". The viewer shows these credits on such
+scenes.
+
+Photo outside Switzerland (and France): the ESA WorldCover Sentinel-2 composite of 2021 (red, green and blue bands), read from
 its public copy on AWS, <https://registry.opendata.aws/esa-worldcover-vito-composites/>. © ESA WorldCover project
 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The viewer shows this credit on such scenes.

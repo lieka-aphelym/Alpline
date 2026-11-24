@@ -106,6 +106,45 @@ def make_photo_tile(z, x, y):
     return buf.getvalue()
 
 
+FRANCE_SPOT = (45.62, 6.77)     # lat, lon of the test location in France (Bourg-Saint-Maurice: outside the Swiss band)
+FRANCE_EAST_EDGE = 6.775        # the fake IGN has nothing east of this longitude (as across a real border)
+
+
+def ign_height(lat, lon):
+    """The fake IGN heights: a plane rising north (3 m per 0.001 degree) and east, far from the worldwide model."""
+    return (1100 + 3000 * (lat - 45.6) + 1000 * (lon - 6.75)).astype(np.float32)
+
+
+def make_ign_photo(z, x, y):
+    """A tile of the fake IGN photo, or None (no picture east of FRANCE_EAST_EDGE). Around FRANCE_SPOT red grows to
+    the east and green to the north; blue is 200 (the satellite's is 120), so the test can tell them apart."""
+    import io
+    from PIL import Image
+    n = 1 << z
+    lon = ((x + (np.arange(256) + 0.5) / 256) / n) * 360 - 180
+    if lon[0] >= FRANCE_EAST_EDGE:
+        return None
+    lat = np.degrees(np.arctan(np.sinh(np.pi * (1 - 2 * (y + (np.arange(256) + 0.5) / 256) / n))))
+    LO, LA = np.meshgrid(lon, lat)
+    rgb = np.stack([np.clip(128 + 6000 * (LO - FRANCE_SPOT[1]), 20, 235), np.clip(128 + 6000 * (LA - FRANCE_SPOT[0]), 20, 235),
+                    np.full(LO.shape, 200.0)], 2).astype(np.uint8)
+    rgb[LO >= FRANCE_EAST_EDGE] = 0                          # a tile across the edge: its outside part is black
+    buf = io.BytesIO()
+    Image.fromarray(rgb).save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
+def make_ign_heights(crs, bbox, w, h):
+    """The fake IGN height service: 32 bit floats for a box on any grid, -99999 east of FRANCE_EAST_EDGE."""
+    from fpv3d.geo import unproject
+    e0, n0, e1, n1 = bbox
+    E, N = np.meshgrid(e0 + (np.arange(w) + 0.5) * (e1 - e0) / w, n1 - (np.arange(h) + 0.5) * (n1 - n0) / h)
+    lat, lon = unproject(E.ravel(), N.ravel(), crs)
+    z = ign_height(np.asarray(lat), np.asarray(lon))
+    z[np.asarray(lon) >= FRANCE_EAST_EDGE] = -99999.0
+    return z.astype("<f4").tobytes()
+
+
 def make_worldcover(folder, lat, lon, n=2400, hole=None):
     """One 1 degree file of the fake 2021 satellite picture, where the real ones are (rgbnir/2021/N47/...), in the
     real layout: red, green, blue, infrared as reflectance x 10000. It shows the same colours as make_photo_tile
@@ -186,6 +225,19 @@ class H(http.server.BaseHTTPRequestHandler):
         m = re.match(r"/s2/(\d+)/(\d+)/(\d+)\.jpg", u.path)
         if m:                           # worldwide satellite photo: web-map tiles, zoom / row / column
             data = make_photo_tile(int(m.group(1)), int(m.group(3)), int(m.group(2)))
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        if u.path in ("/ign/wmts", "/ign/wms-r"):          # France: IGN's photo tiles and height service
+            q = {k.upper(): v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+            if u.path == "/ign/wmts":
+                data = make_ign_photo(int(q["TILEMATRIX"]), int(q["TILECOL"]), int(q["TILEROW"]))
+                if data is None:
+                    return self.send_error(404, "No data found")
+            else:
+                data = make_ign_heights(q["CRS"], [float(v) for v in q["BBOX"].split(",")], int(q["WIDTH"]), int(q["HEIGHT"]))
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()

@@ -59,6 +59,14 @@ What is different there:
   whole year, so ground that is under snow for months looks pale, and where snow lies all year (glaciers, the
   highest summits) it has no picture: those parts come from the older Sentinel-2 cloudless mosaic of 2016 and
   look flat white.
+- **In France** it is much better: the photo and the heights come from IGN, the French national mapping agency.
+  The photo is an aerial one (15-20 cm, a few years old: the date depends on the area), so houses, paths and single
+  trees show at the `ortho_resolution_m` you choose; the heights are bare ground measured every metre (`dtm`; a
+  `dsm` location keeps the worldwide model, as there is no French surface model here). Places near the border are
+  built from both sides: swisstopo in Switzerland, IGN in France, the worldwide data in Italy or elsewhere. The two
+  photos can differ in colour where they meet (taken on different days). Still no sharp close-up around the pilot.
+  IGN's service is asked for the heights at 1 m whatever the location's detail (its coarser answers have faint
+  straight lines in them), which is about 6 MB per square kilometre the first time.
 - **No drone zones**: check the official drone map of the country you fly in.
 - **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
 - The **map page** works there too: type a position (`47.26 11.39`) or tick *also search outside Switzerland* and

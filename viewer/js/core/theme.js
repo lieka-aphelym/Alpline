@@ -6,7 +6,9 @@
   function set(t) {
     root.dataset.theme = t;
     try { localStorage.setItem(KEY, t); } catch (e) { /* private mode */ }
-    document.querySelectorAll('.themeSw button').forEach(function (b) { b.classList.toggle('on', b.dataset.t === t); });
+    document.querySelectorAll('.themeSw button').forEach(function (b) {
+      b.classList.toggle('on', b.dataset.t === t); b.setAttribute('aria-pressed', String(b.dataset.t === t));
+    });
     window.dispatchEvent(new CustomEvent('fpv3d:theme', { detail: t }));
   }
   root.dataset.theme = get();

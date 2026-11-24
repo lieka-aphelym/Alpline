@@ -517,9 +517,9 @@ export function initSim(app) {
     const p = pad(), nAx = p ? p.axes.length : 8;
     const opts = (sel) => `<option value="-1">–</option>` + Array.from({ length: nAx }, (_, i) => `<option value="${i}" ${i === sel ? 'selected' : ''}>axis ${i}</option>`).join('');
     $('simMapRows').innerHTML = fns.map((f) => `<tr data-f="${f}"><td>${f}${f === 'arm' ? ' switch' : f === 'mode' ? ' switch <span class="muted">(acro/angle)</span>' : ''}</td>
-        <td><select>${opts(cfg.map[f].axis)}</select></td>
+        <td><select aria-label="${f} axis">${opts(cfg.map[f].axis)}</select></td>
         <td><label><input type="checkbox" ${cfg.map[f].inv ? 'checked' : ''}> invert</label></td>
-        <td><button class="det">[detect]</button></td><td class="barcell"><div class="vbar"><i></i></div></td></tr>`).join('');
+        <td><button class="det" aria-label="Detect the ${f} axis">[detect]</button></td><td class="barcell"><div class="vbar"><i></i></div></td></tr>`).join('');
     $('simMapRows').querySelectorAll('tr').forEach((tr) => {
       const f = tr.dataset.f, sel = tr.querySelector('select'), inv = tr.querySelector('input');
       sel.onchange = () => { cfg.map[f].axis = +sel.value; saveSettings(); };

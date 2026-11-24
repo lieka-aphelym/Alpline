@@ -55,6 +55,7 @@ class Data:
                         FPV3D_STAC_BASE=f"http://127.0.0.1:{p}/api/stac/v0.9",
                         FPV3D_COPERNICUS_BASE=f"http://127.0.0.1:{p}/copernicus",
                         FPV3D_SENTINEL2_BASE=f"http://127.0.0.1:{p}/s2",
+                        FPV3D_IGN_BASE=f"http://127.0.0.1:{p}/ign",
                         FPV3D_WORLDCOVER_BASE=str(self.dir / "fake_worldcover"),      # a folder: no square exists yet
                         FPV3D_OVERPASS_URL=f"http://127.0.0.1:{p}/api/interpreter")
 
@@ -268,6 +269,86 @@ def test_location_outside_switzerland():
     d.env["FPV3D_COPERNICUS_BASE"] = d.env["FPV3D_SENTINEL2_BASE"] = "http://127.0.0.1:9/none"   # no internet: the cache is enough
     d.env["FPV3D_WORLDCOVER_BASE"] = "http://127.0.0.1:9/none"
     d.run("build", "locations/010_abroad.yaml")
+
+
+def test_location_in_france():
+    """A place in France: IGN's 1 m heights and aerial photo where IGN has data, the worldwide model and the satellite
+    photo across the edge of its data, both pixel for pixel; the credits name IGN; a rebuild works offline."""
+    import numpy as np
+    from PIL import Image
+    import mock_stac
+    from fpv3d.geo import unproject
+    d = Data()
+    lat, lon = mock_stac.FRANCE_SPOT
+    f = d.dir / "locations" / "020_france.yaml"
+    f.write_text(LOC.format(name="020_france", title="Bourg-Saint-Maurice").replace("lat: 46.553, lon: 7.022", f"lat: {lat}, lon: {lon}")
+                 .replace("lat: 46.5553, lon: 7.0305", f"lat: {lat - 0.002}, lon: {lon - 0.003}")
+                 .replace("ortho: false", "ortho: true, ortho_resolution_m: 2"), encoding="utf-8")
+    d.run("build", "locations/020_france.yaml")
+    m = d.scene("020_france")
+    g = m["grid"]
+    assert g["crs"] == "EPSG:32632"
+    assert [s["name"] for s in m["terrain_sources"]] == ["ign_alti", "copernicus"], m["terrain_sources"]
+    assert "RGE ALTI" in m["terrain_sources"][0]["credit"] and "Licence Ouverte" in m["terrain_sources"][0]["credit"]
+    assert [s["name"] for s in m["ortho_sources"]][:2] == ["ign_photo", "sentinel2"], m["ortho_sources"]
+    E = g["min_e"] + (np.arange(g["cols"]) + 0.5) * g["res"]
+    N = g["max_n"] - (np.arange(g["rows"]) + 0.5) * g["res"]
+    EE, NN = np.meshgrid(E, N)
+    la, lo = unproject(EE.ravel(), NN.ravel(), g["crs"])
+    la, lo = np.asarray(la).reshape(EE.shape), np.asarray(lo).reshape(EE.shape)
+    dem = np.fromfile(d.dir / "scenes" / "020_france" / "terrain.f32", dtype="<f4").reshape(g["rows"], g["cols"])
+    west = lo < mock_stac.FRANCE_EAST_EDGE - 0.001                     # well inside IGN's data
+    east = lo > mock_stac.FRANCE_EAST_EDGE + 0.001
+    assert west.sum() > 1000 and east.sum() > 1000
+    assert np.abs(dem[west] - mock_stac.ign_height(la[west], lo[west])).max() < 1.5     # IGN's heights, in the right place
+    assert np.abs(dem[east] - mock_stac.world_height(la[east], lo[east])).max() < 40    # the worldwide model fills the rest
+    img = np.asarray(Image.open(d.dir / "scenes" / "020_france" / "ortho.jpg").convert("RGB"))
+    assert img.shape == (g["rows"] * 5, g["cols"] * 5, 3), img.shape          # 2 m: IGN is sharp enough for it
+    small = np.asarray(Image.fromarray(img).resize((g["cols"], g["rows"]), Image.BOX)).astype(float)
+    assert abs(small[west][:, 2].mean() - 200) < 8 and abs(small[east][:, 2].mean() - 120) < 8   # IGN west, satellite east
+    assert small[west].min() > 15                                       # no black seam left on the French side
+    red = np.where(west, small[..., 0], np.nan)
+    assert np.nanmean(red[:, :30]) + 15 < np.nanmean(red[:, 50:70])      # red grows to the east: not mirrored
+    green = np.where(west, small[..., 1], np.nan)
+    assert np.nanmean(green[:20]) > np.nanmean(green[-20:]) + 15         # green grows to the north: not upside down
+    assert any((d.dir / "cache" / "ign_photo" / "raw").glob("*.missing"))     # the tiles east of the edge: remembered
+    # without internet the cache is enough
+    d.env.update(FPV3D_IGN_BASE="http://127.0.0.1:9/ign", FPV3D_COPERNICUS_BASE="http://127.0.0.1:9/c",
+                 FPV3D_SENTINEL2_BASE="http://127.0.0.1:9/s2")
+    d.run("build", "locations/020_france.yaml")
+    dem2 = np.fromfile(d.dir / "scenes" / "020_france" / "terrain.f32", dtype="<f4").reshape(g["rows"], g["cols"])
+    assert np.allclose(dem, dem2)
+
+
+def test_france_outline():
+    """Places in France ask IGN; Switzerland (Geneva, Basel, Valais), Italy (Aosta, Courmayeur) and Spain do not."""
+    from fpv3d import ign
+    for lat, lon in ((45.92, 6.87), (46.19, 6.24), (48.86, 2.35), (43.30, 5.37), (42.15, 9.10), (47.24, -1.55), (45.19, 5.72),
+                     (46.03, 6.93), (46.025, 6.96)):
+        assert ign.covers(lat, lon), (lat, lon)
+    for lat, lon in ((46.20, 6.14), (47.56, 7.59), (46.10, 7.08), (45.74, 7.32), (45.79, 6.97), (40.42, -3.70), (46.95, 7.45),
+                     (46.06, 7.02), (46.10, 6.97)):
+        assert not ign.covers(lat, lon), (lat, lon)
+
+
+def test_ign_tile_and_zoom_rules():
+    """The zoom chosen for a photo detail, and which web-map tiles a 1 km tile needs."""
+    from fpv3d import ign
+    assert ign.zoom_for(2.0, 46.0) == 16 and ign.zoom_for(0.5, 46.0) == 18 and ign.zoom_for(0.05, 46.0) == 19
+    assert ign.zoom_for(100.0, 46.0) == 12
+    assert ign.height_step(0.5) == 1.0 and ign.height_step(10) == 1.0 and ign.height_step(20) == 5.0
+    src = ign.IgnPhoto("EPSG:32632")
+    t = src.tiles((334, 5087), 2.0)
+    assert {z for z, _, _ in t} == {16} and 4 <= len(t) <= 16
+    lat, lon = unproject_tile_middle(334, 5087)
+    assert ign.tile_at(lat, lon, 16) in [(x, y) for _, x, y in t]
+    assert {f"{z}-{x}-{y}" for z, x, y in t} <= src.raw_names((334, 5087))
+
+
+def unproject_tile_middle(ke, kn, crs="EPSG:32632"):
+    from fpv3d.geo import unproject
+    la, lo = unproject(ke * 1000 + 500.0, kn * 1000 + 500.0, crs)
+    return float(la), float(lo)
 
 
 if __name__ == "__main__":

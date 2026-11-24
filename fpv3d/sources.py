@@ -11,7 +11,8 @@ chain() says which ones serve a place, in order of preference. A new one subclas
 `cache_prefix` to its name (its files then live in cache/<name>/, apart from the others).
 
 A source for one country (a national lidar model, say) is added with register_regional(): it says where it has
-data, and is then asked before the worldwide model for places inside. See docs/data-sources.md for candidates.
+data, and is then asked before the worldwide model for places inside. France's (ign.py: IGN's aerial photo and 1 m
+heights) is the first; its module is listed in _BUILTIN. See docs/data-sources.md for other candidates.
 """
 from __future__ import annotations
 
@@ -115,7 +116,18 @@ def unregister_regional(name: str) -> None:
         del _WORLD[k]
 
 
+_BUILTIN = ["ign"]               # modules that register a country's sources when imported (France: ign.py)
+
+
+def _load_builtin() -> None:
+    """Import the country modules once, so their register_regional() calls have run."""
+    import importlib
+    while _BUILTIN:
+        importlib.import_module(f"{__package__}.{_BUILTIN.pop()}")
+
+
 def regional_sources() -> List[Regional]:
+    _load_builtin()
     return list(_REGIONAL)
 
 
@@ -153,14 +165,17 @@ def worldwide_photo(crs: str) -> TerrainSource:
     return _WORLD[key]
 
 
-def chain(crs: Optional[str], kind: str, where: Optional[Tuple[float, float]] = None) -> List[TerrainSource]:
+def chain(crs: Optional[str], kind: str, where=None) -> List[TerrainSource]:
     """The sources that can give `kind` on the grid `crs`, best first; a later one only fills what the
     earlier ones lack. Sources added with register() come first on their own grid, then the regional sources that
-    cover `where` (lat, lon of the place; none are asked when it is not given), then the worldwide ones (for the
-    photo: the 2021 picture, then the 2016 one)."""
+    cover `where` (lat, lon of the place, or a list of such points: one inside is enough, so an area across a border
+    gets both countries; none are asked when it is not given), then the worldwide ones (for the photo: the 2021
+    picture, then the 2016 one)."""
     crs = crs or default().crs
+    _load_builtin()
     out = [s for s in all_sources() if s.crs == crs and kind in s.kinds]
     if where is not None:
-        out += [regional(r, crs) for r in _REGIONAL if kind in r.kinds and r.covers(where[0], where[1])]
+        pts = [where] if isinstance(where[0], (int, float)) else list(where)
+        out += [regional(r, crs) for r in _REGIONAL if kind in r.kinds and any(r.covers(la, lo) for la, lo in pts)]
     out += [worldwide(crs)] if kind in ("dtm", "dsm") else [worldcover(crs), worldwide_photo(crs)]
     return out

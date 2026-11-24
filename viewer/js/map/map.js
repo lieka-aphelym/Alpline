@@ -2,7 +2,7 @@
 // existing locations, and click-to-create new locations (pilot + area) with optional one-click build.
 // A location lives on a metric grid: Swiss LV95 in and around Switzerland, its UTM zone elsewhere (core/geo.js).
 /* global L */
-import { initTabs } from '../core/tabs.js';
+import { initTabs, pressable } from '../core/tabs.js';
 import { createBuildProgress } from './buildprog.js';
 import { stripTiles, contextTiles, stripShapes, routeLength, stripArea, boxCells } from './corridor.js';
 import { LITE } from '../core/env.js';
@@ -167,7 +167,7 @@ function drawLocations(locs) {
     li.innerHTML = `<span class="t">${esc(l.title)}</span>
       <span class="badge ${l.built ? 'ok' : ''}">${l.built ? 'built' : 'not built'}</span>
       ${l.built ? `<a href="index.html?scene=${encodeURIComponent(l.name)}" title="Open in the 3D viewer">3D</a>` : ''}`;
-    li.querySelector('.t').onclick = pick;
+    pressable(li.querySelector('.t'), pick);
     const ren = document.createElement('button'); ren.className = 'iconbtn'; ren.textContent = 'Rename'; ren.title = 'Rename';
     ren.onclick = () => openRename(li, l);
     li.appendChild(ren);
@@ -186,7 +186,7 @@ function openRename(li, l) {
   const box = document.createElement('div'); box.className = 'renbox';
   box.innerHTML = `<label class="row small">Title <input class="rt"></label>
     <label class="row small">File name <input class="rn" spellcheck="false"></label>
-    <div class="row"><button class="primary go">Rename</button><button class="no">Cancel</button><span class="small m"></span></div>`;
+    <div class="row"><button class="primary go">Rename</button><button class="no">Cancel</button><span class="small m" role="status"></span></div>`;
   li.after(box);
   box.scrollIntoView({ block: 'nearest' });
   const rt = box.querySelector('.rt'), rn = box.querySelector('.rn'), m = box.querySelector('.m');
@@ -219,7 +219,7 @@ function openDelete(li, l) {
   const box = document.createElement('div'); box.className = 'renbox delbox';
   box.innerHTML = `<div class="small">Delete <b>${esc(l.title)}</b>? Its location file${l.built ? ', 3D scene' : ''} and training flights
     move to the <code>deleted/</code> folder; you can restore them. Cached terrain and your own logs are kept.</div>
-    <div class="row"><button class="danger go">Delete</button><button class="no">Cancel</button><span class="small m"></span></div>`;
+    <div class="row"><button class="danger go">Delete</button><button class="no">Cancel</button><span class="small m" role="status"></span></div>`;
   li.after(box);
   box.scrollIntoView({ block: 'nearest' });
   box.querySelector('.no').onclick = () => box.remove();
@@ -293,7 +293,7 @@ function routeCenter() {
 }
 function setShape(s) {
   draft.shape = s;
-  document.querySelectorAll('#shapePick button').forEach((b) => b.classList.toggle('on', b.dataset.shape === s));
+  document.querySelectorAll('#shapePick button').forEach((b) => { b.classList.toggle('on', b.dataset.shape === s); b.setAttribute('aria-pressed', String(b.dataset.shape === s)); });
   document.querySelectorAll('#panel .sq').forEach((el) => el.classList.toggle('hidden', s !== 'square'));
   document.querySelectorAll('#panel .rt').forEach((el) => el.classList.toggle('hidden', s !== 'route'));
   document.querySelector(`input[name=cm][value=${s === 'route' ? 'route' : 'both'}]`).checked = true;
@@ -588,12 +588,12 @@ $('search').addEventListener('input', () => {
       $('results').innerHTML = res.length ? '' : `<li class="muted">No match (or offline)${world ? '' : '. For places outside Switzerland, tick the box below or type a position (47.26 11.39).'}</li>`;
       for (const r of res) {
         const li = document.createElement('li'); li.textContent = r.label;
-        li.onclick = () => {
+        pressable(li, () => {
           map.setView([r.lat, r.lon], 14);
           draft.center = [r.lat, r.lon]; draft.pilot = [r.lat, r.lon];
           if (!$('fTitle').value) { $('fTitle').value = r.label.split(/[,(]/)[0].trim(); $('fTitle').dispatchEvent(new Event('input')); }
           updatePreview(); $('results').innerHTML = ''; document.activeElement?.blur?.();   // the drop-down closes
-        };
+        });
         $('results').appendChild(li);
       }
     } catch { $('results').innerHTML = '<li class="muted">search unavailable</li>'; }
@@ -620,6 +620,9 @@ addEventListener('DOMContentLoaded', () => {
   if (mode) $('modeSlot').appendChild(mode);
 });
 document.addEventListener('click', (ev) => { if (!$('topMenu').contains(ev.target)) $('topMenu').open = false; });
+$('topMenu').addEventListener('keydown', (ev) => {   // Esc closes the menu and goes back to its ··· button
+  if (ev.key === 'Escape' && $('topMenu').open) { $('topMenu').open = false; $('topMenu').querySelector('summary').focus(); }
+});
 // the map's box changes when the panel folds or the window turns: Leaflet has to measure it again
 new ResizeObserver(() => map.invalidateSize({ pan: false })).observe($('map'));
 addEventListener('keydown', (e) => {
