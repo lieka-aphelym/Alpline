@@ -8,6 +8,7 @@
   padding: 0 16px; background: var(--t-bg); color: var(--t-fg); border-bottom: 1px solid var(--t-rule); white-space: nowrap; }
 #topbar h1 { margin: 0; display: flex; align-items: center; gap: 8px; cursor: pointer;
   font: 700 14px var(--mono); letter-spacing: 1.5px; text-transform: uppercase; }
+#topbar h1 svg.logo { width: 22px; height: 22px; flex: none; }
 #topbar h1 .by { text-transform: none; font: 400 12px var(--mono); letter-spacing: 0; color: var(--t-fg2); }
 #topbar select { min-height: 36px; max-width: 280px; padding: 0 8px; font-weight: 600; background: var(--t-bg2); color: var(--t-fg);
   border: 1px solid var(--t-rule2); border-radius: 0; }

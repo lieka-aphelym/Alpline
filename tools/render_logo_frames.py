@@ -16,7 +16,7 @@ SIZES = (24, 32, 40, 48, 64, 96)
 FRAMES = {"intro": (30, 60), "busy": (20, 70)}     # frames, ms per frame (intro 1.8 s once, busy 1.4 s loop)
 PAGE = """<!doctype html><html data-theme="dark"><head><link rel="stylesheet" href="{v}/css/theme.css"><script src="{v}/js/core/theme.js"></script>
 <style>html,body{{margin:0;padding:0;background:transparent!important}} svg.logo{{width:{n}px;height:{n}px;display:block;
---t-fg:#ffffff;--t-acc:#ffd60a}}</style></head><body><span data-logo></span></body></html>"""
+--t-fg:#ffffff;--t-acc:#ffd60a}} {small}</style></head><body><span data-logo></span></body></html>"""
 
 
 def main():
@@ -25,7 +25,8 @@ def main():
         for n in SIZES:
             for kind, (count, ms) in FRAMES.items():
                 f = BRAND / f"_page_{n}.html"
-                f.write_text(PAGE.format(v=(ROOT / "viewer").as_uri(), n=n), encoding="utf-8")
+                small = ".lg-ch{display:none}" if n < 40 else ""      # small logos: no chevrons, as in the small icons
+                f.write_text(PAGE.format(v=(ROOT / "viewer").as_uri(), n=n, small=small), encoding="utf-8")
                 pg = b.new_page(viewport={"width": n, "height": n}, device_scale_factor=1)
                 pg.goto(f.as_uri())
                 pg.wait_for_selector("svg.logo")

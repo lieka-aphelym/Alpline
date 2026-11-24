@@ -1,7 +1,7 @@
 {
   "name": "Alpline",
   "short_name": "Alpline",
-  "description": "FPV signal and line-of-sight planner for Switzerland",
+  "description": "FPV signal and line-of-sight planner on real terrain",
   "id": "/viewer/",
   "start_url": "/viewer/?app=1",
   "scope": "/viewer/",

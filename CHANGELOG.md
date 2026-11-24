@@ -4,10 +4,10 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
-- **France in full detail:** places in France now get IGN's aerial photo (15-20 cm, instead of the 10 m satellite
-  picture) and its 1 m bare-ground heights (instead of the 30 m worldwide model): houses, paths and trees show,
-  and signal shadows follow the real ground. Places across the border get the best of each side: swisstopo in
-  Switzerland, IGN in France, the worldwide data elsewhere. Rebuild a French location to get it.
+- **New logo:** an edelweiss that is also a propeller, with three small chevrons for the signal; the icon is the
+  same flower on the Swiss red square. The viewer's loading screen now shows the Alps in three layers: a line of
+  sight is drawn from the pilot over the summit to the flower, which then spins until the location is ready. The
+  logo is back in the viewer's top bar, where it had shrunk to nothing.
 - **Launcher map, zoomed out:** once you zoom out a little past Switzerland, the whole map is the satellite
   picture, Switzerland included, instead of a dark Swiss map sitting in the middle of it. Zoom back in and the
   Swiss map returns.
