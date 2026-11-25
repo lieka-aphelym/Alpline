@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="css/theme.css">
 <link rel="stylesheet" href="css/mobile.css">
 <link rel="stylesheet" href="css/layout.css">
+<link rel="stylesheet" href="css/pro.css">
 <script src="/api/mode.js"></script>
 <script src="js/core/theme.js"></script>
 <script type="importmap">
@@ -25,12 +26,15 @@
   <h1>Alpline <small class="by">by lieka</small> <small class="lite">lite</small></h1>
   <label class="vh" for="scenePick">Location</label>
   <select id="scenePick" title="Location"></select>
+  <span id="topCoords" class="coords"></span>
   <span class="grow"></span>
   <div id="camBtns" class="seg" role="group" aria-label="Camera"></div>
-  <a class="navlink" href="map.html" title="The map: all your locations, create new ones">Locations</a>
-  <details id="topMenu"><summary title="More: area, look, mode" aria-label="More: area, look, mode">···</summary>
+  <nav class="pages" aria-label="Pages">
+    <a class="navlink" href="map.html" title="The map: all your locations, create new ones">Locations</a>
+    <span class="here" aria-current="page">3D viewer</span>
+  </nav>
+  <details id="topMenu"><summary title="More: look, mode" aria-label="More: look, mode">···</summary>
     <div class="menu">
-      <span class="lbl">Area</span><span id="topCoords" class="coords"></span>
       <span class="lbl">Look</span><div id="themeSlot"></div>
       <span class="lbl">Mode</span><div id="modeSlot"></div>
       <span class="note">Alpline by lieka</span>
@@ -114,9 +118,15 @@
   </section>
 
   <section data-tab="signal">
-    <h2>Where do I lose the drone? <span class="muted" id="losLink"></span></h2>
+    <h2>Your setup</h2>
+    <div id="linkList"></div>
+    <div id="linkEdit" class="linkedit"></div>
+  </section>
+  <section data-tab="signal">
+    <h2>On the map <span class="muted" id="losLink"></span></h2>
     <p class="summary" id="sumSignal"></p>
-    <label class="row"><input type="checkbox" id="losOn"> Show it on the map, for a drone flying at</label>
+    <label class="row"><input type="checkbox" id="losOn"> Signal colours on the ground</label>
+    <label class="row losHeight" for="losAgl">Drone flying at</label>
     <select id="losAgl" aria-label="Drone height above the ground"></select>
     <label class="row"><input type="checkbox" id="losFollow"> Use the height of the flight being played</label>
     <div class="chips">
@@ -126,9 +136,11 @@
     <label class="row"><input type="checkbox" id="vol3d"> Show it in 3D (fly above the coloured lid)</label>
     <p id="volMissing" class="muted small hidden">The 3D view needs an update of this scene: <code>python -m fpv3d refresh-all</code></p>
     <button id="profBtn" class="hidden wide" title="Side view along the route: where you lose sight and how high to fly">[side view along the route]</button>
-    <details class="adv"><summary>Advanced</summary>
+    <details class="adv"><summary>Display</summary>
       <label class="row" for="losOpacity">Colour strength on the map</label>
       <input type="range" id="losOpacity" min="0" max="1" step="0.05" value="0.85">
+      <label class="row" for="sphereOpacity">Range bubble transparency</label>
+      <input type="range" id="sphereOpacity" min="0" max="0.4" step="0.01" value="0.06">
       <div id="volOpts" class="hidden">
         <label class="row"><input type="checkbox" class="volLayer" data-l="los" checked> <i class="sw3" style="background:#5b4bd6"></i> 3D: hidden by terrain</label>
         <label class="row"><input type="checkbox" class="volLayer" data-l="loss"> <i class="sw3" style="background:#ff2d55"></i> 3D: signal lost</label>
@@ -142,15 +154,6 @@
     </details>
   </section>
 
-  <section data-tab="signal">
-    <h2>Radio range</h2>
-    <div id="linkList"></div>
-    <div id="linkEdit" class="linkedit"></div>
-    <details class="adv"><summary>Advanced</summary>
-      <label class="row" for="sphereOpacity">Range bubble transparency</label>
-      <input type="range" id="sphereOpacity" min="0" max="0.4" step="0.01" value="0.06">
-    </details>
-  </section>
 
   <section data-tab="flights">
     <h2>Flights</h2>
@@ -388,6 +391,7 @@
     <div class="line"><span class="lbl" id="iSightLbl">In sight</span><b id="iSight" class="acc">–</b></div>
     <div class="gauge" role="presentation"><i id="iSightBar"></i></div>
     <span id="iSightNote" class="note"></span>
+    <p id="iSightWarn" class="warnin" role="status" style="display:none"></p>
   </div>
   <div class="cell">
     <div class="line"><span class="lbl">Ground at pilot</span><b id="iGround">–</b></div>

@@ -105,21 +105,29 @@ export function initInstruments({ S }) {
 }
 
 /** The signal figures, refreshed whenever the height or the radio setup changes. `sight` / `usable`: percent or null. */
-export function updateInstrSignal({ rangeTxt, linkName, agl, sight, usable, hiddenPct }) {
+export function updateInstrSignal({ rangeTxt, linkName, agl, sight, usable, hiddenPct, cover }) {
   if (!$('iRange')) return;
   $('iRange').textContent = rangeTxt;
   $('iMini').textContent = sight != null ? `${rangeTxt} · ${sight} %` : rangeTxt;
   $('iRangeNote').textContent = `${linkName} · open sky`;
   if (sight != null) {
-    $('iSightLbl').textContent = `In sight at ${agl} m`;
+    // the figure only holds within the range: the label says so, and a small range is called out in the cell
+    $('iSightLbl').textContent = `In sight within ${rangeTxt}`;
     $('iSight').textContent = `${sight} %`;
     $('iSightBar').style.width = `${sight}%`;
-    $('iSightNote').textContent = `usable signal over ${usable} %`;
+    $('iSightNote').textContent = `drone ${agl} m above ground · usable signal on ${usable} %`;
+    const w = $('iSightWarn');
+    if (w) {
+      const small = cover != null && cover < 20;
+      w.style.display = small ? '' : 'none';
+      if (small) w.textContent = `The range reaches ${cover < 1 ? 'under 1' : cover} % of the map: past ${rangeTxt} the picture is lost.`;
+    }
   } else if (hiddenPct != null) {          // scenes without the 3D volumes: the whole map, not just the range
     $('iSightLbl').textContent = `Not hidden at ${agl} m`;
     $('iSight').textContent = `${100 - hiddenPct} %`;
     $('iSightBar').style.width = `${100 - hiddenPct}%`;
     $('iSightNote').textContent = 'of the whole map';
+    if ($('iSightWarn')) $('iSightWarn').style.display = 'none';
   }
 }
 

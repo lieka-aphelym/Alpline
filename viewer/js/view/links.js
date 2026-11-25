@@ -77,7 +77,7 @@ export const rangeFor = (budgetDb, freqMhz) => Math.pow(10, (budgetDb - 20 * Mat
 
 /** The line under a setup: where its range comes from. */
 export function noteFor(p) {
-  if (!p) return 'Your own values (Advanced).';
+  if (!p) return 'Your own values (Radio values, below).';
   if (p.km) return `Open-field range as rated by ${esc(p.by)}: ${p.km} km. Real flights: less behind terrain, trees and with interference.`;
   return p.group === 'Analog' ? 'Analog video: a typical receiver; the picture gets noisy before it is lost.' : 'A typical receiver.';
 }
@@ -147,7 +147,7 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
       }).join('');
       return `<label class="row setup"><span><span class="sw" style="background:${l0.color}"></span> ${esc(l0.name.replace(/ \d.*$/, ''))}</span>
         <select data-preset="${esc(l0.name)}">${options}
-        <option value="custom" ${cur < 0 ? 'selected' : ''}>Custom (see Advanced)</option></select></label>
+        <option value="custom" ${cur < 0 ? 'selected' : ''}>Custom values ↓</option></select></label>
         <p class="muted small presetNote" data-note="${esc(l0.name)}">${noteFor(cur >= 0 ? all[cur][0] : null)}</p>`;
     }).join('');
     const exact = S.links0.map((l0, i) => {
@@ -163,10 +163,10 @@ export function createLinks({ S, $, fmtDist, maxLinks, onShadows, onTracks }) {
       </details>`;
     }).join('');
     box.innerHTML = `<p class="muted small">Pick your video system and radio: the range, the colours on the map and the warnings follow right away.</p>${setups}
-      <div id="lnkDirty" class="small hidden"><span style="color:var(--warn)">Changed, not saved yet.</span> <span id="lnkShadowNote"></span></div>
-      <div class="row btns"><button id="lnkReset">[undo changes]</button><button id="lnkSave" class="primary">[save for this location]</button></div>
+      <div id="lnkDirty" class="saveBar hidden" role="status"><span class="what">Changed, not saved <span id="lnkShadowNote"></span></span>
+        <button id="lnkReset" type="button">Undo</button><button id="lnkSave" type="button" class="primary">Save for this place</button></div>
       <div id="lnkMsg" class="small muted" role="status"></div>
-      <details class="adv" id="lnkAdv"><summary>Advanced: exact radio values</summary>${exact}
+      <details class="adv" id="lnkAdv"><summary>Radio values</summary>${exact}
         <p class="muted small">Legal limits in Switzerland / EU (EIRP): 25 mW at 5.8 GHz, 100 mW at 2.4 GHz: the CE versions of the
         digital systems. Digital systems: the sensitivity is set from the maker's range, see the note under the choice.</p></details>`;
     box.querySelectorAll('select[data-preset]').forEach((sel) => sel.onchange = () => {

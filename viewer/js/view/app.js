@@ -25,6 +25,7 @@ import { esc } from '../core/esc.js';
 import { gridName, isSwiss } from '../core/geo.js';
 import { initInstruments, updateInstrSignal } from './instruments.js';
 import { createSurround, gridEdge, makeSkirt } from './surround.js';
+import { splashPhoto, splashProgress, splashDone } from './splash.js';
 import { initBattery } from '../battery/battery.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits } from './geozones.js';
 import { terrainVS, terrainFS } from './terrain_shaders.js';
@@ -367,12 +368,30 @@ function buildCombs() {
 }
 
 
+// the playback bar coloured by the signal state along the flight (in sight, hidden by terrain, lost): runs of the
+// same state become stops of one gradient, placed by time
+function paintScrub() {
+  const tr = S.track, el = $('scrub');
+  if (!tr || !el || !tr.n) { el?.style.removeProperty('--scrub-bg'); return; }
+  const t0 = tr.t[0], span = Math.max(1e-6, tr.t[tr.n - 1] - t0), stops = [];
+  let prev = null, from = 0;
+  for (let i = 0; i <= tr.n; i++) {
+    const css = i < tr.n ? statusOf(i).css : null;
+    if (css === prev) continue;
+    const at = i < tr.n ? ((tr.t[i] - t0) / span) * 100 : 100;
+    if (prev) stops.push(`${prev} ${from.toFixed(2)}% ${at.toFixed(2)}%`);
+    prev = css; from = at;
+  }
+  el.style.setProperty('--scrub-bg', `linear-gradient(90deg, ${stops.join(', ')})`);
+}
+
 function buildTrackObjects() {
   for (const o of [S.trackObj, S.curtain]) if (o) { scene3.remove(o); o.geometry.dispose(); }
   const tr = S.track, n = tr.n;
   const pos = new Float32Array(n * 3), v = new THREE.Vector3();
   for (let i = 0; i < n; i++) toWorld(tr.x[i], tr.y[i], tr.z[i], v).toArray(pos, i * 3);
   const cols = trackColors();
+  paintScrub();
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
@@ -501,22 +520,25 @@ function updateSignalSummary(agl, layer) {
   const range = l.range_m;                // already follows the radio setup
   const rangeTxt = range >= 1000 ? `${(range / 1000).toFixed(1)} km` : `${Math.round(range)} m`;
   let txt = `${l.name.split(' ')[0]} reaches about <b>${rangeTxt}</b> (open sky).`;
-  const fig = { rangeTxt, linkName: l.name, agl, sight: null, usable: null, hiddenPct: null };
+  const fig = { rangeTxt, linkName: l.name, agl, sight: null, usable: null, hiddenPct: null, cover: null };
   if (S.vol?.ceilAt) {                     // share of the area within range where the drone stays in sight / keeps signal
     const cor = m.corridor, p = m.pilot, N = 90;
-    let n = 0, vis = 0, ok = 0;
+    let n = 0, vis = 0, ok = 0, inRange = 0, all = 0;
     for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) {
       const x = ((a + 0.5) / N) * S.W, y = ((b + 0.5) / N) * S.H;
-      if (Math.hypot(x - p.x, y - p.y) > range) continue;
       if (cor && corDistLocal(cor.points, x, y) > cor.width_m) continue;
+      all++;
+      if (Math.hypot(x - p.x, y - p.y) > range) continue;
+      inRange++;
       const c = S.vol.ceilAt('los', x, y), c2 = S.vol.ceilAt('loss', x, y);
       if (c == null) continue;
       n++; if (c <= agl) vis++; if (c <= agl && (c2 == null || c2 <= agl)) ok++;
     }
     if (n) {
       fig.sight = Math.round((100 * vis) / n); fig.usable = Math.round((100 * ok) / n);
-      txt += ` Flying at ${agl} m, the drone stays <b>in sight over ${fig.sight}%</b> of that ${cor ? 'route' : 'area'}`
-        + `, with a usable signal over ${fig.usable}%.`;
+      fig.cover = all ? Math.round((100 * inRange) / all) : null;     // how much of the map the range reaches
+      txt += ` Flying at ${agl} m, the drone stays <b>in sight on ${fig.sight}%</b> of that ${cor ? 'route' : 'area'}`
+        + ` within ${rangeTxt}, with a usable signal on ${fig.usable}%.`;
     }
   } else if (layer) {
     fig.hiddenPct = Math.round(layer.blocked * 100);
@@ -737,7 +759,7 @@ function initUI() {
   $('volOpacity').oninput = applyShadowMode;
   $('losOpacity').oninput = () => { S.terrainMat.uniforms.uLosOpacity.value = +$('losOpacity').value; };
   const rangeOn = remembered('fpv3d:rangeOn');
-  $('linkList').innerHTML = m.links.map((l, i) => `<label class="link"><input type="checkbox" data-i="${i}" ${i === m.primary_link && rangeOn ? 'checked' : ''}>
+  $('linkList').innerHTML = m.links.map((l, i) => `<label class="link" title="Show its range as a bubble on the map"><input type="checkbox" data-i="${i}" aria-label="Range bubble of ${esc(l.name)}" ${i === m.primary_link && rangeOn ? 'checked' : ''}>
       <span class="sw" style="background:${l.color}"></span>${esc(l.name)}<span class="r" id="lnkRange${i}">${fmtDist(l.range_m)}</span></label>`).join('');
   LINKS.init();
   $('linkList').querySelectorAll('input[data-i]').forEach((cb) => {
@@ -1053,14 +1075,15 @@ async function loadScene(name) {
   S.base = `${SCENES}${name}/`;
   loadStep('Opening the location…');
   S.meta = await getJSON(S.base + 'scene.json');
-  loadStep(`${S.meta.title || name} · terrain…`);
+  splashPhoto(S);                                   // the place's own photo, sharpening as the scene loads
+  loadStep(`${S.meta.title || name} · terrain…`); splashProgress(0.2);
   const g = S.meta.grid;
   S.W = g.max_e - g.min_e; S.H = g.max_n - g.min_n; S.hBase = S.meta.elevation.min;
   S.ground = groundChoice();
   await loadOverview(S.ground === 'bare' ? 'dtm' : 'surface');
   buildTerrain();
   if (S.meta.ortho) {
-    loadStep(`${S.meta.title || name} · aerial photo…`);
+    loadStep(`${S.meta.title || name} · aerial photo…`); splashProgress(0.45);
     const t = await loadTex(S.base + S.meta.ortho);
     S.terrainMat.uniforms.uOrtho.value = t; S.terrainMat.uniforms.uUseOrtho.value = 1;
   }
@@ -1074,7 +1097,7 @@ async function loadScene(name) {
   initUI();
   initInstruments({ S });
   await pickLosLayer();
-  loadStep(`${S.meta.title || name} · signal shadows…`);
+  loadStep(`${S.meta.title || name} · signal shadows…`); splashProgress(0.75);
   try { S.vol = await loadVolumes({ scene3, S, demHeight }); } catch (e) { console.warn('3D volumes', e); S.vol = null; }
   if (S.vol?.overlay) {   // any height works now: offer a finer list
     $('losAgl').innerHTML = [5, 10, 20, 30, 45, 60, 90, 120, 150, 200, 300].map((a) => `<option value="${a}" ${a === 30 ? 'selected' : ''}>${a} m above the ground</option>`).join('');
@@ -1116,6 +1139,7 @@ async function closeSplash() {
   const l = $('loading'); if (!l) return;
   const wait = 2300 - (performance.now() - splashT0);              // let the line reach the flower and the flower spin
   if (wait > 0) await new Promise((ok) => setTimeout(ok, wait));
+  await splashDone();
   l.classList.add('out');
   window.alpBusy?.(false);
   setTimeout(() => l.remove(), 500);
