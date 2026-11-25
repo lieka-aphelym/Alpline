@@ -1092,7 +1092,8 @@ async function loadScene(name) {
   } catch (e) { console.warn('surroundings', e); S.surround = null; }
   applySurround();
   try { S.bld = await loadBuildings({ S, scene3 }); } catch (e) { console.warn('buildings', e); S.bld = null; }
-  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS: TERRAIN_FS, api: S.view.api, which: S.view.which });
+  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS: TERRAIN_FS, api: S.view.api, which: S.view.which,
+    groundY: CAM.groundY, freeView: () => !CAM.usesOrbit() });
   buildPilot();
   initUI();
   initInstruments({ S });
