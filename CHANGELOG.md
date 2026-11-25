@@ -4,6 +4,10 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **United States in detail:** places in the 48 states, Alaska and Hawaii now get the USGS bare-ground heights
+  (3DEP: 1 m where the country was scanned by lidar, which is most of it, 10 m elsewhere) instead of the 30 m
+  worldwide model, and the NAIP aerial photo (about 60 cm, instead of the 10 m satellite picture). The photo is
+  often a few years old (2017 to 2019 in the places tried). Rebuild an American location to get it.
 - **A calmer, more professional look:** Inter for words and JetBrains Mono for figures (both built in, so they work
   offline); yellow is kept for measured values, the selection and the one main button; every fold opens the same
   way. The top bar shows the place's coordinates and the two pages (Locations, 3D viewer) as tabs. The instruments

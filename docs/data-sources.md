@@ -22,6 +22,8 @@ before writing any code against it. A licence must allow free use for any purpos
 | Photo, where the 2021 one has none | Sentinel-2 cloudless **2016** by EOX | about 10 m | CC BY 4.0 |
 | Heights, France | IGN RGE ALTI, through the Geoplateforme height service | 1 m | Licence Ouverte 2.0 (Etalab) |
 | Photo, France | IGN BD ORTHO, through the Geoplateforme web-map tiles | 15-20 cm | Licence Ouverte 2.0 (Etalab) |
+| Heights, United States | USGS 3DEP, through The National Map's image service | 1 m (lidar), 10 m elsewhere | public domain |
+| Photo, United States | USDA NAIP, through the USGS "NAIP Plus" image service | about 60 cm | public domain |
 
 ## A newer photo of the whole planet
 
@@ -53,6 +55,7 @@ many European rows below are open. Not every country has finished. [The regulati
 | Country | Heights | Photo | Licence | Notes |
 |---|---|---|---|---|
 | **France** (**in use**) | RGE ALTI, 1 m, the whole country, through `data.geopf.fr/wms-r` (any box, any grid, 32 bit floats); LiDAR HD 0.5 m tiles still being completed | BD ORTHO, 15-20 cm, web-map tiles `data.geopf.fr/wmts` (zoom 19 at most, 404 outside France) | Licence Ouverte / Open License 2.0, read in IGN's catalogue records IGNF_BD-ORTHO and IGNF_RGE-ALTI on 24 November 2026 | Some tiles are withheld (areas where aerial pictures are forbidden). [data.gouv.fr](https://www.data.gouv.fr/datasets/mnt-lidar-hd) |
+| **United States** (**in use**) | 3DEP, through `elevation.nationalmap.gov/.../3DEPElevation/ImageServer/exportImage` (any box, any grid, 32 bit GeoTIFF, 1 m pixel; nodata outside). Its 10 m answer is another dataset: ask 1-2 m and average | NAIP through `imagery.nationalmap.gov/.../USGSNAIPPlus/ImageServer/exportImage` (0.3 m pixel, JPEG, black outside); years 2013 to 2019 in the places tried. Newer NAIP years (2023) are on Microsoft's Planetary Computer, whose catalogue calls them "proprietary": not used until settled | Public domain: USGS "Copyrights and Credits" page, and the service's own description, read 25 November 2026 | Both answer an over-large request with an HTML error page and "200 OK" (4000 × 4000 heights). Browser access (CORS) allowed. |
 | **Austria** | BEV ALS DTM, 1 m, whole country, GeoTIFF; a new country-wide mosaic each year | BEV orthophotos are published as open data; licence text not found | CC BY 4.0 (heights) | Stated accuracy 0.5 m, less in high mountains. Download from data.bev.gv.at. [Metadata record](https://inspire-geoportal.ec.europa.eu/srv/api/records/97908eb1-c386-42b7-bfab-4cf909058e30) |
 | **Italy** | TINITALY 1.1, 10 m, whole country, GeoTIFF | none national | CC BY 4.0, with a set citation | Three times finer than the worldwide model. Regions publish finer lidar separately. [Download page](https://tinitaly.pi.ingv.it/Download_Area1_1.html) |
 | **Czechia** | ČÚZK DMR 5G (bare ground) | orthophoto: licence not confirmed | CC BY 4.0 (heights) | Open data since late 2023, through the office's download services. [ČÚZK open data](https://www.cuzk.gov.cz/Uvod/Produkty-a-sluzby/Otevrena-data/Otevrena-data-zakladni-informace.aspx) |
@@ -86,7 +89,6 @@ many European rows below are open. Not every country has finished. [The regulati
 
 | Country or area | Heights | Photo | Believed licence |
 |---|---|---|---|
-| United States | USGS 3DEP: 10 m everywhere, 1 m for most of the country | NAIP, 0.6 m, every 2 to 3 years | public domain |
 | Canada | HRDEM, 1 to 2 m, the populated south | none national | Open Government Licence Canada |
 | Mexico | INEGI, 5 m in parts | INEGI orthophotos, older | free |
 | Australia | national 5 m, 1 m in parts (the "ELVIS" portal) | per state | CC BY 4.0 |

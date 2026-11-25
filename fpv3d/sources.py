@@ -11,8 +11,9 @@ chain() says which ones serve a place, in order of preference. A new one subclas
 `cache_prefix` to its name (its files then live in cache/<name>/, apart from the others).
 
 A source for one country (a national lidar model, say) is added with register_regional(): it says where it has
-data, and is then asked before the worldwide model for places inside. France's (ign.py: IGN's aerial photo and 1 m
-heights) is the first; its module is listed in _BUILTIN. See docs/data-sources.md for other candidates.
+data, and is then asked before the worldwide model for places inside. France (ign.py: IGN's aerial photo and 1 m
+heights) and the United States (usgs.py: 3DEP heights, NAIP photo) are built in; their modules are listed in
+_BUILTIN. See docs/data-sources.md for other candidates.
 """
 from __future__ import annotations
 
@@ -116,7 +117,7 @@ def unregister_regional(name: str) -> None:
         del _WORLD[k]
 
 
-_BUILTIN = ["ign"]               # modules that register a country's sources when imported (France: ign.py)
+_BUILTIN = ["ign", "usgs"]       # modules that register a country's sources when imported (France: ign.py, US: usgs.py)
 
 
 def _load_builtin() -> None:
