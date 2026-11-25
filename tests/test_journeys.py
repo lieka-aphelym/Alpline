@@ -56,6 +56,7 @@ class Data:
                         FPV3D_COPERNICUS_BASE=f"http://127.0.0.1:{p}/copernicus",
                         FPV3D_SENTINEL2_BASE=f"http://127.0.0.1:{p}/s2",
                         FPV3D_IGN_BASE=f"http://127.0.0.1:{p}/ign",
+                        FPV3D_USGS_BASE=f"http://127.0.0.1:{p}/usgs",
                         FPV3D_WORLDCOVER_BASE=str(self.dir / "fake_worldcover"),      # a folder: no square exists yet
                         FPV3D_OVERPASS_URL=f"http://127.0.0.1:{p}/api/interpreter")
 
@@ -360,3 +361,73 @@ if __name__ == "__main__":
             except Exception as ex:                         # noqa: BLE001
                 fails += 1; print(f"  FAIL  {name}: {ex!r}")
     sys.exit(1 if fails else 0)
+
+
+def test_location_in_the_united_states():
+    """A place in the US: 3DEP heights and the NAIP photo where they have data, the worldwide sources across the edge
+    of their data; the credits name the USGS; a rebuild works offline."""
+    import numpy as np
+    from PIL import Image
+    import mock_stac
+    from fpv3d.geo import unproject
+    d = Data()
+    lat, lon = mock_stac.US_SPOT
+    f = d.dir / "locations" / "030_boulder.yaml"
+    f.write_text(LOC.format(name="030_boulder", title="Boulder").replace("lat: 46.553, lon: 7.022", f"lat: {lat}, lon: {lon}")
+                 .replace("lat: 46.5553, lon: 7.0305", f"lat: {lat - 0.002}, lon: {lon - 0.003}")
+                 .replace("ortho: false", "ortho: true, ortho_resolution_m: 2"), encoding="utf-8")
+    d.run("build", "locations/030_boulder.yaml")
+    m = d.scene("030_boulder")
+    g = m["grid"]
+    assert g["crs"] == "EPSG:32613"
+    assert [s["name"] for s in m["terrain_sources"]] == ["usgs_3dep", "copernicus"], m["terrain_sources"]
+    assert "3DEP" in m["terrain_sources"][0]["credit"] and "public domain" in m["terrain_sources"][0]["credit"]
+    assert [s["name"] for s in m["ortho_sources"]][:2] == ["usgs_naip", "sentinel2"], m["ortho_sources"]
+    E = g["min_e"] + (np.arange(g["cols"]) + 0.5) * g["res"]
+    N = g["max_n"] - (np.arange(g["rows"]) + 0.5) * g["res"]
+    EE, NN = np.meshgrid(E, N)
+    la, lo = unproject(EE.ravel(), NN.ravel(), g["crs"])
+    la, lo = np.asarray(la).reshape(EE.shape), np.asarray(lo).reshape(EE.shape)
+    dem = np.fromfile(d.dir / "scenes" / "030_boulder" / "terrain.f32", dtype="<f4").reshape(g["rows"], g["cols"])
+    west = lo < mock_stac.US_EAST_EDGE - 0.001
+    east = lo > mock_stac.US_EAST_EDGE + 0.001
+    assert west.sum() > 1000 and east.sum() > 1000
+    assert np.abs(dem[west] - mock_stac.usgs_height(la[west], lo[west])).max() < 1.5     # 3DEP, in the right place
+    assert np.abs(dem[east] - mock_stac.world_height(la[east], lo[east])).max() < 40    # the worldwide model fills the rest
+    img = np.asarray(Image.open(d.dir / "scenes" / "030_boulder" / "ortho.jpg").convert("RGB"))
+    assert img.shape == (g["rows"] * 5, g["cols"] * 5, 3), img.shape          # 2 m: NAIP is sharp enough for it
+    small = np.asarray(Image.fromarray(img).resize((g["cols"], g["rows"]), Image.BOX)).astype(float)
+    assert abs(small[west][:, 2].mean() - 60) < 8 and abs(small[east][:, 2].mean() - 120) < 8   # NAIP west, satellite east
+    assert small[west].min() > 15                                       # no black seam left on the US side
+    red = np.where(west, small[..., 0], np.nan)
+    assert np.nanmean(red[:, :30]) + 15 < np.nanmean(red[:, 50:70])      # red grows to the east: not mirrored
+    green = np.where(west, small[..., 1], np.nan)
+    assert np.nanmean(green[:20]) > np.nanmean(green[-20:]) + 15         # green grows to the north: not upside down
+    d.env.update(FPV3D_USGS_BASE="http://127.0.0.1:9/usgs", FPV3D_COPERNICUS_BASE="http://127.0.0.1:9/c",
+                 FPV3D_SENTINEL2_BASE="http://127.0.0.1:9/s2")
+    d.run("build", "locations/030_boulder.yaml")
+    dem2 = np.fromfile(d.dir / "scenes" / "030_boulder" / "terrain.f32", dtype="<f4").reshape(g["rows"], g["cols"])
+    assert np.allclose(dem, dem2)
+
+
+def test_united_states_outline_and_steps():
+    """The 48 states, Alaska and Hawaii ask the USGS; Canada, Mexico, Europe do not. The detail fetched for each
+    detail wanted, and an HTML error page answered with "200 OK" is an error, not data."""
+    import pytest
+    from fpv3d import usgs
+    for lat, lon in ((40.0, -105.27), (46.85, -121.76), (36.58, -118.29), (44.27, -71.30), (25.77, -80.19), (47.6, -122.3),
+                     (32.72, -117.16), (29.76, -95.37), (63.07, -151.0), (61.2, -149.9), (58.3, -134.42), (55.34, -131.64), (51.88, -176.6),
+                     (19.7, -155.1), (48.99, -122.0)):
+        assert usgs.covers(lat, lon), (lat, lon)
+    for lat, lon in ((45.5, -73.6), (43.65, -79.38), (49.28, -123.12), (51.05, -114.07), (19.43, -99.13), (28.63, -106.07), (25.67, -100.31),
+                     (46.0, 7.0), (60.72, -135.06), (54.3, -130.3), (64.06, -139.43), (36.0, -130.0)):
+        assert not usgs.covers(lat, lon), (lat, lon)
+    assert usgs.height_step(0.5) == 1.0 and usgs.height_step(5) == 2.0 and usgs.height_step(20) == 5.0
+    assert usgs.photo_step(0.3) == 0.6 and usgs.photo_step(1.0) == 0.6 and usgs.photo_step(2.0) == 1.2
+    assert usgs.photo_step(10) == 9.6 and usgs.photo_step(100) == 19.2
+    src = usgs.UsgsHeights("EPSG:32613")
+    assert {f"32613-476-4429-{s:g}m" for s in usgs.HEIGHT_STEPS} < src.raw_names((476, 4429))
+    with pytest.raises(OSError):
+        src._read(b"<html>Error exporting image</html>", 1200)
+    with pytest.raises(OSError):
+        usgs.UsgsPhoto("EPSG:32613")._read(b"<html>Error</html>", 2000)

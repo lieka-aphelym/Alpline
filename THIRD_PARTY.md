@@ -45,7 +45,14 @@ agency, read from its Geoplateforme (<https://data.geopf.fr>), under the
 asks for the source to be named: "IGN - BD ORTHO" and "IGN - RGE ALTI". The viewer shows these credits on such
 scenes.
 
-Photo outside Switzerland (and France): the ESA WorldCover Sentinel-2 composite of 2021 (red, green and blue bands), read from
+United States: the bare-ground heights of the USGS 3D Elevation Program (3DEP) and the NAIP aerial photo (USDA
+Farm Service Agency), read from The National Map's image services (<https://elevation.nationalmap.gov>,
+<https://imagery.nationalmap.gov>). USGS data are in the U.S. public domain (USGS "Copyrights and Credits" page,
+read 25 November 2026), and the photo service describes its pictures as public domain; the USGS asks for credit,
+so the viewer shows "USGS National Map 3D Elevation Program (3DEP)" and "USGS, USDA, The National Map:
+Orthoimagery (NAIP)" on such scenes.
+
+Photo outside Switzerland (France and the United States): the ESA WorldCover Sentinel-2 composite of 2021 (red, green and blue bands), read from
 its public copy on AWS, <https://registry.opendata.aws/esa-worldcover-vito-composites/>. © ESA WorldCover project
 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium, under
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The viewer shows this credit on such scenes.

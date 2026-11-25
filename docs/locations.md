@@ -67,6 +67,12 @@ What is different there:
   photos can differ in colour where they meet (taken on different days). Still no sharp close-up around the pilot.
   IGN's service is asked for the heights at 1 m whatever the location's detail (its coarser answers have faint
   straight lines in them), which is about 6 MB per square kilometre the first time.
+- **In the United States** (the 48 states, Alaska, Hawaii) it is much better too: the heights are the USGS bare-ground
+  model (3DEP), measured every metre where the country was scanned by lidar (most of it) and every 10 m elsewhere,
+  coarser in Alaska; the photo is the NAIP aerial picture, about 60 cm. The photo is often a few years old
+  (2017 to 2019 where it was tried, 2013 in Hawaii) and is taken in summer, so snow-free. A `dsm` location keeps the
+  worldwide model (3DEP is bare ground only). No sharp close-up around the pilot, no drone zones (see the FAA's
+  B4UFLY). About 2 MB of heights and 1 MB of photo per square kilometre.
 - **No drone zones**: check the official drone map of the country you fly in.
 - **3D buildings** come from OpenStreetMap, with heights from its tags or a default.
 - The **map page** works there too: type a position (`47.26 11.39`) or tick *also search outside Switzerland* and

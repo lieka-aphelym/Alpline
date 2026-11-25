@@ -145,6 +145,46 @@ def make_ign_heights(crs, bbox, w, h):
     return z.astype("<f4").tobytes()
 
 
+US_SPOT = (40.0, -105.27)       # lat, lon of the test location in the United States (Boulder, Colorado)
+US_EAST_EDGE = -105.265         # the fake USGS services have nothing east of this longitude (as across a border)
+
+
+def usgs_height(lat, lon):
+    """The fake 3DEP heights: a plane rising north (2 m per 0.001 degree) and east, far from the worldwide model."""
+    return (1600 + 2000 * (lat - 40.0) + 1000 * (lon + 105.3)).astype(np.float32)
+
+
+def make_usgs_export(service, q):
+    """The fake USGS exportImage of both services: a box on any grid (bboxSR = imageSR, an EPSG number), heights as a
+    32 bit GeoTIFF (-99999 east of US_EAST_EDGE), the photo as a JPEG (black there). Around US_SPOT red grows to the
+    east and green to the north; blue is 60 (the satellite's is 120), so the test can tell them apart."""
+    import io
+    from PIL import Image
+    from fpv3d.geo import unproject
+    e0, n0, e1, n1 = [float(v) for v in q["bbox"].split(",")]
+    w, h = [int(v) for v in q["size"].split(",")]
+    E, N = np.meshgrid(e0 + (np.arange(w) + 0.5) * (e1 - e0) / w, n1 - (np.arange(h) + 0.5) * (n1 - n0) / h)
+    lat, lon = unproject(E.ravel(), N.ravel(), f"EPSG:{q['imageSR']}")
+    LA, LO = np.asarray(lat).reshape(h, w), np.asarray(lon).reshape(h, w)
+    out = LO >= US_EAST_EDGE
+    if service == "3dep":
+        from rasterio.io import MemoryFile
+        from rasterio.transform import from_bounds
+        z = usgs_height(LA, LO)
+        z[out] = -99999.0
+        with MemoryFile() as mf:
+            with mf.open(driver="GTiff", width=w, height=h, count=1, dtype="float32", crs=f"EPSG:{q['imageSR']}",
+                         transform=from_bounds(e0, n0, e1, n1, w, h)) as d:
+                d.write(z, 1)
+            return mf.read()
+    rgb = np.stack([np.clip(128 + 6000 * (LO - US_SPOT[1]), 20, 235), np.clip(128 + 6000 * (LA - US_SPOT[0]), 20, 235),
+                    np.full(LO.shape, 60.0)], 2).astype(np.uint8)
+    rgb[out] = 0
+    buf = io.BytesIO()
+    Image.fromarray(rgb).save(buf, "JPEG", quality=95)
+    return buf.getvalue()
+
+
 def make_worldcover(folder, lat, lon, n=2400, hole=None):
     """One 1 degree file of the fake 2021 satellite picture, where the real ones are (rgbnir/2021/N47/...), in the
     real layout: red, green, blue, infrared as reflectance x 10000. It shows the same colours as make_photo_tile
@@ -238,6 +278,18 @@ class H(http.server.BaseHTTPRequestHandler):
                     return self.send_error(404, "No data found")
             else:
                 data = make_ign_heights(q["CRS"], [float(v) for v in q["BBOX"].split(",")], int(q["WIDTH"]), int(q["HEIGHT"]))
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        m = re.match(r"/usgs/(3dep|naip)/exportImage$", u.path)
+        if m:                           # United States: the 3DEP height and NAIP photo services
+            q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+            if int(q["size"].split(",")[0]) > 3000:
+                data = b"<html><body>Error exporting image</body></html>"      # as the real one: an HTML "200 OK"
+            else:
+                data = make_usgs_export(m.group(1), q)
             self.send_response(200)
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
