@@ -4,6 +4,11 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **Showcase quality:** *Map > Advanced > Quality: showcase* draws the whole area about four times finer (3200 points a
+  side instead of 1500: a 6 km area at 2 m is sharp everywhere) and the sharp close-up about seven times larger (4 km at 2 m), with a sharper photo in it.
+  For a strong graphics card (about 1 GB of its memory); not offered on a phone or in Lite. Remembered per browser.
+- **Sharp close-up in the free-fly and drone views:** the patch of full-detail terrain now follows the ground you
+  look at. It used to stay where the orbit view had left it, so flying away showed only the coarse overview.
 - **United States in detail:** places in the 48 states, Alaska and Hawaii now get the USGS bare-ground heights
   (3DEP: 1 m where the country was scanned by lidar, which is most of it, 10 m elsewhere) instead of the 30 m
   worldwide model, and the NAIP aerial photo (about 60 cm, instead of the 10 m satellite picture). The photo is

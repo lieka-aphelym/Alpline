@@ -98,5 +98,5 @@ export function initCameraModes({ camera, controls, dom, groundY, sceneSpan, dro
   }
 
   hint();
-  return { setMode, update, mode: () => st.mode, usesOrbit: () => st.mode === 'orbit' || st.mode === 'chase' };
+  return { setMode, update, groundY, mode: () => st.mode, usesOrbit: () => st.mode === 'orbit' || st.mode === 'chase' };
 }

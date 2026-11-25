@@ -1,14 +1,16 @@
 // fpv3d — sharp close-up: a patch of terrain at the scene's full resolution around the point you
-// look at (orbit target / chased drone), with the sharp aerial photo when the build fetched one.
+// look at (orbit target / chased drone; in the free-fly and drone views, the ground the camera looks
+// at), with the sharp aerial photo when the build fetched one.
 // The overview mesh is decimated (the browser can't draw 16 000 x 16 000 cells), so without this
 // patch a 0.5 m scene looks like a 2-8 m one.
 import * as THREE from 'three';
 import { LITE, PHONE } from '../core/env.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 
-const N = PHONE ? 256 : LITE ? 384 : 768;   // cells per side (phone 256, Lite 384, Full 768)
-
-export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which }) {
+export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which, groundY, freeView, showcase }) {
+  // cells per side: phone 256, Lite 384, Full 768, showcase 2048 (7 times the area: about 4 km at 2 m)
+  const N = PHONE ? 256 : LITE ? 384 : showcase ? 2048 : 768;
+  const PHOTO_PX = showcase ? 4096 : 2048;   // the sharp photo of the patch, pixels a side
   const g = S.view.grid;                      // full-resolution grid of the displayed ground
   const baseRes = S.view.res;                 // overview cell size (m)
   const st = { mesh: null, rect: null, busy: false, wanted: null, enabled: true, center: null, tex: null };
@@ -21,9 +23,23 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
   });
   const sizeM = N * g.res;
 
+  const _p = new THREE.Vector3(), _d = new THREE.Vector3();
+  // In the orbit and follow views the point looked at is the orbit target. The free-fly and drone views
+  // leave that target where it was (it was the bug: the patch stayed behind while the camera flew off),
+  // so there it is the ground the camera looks at: walk along the view line until it meets the terrain;
+  // looking at the sky, the ground a little ahead of the camera.
   function localFocus() {
-    const t = controls.target;
-    return { x: t.x + S.W / 2, y: S.H / 2 - t.z };
+    if (!freeView?.()) { const t = controls.target; return { x: t.x + S.W / 2, y: S.H / 2 - t.z, dist: camera.position.distanceTo(t) }; }
+    camera.getWorldDirection(_d);
+    const step = Math.max(g.res * 4, 5), far = sizeM * 4;
+    for (let s = step; s <= far; s += step) {
+      _p.copy(camera.position).addScaledVector(_d, s);
+      const gy = groundY?.(_p.x, _p.z);
+      if (gy != null && _p.y <= gy) return { x: _p.x + S.W / 2, y: S.H / 2 - _p.z, dist: s };
+    }
+    _p.copy(camera.position).addScaledVector(_d.setY(0).normalize(), sizeM / 4);
+    const above = camera.position.y - (groundY?.(camera.position.x, camera.position.z) ?? 0);
+    return { x: _p.x + S.W / 2, y: S.H / 2 - _p.z, dist: Math.max(above, 0) };
   }
 
   async function load(cx, cy) {
@@ -53,7 +69,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
   async function loadOrtho(x0, y0, x1, y1) {
     if (!S.meta.detail) return;
     try {
-      const r = await fetch(`${api}/ortho?scene=${encodeURIComponent(S.meta.name)}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&px=2048`);
+      const r = await fetch(`${api}/ortho?scene=${encodeURIComponent(S.meta.name)}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&px=${PHOTO_PX}`);
       if (!r.ok) { mat.uniforms.uOrtho.value = S.terrainMat.uniforms.uOrtho.value; mat.uniforms.uOrthoRect.value.set(0, 0, 1, 1); return; }
       const bmp = await createImageBitmap(await r.blob(), { imageOrientation: 'flipY' });
       const tex = new THREE.Texture(bmp);
@@ -132,10 +148,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
       if (!st.enabled || st.busy || now - lastCheck < 250 || (st.failed || 0) > 3) return;
       lastCheck = now;
       const f = S.simFocus || localFocus();                   // training flight: around (and ahead of) the drone
-      if (!S.simFocus) {
-        const dist = camera.position.distanceTo(controls.target);
-        if (dist > sizeM * 4) { hide(); return; }             // too far away to see the difference
-      }
+      if (!S.simFocus && f.dist > sizeM * 4) { hide(); return; }   // too far away to see the difference
       if (!st.center || Math.hypot(f.x - st.center.x, f.y - st.center.y) > sizeM / 4) load(f.x, f.y);
       else show();
     },

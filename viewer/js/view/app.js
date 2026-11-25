@@ -34,6 +34,9 @@ import { fmtTime, fmtDist, lerp, computeKinematics, trackStats } from './trackma
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+// "showcase" quality (Map > Advanced, remembered per browser): a finer overview and a larger sharp close-up, for
+// a strong graphics card. Never on a phone or in Lite.
+const SHOWCASE = !PHONE && !LITE && (() => { try { return localStorage.getItem('fpv3d:quality') === 'showcase'; } catch { return false; } })();
 const SCENES = '../scenes/';
 const MAX_LINKS = 4;
 const TERRAIN_FS = terrainFS(MAX_LINKS);
@@ -119,7 +122,9 @@ function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coor
 const API = '/api';
 async function loadOverview(which) {
   const fileMeta = which === 'dtm' && S.meta.terrain_dtm ? S.meta.terrain_dtm : { file: S.meta.terrain, grid: S.meta.grid };
-  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || (PHONE ? 600 : LITE ? 800 : 1500));   // overview mesh: phone 600, Lite 800, Full 1500
+  // overview mesh: phone 600, Lite 800, Full 1500 points a side; the showcase quality 3200 (a 6 km area at 2 m,
+  // 3001 points, is then drawn in full everywhere)
+  const g = fileMeta.grid, maxSide = +(params.get('maxgrid') || (PHONE ? 600 : LITE ? 800 : SHOWCASE ? 3200 : 1500));
   const step = Math.max(1, Math.ceil(Math.max(g.cols, g.rows) / maxSide));
   let dem = null, cols, rows, api = null;
   try {
@@ -691,6 +696,13 @@ function initGroundUi() {
     $('bldCount').textContent = `${S.bld.count} · ${m.buildings.heights_from_dsm || 0} measured`;
   }
   $('detailRow').classList.toggle('hidden', !S.detail?.enabled);
+  // the showcase quality: offered on a computer only, and only where the area is drawn coarser than its data
+  $('qualityRow').classList.toggle('hidden', PHONE || LITE || !(SHOWCASE || S.detail?.enabled));
+  $('quality').value = SHOWCASE ? 'showcase' : 'normal';
+  $('quality').onchange = () => {
+    try { localStorage.setItem('fpv3d:quality', $('quality').value); } catch { /* private mode */ }
+    location.reload();                     // the meshes are sized when the view loads
+  };
   $('detailOn').onchange = () => S.detail.set($('detailOn').checked);
   const full = v.grid.res;
   $('meshInfo').textContent = S.detail?.enabled ? `Mesh: ${S.detail.info}${m.detail ? ` · sharp photo ${m.detail.res} m near the pilot` : ''}`
@@ -1092,7 +1104,8 @@ async function loadScene(name) {
   } catch (e) { console.warn('surroundings', e); S.surround = null; }
   applySurround();
   try { S.bld = await loadBuildings({ S, scene3 }); } catch (e) { console.warn('buildings', e); S.bld = null; }
-  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS: TERRAIN_FS, api: S.view.api, which: S.view.which });
+  S.detail = initDetail({ S, scene3, camera, controls, terrainVS, terrainFS: TERRAIN_FS, api: S.view.api, which: S.view.which, showcase: SHOWCASE,
+    groundY: CAM.groundY, freeView: () => !CAM.usesOrbit() });
   buildPilot();
   initUI();
   initInstruments({ S });
