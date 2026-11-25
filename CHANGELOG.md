@@ -4,6 +4,11 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **Surroundings without gaps or fog:** the coarse terrain around a location is now sewn to the sharp area (it takes
+  the area's heights at the border and blends back over about 150 m), and a short wall under the area's edge fills
+  what is left, so the sky no longer shows between them. The surroundings have three clean looks to choose in
+  Advanced: contour lines every 50 m (the default), the satellite photo or a pale relief; no more fade and haze, and their outer
+  edge is a crisp wall like a model on a table. Rebuild a location to get the sewn border.
 - **Online demo:** the 3D viewer runs in the browser on GitHub Pages with a ready-built place (Rochers de Naye)
   and a demo flight, nothing to install. It is rebuilt and published by itself after every merge into `main`.
 - **New logo:** an edelweiss that is also a propeller, with three small chevrons for the signal; the icon is the

@@ -448,6 +448,27 @@ def test_blackbox_read():
     assert _alt_scale({}, [12150]) == 0.1 and _alt_scale({}, [1215]) == 1.0
 
 
+def test_surroundings_are_sewn_to_the_area():
+    """The coarse ring takes the area's own heights on and under its border, so no step (and no sky) shows between
+    them, and goes back to its own heights a little way out, smoothly."""
+    from fpv3d.scene import stitch_surround
+    area = Grid(1000, 1000, 2000, 2000, 10)                       # 1 km area, 10 m cells
+    E = area.min_e + (np.arange(area.cols) + 0.5) * area.res
+    dem = np.tile((500 + 0.3 * (E - 1000)).astype(np.float32), (area.rows, 1))   # rises to the east, 0 to 300 m
+    ring = Grid(0, 0, 3000, 3000, 25)
+    coarse = np.full(ring.shape, 400.0, np.float32)               # the worldwide model: flat, 100 m below at the west
+    h = stitch_surround(coarse, ring, dem, area, blend_m=150)
+    col = lambda e: int((e - ring.min_e) // ring.res)             # noqa: E731
+    row = lambda n: int((ring.max_n - n) // ring.res)             # noqa: E731
+    assert abs(h[row(1500), col(1012.5)] - (500 + 0.3 * 12.5)) < 2      # just inside the west border: the area
+    assert abs(h[row(1500), col(987.5)] - 500) < 3                       # just outside: still the area's edge
+    assert abs(h[row(1500), col(1987.5)] - 796) < 3                      # the east border too (300 m higher)
+    assert h[row(1500), col(500)] == 400 and h[row(200), col(1500)] == 400     # far out: the worldwide model
+    west = h[row(1500), col(800):col(1000)]
+    assert (np.diff(west) >= -1e-3).all()                                # it climbs to the edge without a dip
+    assert np.isfinite(h).all()
+
+
 def test_launcher_tile_style():
     """Launcher map tiles: dark, dimmed outside Switzerland, zones become an outline + hatch; tile keys around a point."""
     try:
