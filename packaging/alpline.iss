@@ -2,7 +2,7 @@
 ; https://jrsoftware.org/isinfo.php). Installs for the current user only: no administrator rights needed.
 ; The version comes from fpv3d/__init__.py: build_app.bat passes it as /DAppVersion=...
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.2.0"
 #endif
 
 [Setup]
