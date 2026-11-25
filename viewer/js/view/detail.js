@@ -7,9 +7,10 @@ import * as THREE from 'three';
 import { LITE, PHONE } from '../core/env.js';
 import { readTerrain, TERRAIN_ENC } from './terrain_codec.js';
 
-const N = PHONE ? 256 : LITE ? 384 : 768;   // cells per side (phone 256, Lite 384, Full 768)
-
-export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which, groundY, freeView }) {
+export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, api, which, groundY, freeView, showcase }) {
+  // cells per side: phone 256, Lite 384, Full 768, showcase 2048 (7 times the area: about 4 km at 2 m)
+  const N = PHONE ? 256 : LITE ? 384 : showcase ? 2048 : 768;
+  const PHOTO_PX = showcase ? 4096 : 2048;   // the sharp photo of the patch, pixels a side
   const g = S.view.grid;                      // full-resolution grid of the displayed ground
   const baseRes = S.view.res;                 // overview cell size (m)
   const st = { mesh: null, rect: null, busy: false, wanted: null, enabled: true, center: null, tex: null };
@@ -68,7 +69,7 @@ export function initDetail({ S, scene3, camera, controls, terrainVS, terrainFS, 
   async function loadOrtho(x0, y0, x1, y1) {
     if (!S.meta.detail) return;
     try {
-      const r = await fetch(`${api}/ortho?scene=${encodeURIComponent(S.meta.name)}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&px=2048`);
+      const r = await fetch(`${api}/ortho?scene=${encodeURIComponent(S.meta.name)}&x0=${x0}&y0=${y0}&x1=${x1}&y1=${y1}&px=${PHOTO_PX}`);
       if (!r.ok) { mat.uniforms.uOrtho.value = S.terrainMat.uniforms.uOrtho.value; mat.uniforms.uOrthoRect.value.set(0, 0, 1, 1); return; }
       const bmp = await createImageBitmap(await r.blob(), { imageOrientation: 'flipY' });
       const tex = new THREE.Texture(bmp);
