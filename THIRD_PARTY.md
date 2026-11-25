@@ -9,6 +9,8 @@ It uses the work of others, listed here with their licences.
 | --- | --- | --- |
 | [three.js](https://threejs.org) (`three.core.js`, `three.module.js`, `OrbitControls.js`) | MIT | `viewer/vendor/THREE_LICENSE` |
 | [Leaflet](https://leafletjs.com) | BSD 2-Clause | `viewer/vendor/leaflet/LICENSE` |
+| [Inter](https://rsms.me/inter/) (variable, Latin subset, from Fontsource) | SIL Open Font License 1.1 | `viewer/vendor/fonts/OFL-Inter.txt` |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (variable, Latin subset, from Fontsource) | SIL Open Font License 1.1 | `viewer/vendor/fonts/OFL-JetBrainsMono.txt` |
 | [QR Code Generator for JavaScript](https://github.com/kazuhikoarase/qrcode-generator) (Kazuhiko Arase) | MIT | header of `viewer/vendor/qrcode.js` |
 
 ## Python libraries (installed by `requirements.txt`, and inside the Windows app)

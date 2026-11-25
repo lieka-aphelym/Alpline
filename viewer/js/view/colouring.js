@@ -4,15 +4,17 @@ import * as THREE from 'three';
 import { RESTRICTIONS } from './geozones.js';
 import { RAMP, rampColor } from './trackmath.js';
 
-const C_OK = new THREE.Color(0x3ddc84), C_FRES = new THREE.Color(0xffb000),
-  C_BLOCK = new THREE.Color(0xff7a1a), C_LOST = new THREE.Color(0xff2d55);
+// the signal states, the same on the ground, the flight path, the status and the playback bar (pro.css)
+export const STATE = { ok: '#3ddc84', hidden: '#8b7cf6', lost: '#ff2d55' };
+const C_OK = new THREE.Color(STATE.ok), C_FRES = new THREE.Color(0xffb000),
+  C_BLOCK = new THREE.Color(STATE.hidden), C_LOST = new THREE.Color(STATE.lost);
 
 export function statusOf(S, i) {
   const tr = S.track, prim = S.meta.links[S.meta.primary_link].name;
   const m = tr.margin[prim]?.[i];
-  if (m != null && m < 0) return { c: C_LOST, label: 'SIGNAL PROBABLY LOST', css: '#ff2d55' };
-  if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'HIDDEN BY TERRAIN', css: '#ff7a1a' };
-  return { c: C_OK, label: 'IN SIGHT', css: '#3ddc84' };
+  if (m != null && m < 0) return { c: C_LOST, label: 'Signal probably lost', css: STATE.lost, k: 'lost' };
+  if (tr.clearance[i] < 0) return { c: C_BLOCK, label: 'Hidden by terrain', css: STATE.hidden, k: 'hidden' };
+  return { c: C_OK, label: 'In sight', css: STATE.ok, k: 'ok' };
 }
 
 export function colorModes(S) {
@@ -57,7 +59,7 @@ export function trackColors(S, mode, leg) {
   if (mode === 'status') {
     for (let i = 0; i < n; i++) statusOf(S, i).c.toArray(cols, i * 3);
     leg.className = 'legend gradient cat';
-    leg.innerHTML = [['#3ddc84', 'In sight'], ['#ff7a1a', 'Hidden by terrain'], ['#ff2d55', 'Signal probably lost']]
+    leg.innerHTML = [[STATE.ok, 'In sight'], [STATE.hidden, 'Hidden by terrain'], [STATE.lost, 'Signal probably lost']]
       .map(([k, t]) => `<li><i style="background:${k}"></i>${t}</li>`).join('');
     return cols;
   }

@@ -4,6 +4,15 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **A calmer, more professional look:** Inter for words and JetBrains Mono for figures (both built in, so they work
+  offline); yellow is kept for measured values, the selection and the one main button; every fold opens the same
+  way. The top bar shows the place's coordinates and the two pages (Locations, 3D viewer) as tabs. The instruments
+  say where their figure holds ("In sight within 232 m") and warn when the range covers little of the map. The
+  Signal tab starts with your setup, then what the map shows; the legend appears only with the colours on, and
+  Undo / Save only once something changed. The flight readout is a cell like the others, "hidden by terrain" is
+  violet everywhere, and the playback bar shows where the signal held, was hidden or was lost.
+- **Loading screen:** the place's own aerial photo appears blurred and in coarse blocks and turns sharp as the 3D
+  view loads, then says "ready".
 - **Surroundings without gaps or fog:** the coarse terrain around a location is now sewn to the sharp area (it takes
   the area's heights at the border and blends back over about 150 m), and a short wall under the area's edge fills
   what is left, so the sky no longer shows between them. The surroundings have three clean looks to choose in

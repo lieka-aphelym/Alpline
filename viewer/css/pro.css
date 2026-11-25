@@ -1,0 +1,137 @@
+/* The professional look (design "A", the system sheet): loaded last on every page, so it settles type and colour
+   without touching layout logic.
+   - two fonts: Inter for words, JetBrains Mono for figures and positions (both in vendor/fonts, OFL; offline);
+   - yellow only for a measured value, a selection, or the one main action of a screen;
+   - one row for every fold, switch and setting, two kinds of button (main and secondary), one height. */
+
+@font-face { font-family: "Inter"; src: url("../vendor/fonts/inter-latin-var.woff2") format("woff2"); font-weight: 100 900;
+  font-style: normal; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("../vendor/fonts/jetbrains-mono-latin-var.woff2") format("woff2");
+  font-weight: 100 800; font-style: normal; font-display: swap; }
+
+:root {
+  --sans: "Inter", system-ui, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+:root, :root[data-theme="dark"] {
+  --t-bg: #0d1014;          /* panels and bars */
+  --t-bg2: #12161b;         /* fields, blocks */
+  --t-bg3: #181d24;         /* hover, open row */
+  --t-fg: #e8ecf1;          /* text: 16 : 1 */
+  --t-fg2: #a3adba;         /* notes and labels: 8 : 1 */
+  --t-rule: #232830;        /* hairlines */
+}
+
+/* ---------- words in Inter ---------- */
+body, #panel, #topbar, #instr, #timeline, #hud, #simLive, #warnBox, #profile, .mappage, #loading .spTag, .demoBadge {
+  font-family: var(--sans); }
+#topbar h1 { font: 700 14px var(--sans); letter-spacing: .14em; }
+#topbar select, #pbody select, #panel select { font: 500 13px var(--sans); }
+
+/* section titles and the labels of instruments: small capitals, never louder than the values */
+#pbody h2 { font: 600 11px var(--sans) !important; letter-spacing: .09em; color: var(--t-fg2) !important; }
+#pbody h2::after { background: var(--t-rule); }
+#instr .lbl, #topMenu .menu .lbl, #hud .tile span, #instr details.more > summary {
+  font-family: var(--sans) !important; font-weight: 600 !important; letter-spacing: .08em !important; }
+#instr .note, #topMenu .menu .note, #viewHint p { font-family: var(--sans); }
+.rail button span, #panel .rail button span { font: 500 11px var(--sans) !important; letter-spacing: .02em; }
+.rail .railCollapse { font: 500 11px var(--sans) !important; }
+
+/* figures stay in the mono font */
+#instr b, #instr .stack, #instr .note.mono, #topbar .coords, #clock, output, .r, #hud .tile b, #instr .ihead .mini { font-family: var(--mono) !important; }
+
+/* ---------- the top bar: the place, where it is, the pages ---------- */
+#topbar .pages { display: flex; align-items: stretch; height: 100%; }
+#topbar .pages > * { display: flex; align-items: center; padding: 0 12px; font: 500 13px var(--sans) !important;
+  text-decoration: none; border-bottom: 2px solid transparent; }
+#topbar .pages .here { color: var(--t-fg); font-weight: 600 !important; border-bottom-color: var(--t-fg); }
+#topbar .pages a { color: var(--t-fg2) !important; }
+#topbar .pages a:hover { color: var(--t-fg) !important; }
+.seg button { font: 600 12px var(--sans) !important; letter-spacing: .02em !important; text-transform: none !important; }
+
+/* ---------- yellow kept for values, selection and the one main action ---------- */
+a, .navlink { color: var(--t-fg) !important; font-family: var(--sans); text-decoration-color: var(--t-rule2); }
+a:hover, .navlink:hover { color: var(--t-acc) !important; }
+.summary { border-left: 2px solid var(--t-rule2) !important; font-family: var(--sans); }
+.summary b { color: var(--t-fg) !important; }
+
+/* ---------- buttons: main (yellow) and secondary (outline), one height ---------- */
+#panel button:not(.rail button):not(.iconbtn), #simLive button, #timeline button, #hud button, .mappage button {
+  font: 500 13px var(--sans) !important; min-height: 32px; padding: 0 12px; }
+#panel button.primary, .mappage button.primary, #simLive button.primary { font-weight: 600 !important; }
+#panel button.danger, .mappage button.danger { background: transparent !important; color: #f08a81 !important; }
+:root[data-theme="light"] #panel button.danger, :root[data-theme="light"] .mappage button.danger { color: #b3261e !important; }
+
+/* ---------- the one row: every fold (details) opens the same way ---------- */
+details.adv, details.help { border-top: 1px solid var(--t-rule) !important; margin: 0 !important; }
+details.adv > summary, details.help > summary { list-style: none; display: flex; align-items: center; gap: 10px; min-height: 44px;
+  cursor: pointer; font: 600 11px var(--sans) !important; letter-spacing: .09em !important; text-transform: uppercase;
+  color: var(--t-fg2) !important; }
+details.adv > summary::-webkit-details-marker, details.help > summary::-webkit-details-marker { display: none; }
+details.adv > summary::before, details.help > summary::before { content: ""; width: 6px; height: 6px; flex: none;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s; }
+details.adv[open] > summary::before, details.help[open] > summary::before { transform: rotate(45deg); }
+details.adv > summary:hover, details.help > summary:hover, details.adv[open] > summary, details.help[open] > summary { color: var(--t-fg) !important; }
+details.adv[open], details.help[open] { padding-bottom: 12px; }
+
+/* ---------- the instruments column ---------- */
+#instr .ihead .lbl { color: var(--t-fg) !important; }
+#instr .warnin { display: flex; gap: 8px; align-items: flex-start; margin-top: 6px; padding: 7px 9px; font: 12px/1.4 var(--sans);
+  color: #e9d7ae; background: #1a1712; border: 1px solid #3a3220; }
+:root[data-theme="light"] #instr .warnin { color: #5a4100; background: #fff6dc; border-color: #e6cf8c; }
+
+@media (prefers-reduced-motion: reduce) { details.adv > summary::before, details.help > summary::before { transition: none; } }
+
+/* ---------- the 3D view's loading screen: the place's photo sharpens as it loads (splash.js) ---------- */
+#loading .spPhoto { --p: 0; position: relative; display: none; width: min(560px, 86vw, calc(50vh * var(--ratio, 1.5)));
+  aspect-ratio: var(--ratio, 1.5); margin: 0 0 22px; overflow: hidden; background: #07090c; border: 1px solid var(--t-rule); }
+#loading.hasPhoto .spPhoto { display: block; }
+#loading.hasPhoto .spScene { display: none; }
+#loading .spPhoto img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scale(1.06);
+  filter: blur(calc((1 - var(--p)) * 14px)) saturate(calc(.35 + .65 * var(--p))); opacity: 0; transition: filter .9s ease, opacity .4s ease; }
+#loading .spPhoto.on img { opacity: 1; }
+#loading .spPhoto .spGrid { position: absolute; inset: 0; pointer-events: none; opacity: calc(1 - var(--p) * 1.5); transition: opacity .9s ease;
+  background-image: linear-gradient(#07090c 1px, transparent 1px), linear-gradient(90deg, #07090c 1px, transparent 1px);
+  background-size: 18px 18px; }
+#loading .spPhoto .spLbl, #loading .spPhoto .spReady { position: absolute; bottom: 10px; padding: 4px 8px;
+  font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+#loading .spPhoto .spLbl { left: 10px; color: #e8ecf1; background: rgba(7, 9, 12, .82); }
+#loading .spPhoto .spReady { right: 10px; color: #07090c; background: #ffd60a; opacity: 0; transition: opacity .3s ease; }
+#loading .spPhoto.ready .spReady { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { #loading .spPhoto img, #loading .spPhoto .spGrid { transition: none; } }
+
+/* ---------- the Signal tab (design C): your setup first, then what the map shows ---------- */
+/* the legend only while the colours are on the ground */
+#pbody section:has(#losOn:not(:checked)) .chips { display: none !important; }
+#pbody .losHeight { margin: 6px 0 0; color: var(--t-fg2); font-size: 12.5px; }
+#pbody #linkList .link { display: flex; align-items: center; gap: 10px; min-height: 40px; border-bottom: 1px solid var(--t-rule); }
+#pbody #linkList .link .r { margin-left: auto; font-family: var(--mono); color: var(--t-fg); }
+/* "save" only once something changed: a bar that stays at the bottom of the panel */
+.saveBar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; margin: 10px 0 0; padding: 10px 0;
+  background: var(--t-bg); border-top: 1px solid var(--t-rule2); }
+.saveBar.hidden { display: none !important; }
+.saveBar { flex-wrap: wrap; justify-content: flex-end; }
+.saveBar .what { flex: 1 1 100%; min-width: 0; font-size: 12.5px; line-height: 1.4; color: var(--t-fg); }
+#pbody #linkList .link .sw { order: 1; } #pbody #linkList .link .r { order: 2; } #pbody #linkList .link input { order: 3; margin-left: 4px; }
+
+/* ---------- the flight block: a cell like the others ---------- */
+#hud .fhead { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+#hud .fhead .lbl { font: 600 11px var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--t-fg); }
+#hud .status { display: inline-flex !important; align-items: center; gap: 6px; padding: 0 !important; border: 0 !important; background: none !important;
+  font: 600 12px var(--sans) !important; letter-spacing: 0 !important; text-transform: none; }
+#hud .status i { width: 8px; height: 8px; flex: none; }
+#hud .tiles { border: 0 !important; border-top: 1px solid var(--t-rule) !important; border-bottom: 1px solid var(--t-rule) !important; }
+#hud .tile { border-right: 0 !important; border-left: 1px solid var(--t-rule); }
+#hud .tile:first-child { border-left: 0; padding-left: 0 !important; }
+#hud .tile b { font-weight: 500 !important; }
+#hud button.more { width: 100%; min-height: 34px; margin-top: 8px; text-align: left; border: 0 !important; border-top: 1px solid var(--t-rule) !important;
+  padding: 0 !important; font: 600 11px var(--sans) !important; letter-spacing: .08em; text-transform: uppercase; color: var(--t-fg2) !important; }
+#hud button.more::before { content: "▸ "; }
+#hud button.more[aria-expanded="true"]::before { content: "▾ "; }
+
+/* ---------- the playback bar: the track shows where the signal held (paintScrub in app.js) ---------- */
+#scrub::-webkit-slider-runnable-track { height: 6px; background: var(--scrub-bg, var(--t-rule2)); }
+#scrub::-moz-range-track { height: 6px; background: var(--scrub-bg, var(--t-rule2)); }
+#scrub::-moz-range-progress { background: transparent; }
+#scrub::-webkit-slider-thumb { width: 3px; height: 20px; margin-top: -7px; background: var(--t-acc); }
+#scrub::-moz-range-thumb { width: 3px; height: 20px; background: var(--t-acc); }

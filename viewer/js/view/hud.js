@@ -54,10 +54,12 @@ export function createHud({ S, $, fmtDist }) {
       const [label, unit = ''] = n.split('|');
       more.push([label, `${Math.round(v[i] * 10) / 10}${unit ? ` ${unit}` : ''}`]);
     }
-    $('hud').innerHTML = `<div class="status" style="background:${st.css}22;color:${st.css}">${st.label}</div>
+    const t = Math.max(0, (tr.t?.[i] ?? 0) - (tr.t?.[0] ?? 0)), clock = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+    $('hud').innerHTML = `<div class="fhead"><span class="lbl">Flight · ${clock}</span>`
+      + `<span class="status" style="color:${st.css}"><i style="background:${st.css}"></i>${st.label}</span></div>
       <div class="tiles">${tile(fmtDist(tr.dist[i]), 'distance')}${tile(`${tr.agl[i]?.toFixed(0)}<small> m</small>`, 'height')}${tile(speed, 'speed')}</div>
       ${zone}<div class="sigs">${sig}</div>
-      <button class="more" id="hudMoreBtn">${hudMore ? '[less]' : '[more]'}</button>
+      <button class="more" id="hudMoreBtn" aria-expanded="${hudMore}">${hudMore ? 'Fewer details' : 'More details'}</button>
       ${hudMore ? `<table>${more.map(([a, b]) => `<tr><td class="muted">${a}</td><td>${b}</td></tr>`).join('')}</table>` : ''}`;
     $('hudMoreBtn').onclick = () => {
       hudMore = !hudMore;
