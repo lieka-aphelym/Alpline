@@ -1,7 +1,7 @@
 # Alpline (by lieka): FPV line of sight on Swiss terrain
 *The code and the commands keep their short technical name `fpv3d` (e.g. `python -m fpv3d build ...`).*
 
-Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**. Since 1.1.0 it also builds places anywhere else in the world, from coarser worldwide data ([what is different there](docs/locations.md#outside-switzerland)). It then shows where your FPV radio link is likely to struggle:
+Alpline builds a 3D map of any place in Switzerland from **swisstopo open data**. Since 1.1.0 it also builds places anywhere else in the world, from coarser worldwide data, and since 1.2.0 from the national data of France and the United States ([what is different there](docs/locations.md#outside-switzerland)). It then shows where your FPV radio link is likely to struggle:
 
 - **Range spheres** are drawn around the pilot antenna, one per radio link (video, control…). Their size comes from a free-space link budget. A coloured ring marks where each sphere meets the ground.
 - **Signal shadow ("dark zone")** is draped on the terrain. It marks every spot where a drone flying *N m above ground* has no direct line of sight to you, or where the Fresnel zone is obstructed. It is precomputed for several heights. In the viewer you can pick one, or let the overlay follow the drone's live height.
@@ -271,8 +271,7 @@ Ideas for future versions. These are intentions, not promises, and there are no 
   builds from the Copernicus 30 m model and a Sentinel-2 satellite photo (10 m, from 2021), see
   [docs/locations.md](docs/locations.md#outside-switzerland); the map page and the launcher's map cover the world.
   France (IGN's aerial photo, 20 cm, and 1 m heights) and the United States (USGS 3DEP heights, 1 to 10 m, and the
-  NAIP photo, 60 cm) have their national data since the next version; other countries' national data is still to
-  come. Drone zones stay Switzerland-only at first; zones of
+  NAIP photo, 60 cm) have their national data since 1.2.0; other countries' national data is still to come. Drone zones stay Switzerland-only at first; zones of
   other countries come later.
 - **Better training flight:** today it feels floaty. More realistic physics, wind, and a more direct feel. (moderate priority)
 - **A better-looking 3D world:** bridges, more detailed buildings, trees and other vegetation. (low priority, this could be a nice cosmetic change)
