@@ -11,6 +11,15 @@ What changed in each release of Alpline. Newest first.
   edge is a crisp wall like a model on a table. Rebuild a location to get the sewn border.
 - **Online demo:** the 3D viewer runs in the browser on GitHub Pages with a ready-built place (Rochers de Naye)
   and a demo flight, nothing to install. It is rebuilt and published by itself after every merge into `main`.
+- **France in full detail:** places in France now get IGN's aerial photo (15-20 cm, instead of the 10 m satellite
+  picture) and its 1 m bare-ground heights (instead of the 30 m worldwide model): houses, paths and trees show,
+  and signal shadows follow the real ground. Places across the border get the best of each side: swisstopo in
+  Switzerland, IGN in France, the worldwide data elsewhere. Rebuild a French location to get it.
+- **Keyboard and screen readers (viewer and map page):** every setting, slider and drop-down has a name, buttons
+  say what they do and whether they are on or open, and messages (rename, battery, connection, build) are read
+  out. The no-fly zone list, saved location names and search results now work with Tab and Enter. Space presses
+  a button reached with Tab instead of playing the flight; after a mouse click it still plays. Esc closes the ···
+  menu. Control borders on the dark theme are a little lighter so they can be seen.
 - **New logo:** an edelweiss that is also a propeller, with three small chevrons for the signal; the icon is the
   same flower on the Swiss red square. The viewer's loading screen now shows the Alps in three layers: a line of
   sight is drawn from the pilot over the summit to the flower, which then spins until the location is ready. The
