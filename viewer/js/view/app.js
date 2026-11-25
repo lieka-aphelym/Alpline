@@ -24,7 +24,7 @@ import { createPilotMarker, createRangeRings } from './pilotmark.js';
 import { esc } from '../core/esc.js';
 import { gridName, isSwiss } from '../core/geo.js';
 import { initInstruments, updateInstrSignal } from './instruments.js';
-import { createSurround } from './surround.js';
+import { createSurround, gridEdge, makeSkirt } from './surround.js';
 import { initBattery } from '../battery/battery.js';
 import { loadZones, restrictionInfo, isActive, fmtLimits } from './geozones.js';
 import { terrainVS, terrainFS } from './terrain_shaders.js';
@@ -178,6 +178,12 @@ function buildTerrain() {
   });
   S.terrain = new THREE.Mesh(geo, S.terrainMat);
   scene3.add(S.terrain);
+  // a short wall under the map's edge, in the map's own colours: where the coarse surroundings meet the sharp area
+  // a little lower, it fills the slit instead of letting the sky show through
+  const depth = Math.max(30, Math.max(S.W, S.H) * 0.02);
+  const edge = gridEdge(cols, rows, (r, c) => { const i = r * cols + c; return [pos[i * 3], aH[i], pos[i * 3 + 2], uv[i * 2], uv[i * 2 + 1]]; });
+  S.terrainSkirt = makeSkirt(THREE, edge, depth, S.terrainMat, S.exag);
+  scene3.add(S.terrainSkirt);
 }
 
 // the soft ending of the map: how wide the fade along its edge is, and where the haze starts and ends
@@ -192,14 +198,23 @@ function softEdgeUniforms() {
   };
 }
 
-// the surroundings on: the area's own edge no longer needs to fade (the ring around it does that at its rim)
-function surroundOn() {
-  try { return localStorage.getItem('fpv3d:surround') !== '0'; } catch { return true; }
+// the surroundings and their look (contours by default, photo, relief, or off): the area's own edge no longer needs
+// to fade when they are on. An older "surroundings off" choice is kept.
+function surroundLook() {
+  try {
+    const l = localStorage.getItem('fpv3d:surroundLook');
+    if (l) return l;
+    return localStorage.getItem('fpv3d:surround') === '0' ? 'off' : 'contours';
+  } catch { return 'contours'; }
 }
+function surroundOn() { return surroundLook() !== 'off'; }
 function applySurround() {
   const on = !!S.surround && surroundOn();
   S.surround?.setVisible(on);
+  if (on) S.surround.setLook(surroundLook());
   S.terrainMat.uniforms.uEdge.value = on ? 0.001 : S.edgeFade;
+  // no haze over the area either: the surroundings are not hazy, and a pale area in a crisp ring looks washed out
+  S.terrainMat.uniforms.uHaze.value.z = on ? 0 : 0.6;
   S.requestRender?.(300);
 }
 
@@ -218,6 +233,7 @@ function setExaggeration(e) {
   }
   S.detail?.rebuild();
   S.surround?.setExag(e);
+  S.terrainSkirt?.userData.setExag(e);
   S.bld?.set({ exag: e });
   S.prof?.setExag();
   S.spheres.forEach((s) => { const k = s.userData.k || 1; s.scale.set(k, k * e, k); });
@@ -694,9 +710,9 @@ function initUI() {
   initGroundUi();
   $('orthoOn').disabled = !m.ortho;
   $('surroundRow').classList.toggle('hidden', !S.surround);
-  $('surroundOn').checked = surroundOn();
-  $('surroundOn').onchange = () => {
-    try { localStorage.setItem('fpv3d:surround', $('surroundOn').checked ? '1' : '0'); } catch { /* private mode */ }
+  $('surroundLook').value = surroundLook();
+  $('surroundLook').onchange = () => {
+    try { localStorage.setItem('fpv3d:surroundLook', $('surroundLook').value); } catch { /* private mode */ }
     applySurround();
   };
   $('softEdges').checked = S.terrainMat.uniforms.uSoft.value > 0.5;
@@ -1049,7 +1065,7 @@ async function loadScene(name) {
     S.terrainMat.uniforms.uOrtho.value = t; S.terrainMat.uniforms.uUseOrtho.value = 1;
   }
   try {
-    S.surround = await createSurround({ THREE, S, scene3, loadTex, maxSide: PHONE ? 250 : LITE ? 350 : 500 });
+    S.surround = await createSurround({ THREE, S, scene3, loadTex, maxSide: PHONE ? 250 : LITE ? 350 : 500, look: surroundLook() });
   } catch (e) { console.warn('surroundings', e); S.surround = null; }
   applySurround();
   try { S.bld = await loadBuildings({ S, scene3 }); } catch (e) { console.warn('buildings', e); S.bld = null; }

@@ -16,6 +16,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from PIL import Image
@@ -110,6 +111,31 @@ def surround_grid(grid: Grid) -> Grid:
                 float(snap(grid.max_e + margin, True)), float(snap(grid.max_n + margin, True)), res, grid.crs)
 
 
+def stitch_surround(h, sgrid: Grid, dem, grid: Grid, blend_m: Optional[float] = None):
+    """Sew the coarse ring to the area. One shift for the whole border is not enough: the worldwide model is smooth
+    and partly a surface model, so along the border it sits metres above or below the sharp heights here and there,
+    and where it is lower the sky shows through the step. So under the area and on its border the ring takes the
+    area's own heights, and over `blend_m` outside it passes smoothly back to the worldwide model."""
+    if blend_m is None:
+        blend_m = max(150.0, 6 * sgrid.res)
+    E = sgrid.min_e + (np.arange(sgrid.cols) + 0.5) * sgrid.res
+    N = sgrid.max_n - (np.arange(sgrid.rows) + 0.5) * sgrid.res
+    EE, NN = np.meshgrid(E, N)
+    dx = np.maximum(np.maximum(grid.min_e - EE, EE - grid.max_e), 0.0)
+    dy = np.maximum(np.maximum(grid.min_n - NN, NN - grid.max_n), 0.0)
+    w = np.clip(np.hypot(dx, dy) / blend_m, 0.0, 1.0)
+    w = w * w * (3 - 2 * w)                                   # smoothstep: no kink where the blend starts or ends
+    near = w < 1
+    if not near.any():
+        return h
+    # the area's height at the nearest point of the area (Terrain.height clamps to its border)
+    hb = Terrain(np.where(np.isfinite(dem), dem, np.nanmean(dem)).astype(np.float32), grid).height(
+        EE[near] - grid.min_e, NN[near] - grid.min_n)
+    out = h.copy()
+    out[near] = hb * (1 - w[near]) + h[near] * w[near]
+    return out
+
+
 def build_surround(cfg: LocationConfig, out: Path, cache: Path, grid: Grid, dem, refresh=False):
     """The surroundings of the area, so the 3D map does not end like a cut slab: worldwide heights (30 m model)
     and the 2016 satellite photo, on a ring around the area. Light on purpose (shared 1 degree files, small photo
@@ -137,6 +163,7 @@ def build_surround(cfg: LocationConfig, out: Path, cache: Path, grid: Grid, dem,
         ok = np.isfinite(edge)
         shift = float(np.median(t.height(ex[ok], ny[ok]) - edge[ok])) if ok.any() else 0.0
         h -= shift
+        h = stitch_surround(h, sgrid, dem, grid)
         h.astype("<f4").tofile(out / "surround.f32")
         entry = dict(file="surround.f32", grid=sgrid.to_dict(), shift_m=round(shift, 1),
                      sources=[dict(name=hsrc.name, credit=hsrc.credit)], photo=None)
