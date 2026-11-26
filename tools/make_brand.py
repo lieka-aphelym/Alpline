@@ -4,7 +4,7 @@
     python tools/render_logo_frames.py  (afterwards: the launcher's animation frames)
 
 The logo is an edelweiss that is also a propeller: three large offset petals (the blades), three small open
-chevrons between them (the signal) and a diamond heart. Below about 40 px the chevrons are left out and the petals
+chevrons between them (the signal) and a triangle heart, point down. Below about 40 px the chevrons are left out and the petals
 get a little wider, so the flower still reads at 16 px.
 
 Writes into viewer/brand/: logo-dark.svg, logo-light.svg, icon.svg (red square), icon-dark.svg (black square),
@@ -37,17 +37,22 @@ def petal(a, r0, r, w, skew):
 
 
 def geometry(small=False, scale=1.0):
-    """The flower's parts: big petals, small chevrons (none when small), heart half-size. scale: for the icon."""
+    """The flower's parts: big petals, small chevrons (none when small), and the heart's size: its distance to each
+    petal's inner tip side (the petals start 6 from the centre; the heart keeps 1.5 clear of all three). scale: icon."""
     big = [petal(a, 6 * scale, 30 * scale, (10 if small else 8) * scale, (8 if small else 9) * scale) for a in (0, 120, 240)]
     chev = [] if small else [(a, f"M{32 - 5 * scale:.2f} {32 - 12 * scale:.2f} L{32 + 2 * scale:.2f} {32 - 20 * scale:.2f} "
                                 f"L{32 + 5 * scale:.2f} {32 - 12 * scale:.2f}") for a in (60, 180, 300)]
-    return big, chev, (6 if small else 5) * scale
+    return big, chev, (6 - 1.5) * scale
 
 
 def heart(r, fill, cls=""):
-    """The diamond heart, drawn as a path (not a turned square: a CSS animation would replace that turn)."""
-    c, d = f' class="{cls}"' if cls else "", r * math.sqrt(2)
-    return f'<path{c} d="M32 {32 - d:.2f} L{32 + d:.2f} 32 L32 {32 + d:.2f} L{32 - d:.2f} 32 Z" fill="{fill}"/>'
+    """The heart: a triangle, point down, each side facing one petal's tip at the same distance `r` from the centre.
+    The petals come in threes, so a three-sided heart sits evenly among them; the old diamond (four-fold) covered the
+    top petal's tip and only touched the lower two, and looked pushed up (owner's remark, 2026-11-26). Drawn as a path
+    (not a turned shape: a CSS animation would replace that turn)."""
+    c = f' class="{cls}"' if cls else ""
+    pts = [(32 + 2 * r * math.cos(math.radians(a)), 32 + 2 * r * math.sin(math.radians(a))) for a in (90, 210, 330)]
+    return f'<path{c} d="M' + " L".join(f"{x:.2f} {y:.2f}" for x, y in pts) + f' Z" fill="{fill}"/>'
 
 
 def svg(petals, mark, bg=None, small=False, scale=1.0):

@@ -16,6 +16,10 @@ What changed in each release of Alpline. Newest first.
   place's photo: they stayed while the viewer started, and until the whole photo (up to 10 MB and more) was
   downloaded and decoded. Now nothing is drawn until the location is read; then the photo's frame comes, filled
   almost at once with a small copy from the local server. The drawn Alps are kept for a place without a photo.
+- **The logo's heart is now a yellow triangle, point down.** The flower has three blades, and the old four-sided
+  square could not sit evenly among them: it covered the top blade and looked pushed up. The triangle keeps the same
+  gap to all three. The icon, the logos, the launcher's animation and the installer icon are all redrawn from the
+  same geometry.
 
 ## 1.2.0 (November 2026)
 
