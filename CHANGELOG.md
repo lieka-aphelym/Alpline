@@ -2,6 +2,13 @@
 
 What changed in each release of Alpline. Newest first.
 
+## Unreleased
+
+- **No more flash of the old loading screen.** Opening a location showed the drawn Alps for a moment before the
+  place's photo: they stayed while the viewer started, and until the whole photo (up to 10 MB and more) was
+  downloaded and decoded. Now nothing is drawn until the location is read; then the photo's frame comes, filled
+  almost at once with a small copy from the local server. The drawn Alps are kept for a place without a photo.
+
 ## 1.2.0 (November 2026)
 
 France and the United States now get their national terrain and aerial photos, the viewer has a calmer, more

@@ -59,6 +59,26 @@ def test_pages_load():
             assert h["content-type"].startswith("text/javascript"), (p, h["content-type"])
 
 
+def test_photo_preview_for_the_loading_screen():
+    """The loading screen gets a small copy of a big photo at once, not the whole file."""
+    import io
+    from PIL import Image
+    sd = _TMP / "scenes" / "prev_scene"
+    sd.mkdir(parents=True, exist_ok=True)
+    (sd / "scene.json").write_text(json.dumps(dict(name="prev_scene", ortho="ortho.jpg")))
+    big = Image.new("RGB", (4000, 2000), (200, 40, 40))
+    big.paste((40, 40, 200), (2000, 0, 4000, 2000))                     # east half blue: the copy keeps its sides
+    big.save(sd / "ortho.jpg", quality=90)
+    st, body, h = req("GET", "/api/preview?scene=prev_scene&px=480")
+    assert st == 200 and h["content-type"] == "image/jpeg", st
+    im = Image.open(io.BytesIO(body))
+    assert im.size == (480, 240) and len(body) < 60_000, (im.size, len(body))
+    assert im.getpixel((20, 120))[0] > 150 and im.getpixel((460, 120))[2] > 150
+    (sd / "scene.json").write_text(json.dumps(dict(name="prev_scene", ortho=None)))
+    assert req("GET", "/api/preview?scene=prev_scene")[0] == 404                  # no photo: the drawn Alps
+    assert req("GET", "/api/preview?scene=../prev_scene")[0] == 404
+
+
 def test_mode_js():
     st, body, _ = req("GET", "/api/mode.js")
     assert st == 200 and b"FPV3D_MODE" in body

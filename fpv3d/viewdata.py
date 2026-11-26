@@ -2,6 +2,7 @@
 
     terrain_window  part of the terrain grid at a given step (decimated overview / sharp close-up)
     ortho_window    aerial photo crop from the finest cached swissimage tiles (sharp close-up)
+    photo_preview   a small copy of the whole aerial photo (loading screen)
 """
 from __future__ import annotations
 
@@ -98,3 +99,33 @@ def ortho_window(scene_dir: Path, cache_dir: Path, x0, y0, x1, y1, max_px=2048):
         canvas.save(buf, "JPEG", quality=88)
         return buf.getvalue()
     return None
+
+
+_previews: dict = {}
+
+
+def photo_preview(scene_dir: Path, max_px=480):
+    """A small copy of the scene's aerial photo (JPEG bytes) for the loading screen, or None without a photo.
+
+    The whole photo can be 10 MB and more: waiting for it kept the old drawn loading screen up for a while. JPEG
+    "draft" decoding reads it at 1/2 to 1/8 of its size directly, so this takes a few tens of milliseconds; the result
+    is kept in memory (not written into the scene) until the photo changes."""
+    m = _scene_meta(scene_dir)
+    if not m.get("ortho"):
+        return None
+    f = scene_dir / m["ortho"]
+    try:
+        key = (str(f), f.stat().st_mtime_ns, int(max_px))
+    except OSError:
+        return None
+    if key not in _previews:
+        with Image.open(f) as im:
+            im.draft("RGB", (max_px, max_px))
+            im = im.convert("RGB")
+            im.thumbnail((max_px, max_px), Image.BILINEAR)
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=70)            # blurred on the loading screen at first anyway
+        if len(_previews) > 16:
+            _previews.clear()
+        _previews[key] = buf.getvalue()
+    return _previews[key]
