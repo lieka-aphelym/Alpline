@@ -258,6 +258,25 @@ def location_file_for_scene(scene: str):
     return None
 
 
+def pilot_outside_area(loc: Path, lat: float, lon: float):
+    """Why a pilot point can't go there ("" when it can): it must be a real position, inside the location's area."""
+    from .config import LocationConfig
+    from .geo import project
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return "not a position on Earth"
+    try:
+        cfg = LocationConfig.load(loc)
+        g = cfg.grid(10)
+        e, n = (float(v) for v in project(lat, lon, cfg.crs))
+    except Exception as ex:                                 # noqa: BLE001  (a broken location file: say so)
+        return f"the location file could not be read ({ex.__class__.__name__})"
+    dx = max(g.min_e - e, 0, e - g.max_e)
+    dy = max(g.min_n - n, 0, n - g.max_n)
+    if dx or dy:
+        return f"this point is {(dx * dx + dy * dy) ** .5 / 1000:.1f} km outside the location's area: move the area there first"
+    return ""
+
+
 def save_sim_track(scenes_dir: Path, cache_dir: Path, b: dict):
     """Write the simulator CSV under logs/sim/<scene>/ and run add-log on it."""
     scene = b.get("scene", "")
@@ -777,9 +796,15 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             loc = location_file_for_scene(scene) if re.match(r"^[\w-]+$", scene) else None
             if loc is None:
                 return self._json(dict(error="no location file for this scene"), 400)
-            lat, lon = float(b["lat"]), float(b["lon"])
-            if not (45.5 < lat < 48.0 and 5.8 < lon < 10.7):
-                return self._json(dict(error="position outside Switzerland"), 400)
+            try:
+                lat, lon = float(b["lat"]), float(b["lon"])
+            except (KeyError, TypeError, ValueError):
+                return self._json(dict(error="lat and lon must be numbers"), 400)
+            # anywhere in the world (this was a box around Switzerland before Alpline went worldwide), but inside the
+            # location's own area: the shadows are worked out from the pilot over that area's terrain
+            why = pilot_outside_area(loc, lat, lon)
+            if why:
+                return self._json(dict(error=why), 400)
             if busy_job():
                 return self._json(dict(error=f"another build is running ({busy_job()['name']}): wait for it to finish"), 409)
             set_pilot(loc, lat, lon)

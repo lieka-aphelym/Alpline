@@ -156,6 +156,22 @@ def test_one_build_per_location():
         pass
 
 
+def test_pilot_point_anywhere_inside_its_area():
+    """Moving the pilot point works anywhere in the world (it was a box around Switzerland), inside the area only."""
+    la = _TMP / "pilot_la.yaml"
+    la.write_text("name: pilot_la\ncenter: {lat: 34.0522, lon: -118.2437}\nhalf_size_m: 2000\n"
+                  "links:\n  - {name: v, freq_mhz: 5800, tx_power_dbm: 14}\n", encoding="utf-8")
+    assert server.pilot_outside_area(la, 34.0600, -118.2500) == ""           # Los Angeles, inside its 4 km square
+    far = server.pilot_outside_area(la, 34.2, -118.2437)                    # about 16 km north
+    assert "km outside the location's area" in far and far.startswith("this point is 1")
+    ch = _TMP / "pilot_ch.yaml"
+    ch.write_text("name: pilot_ch\ncenter: {lat: 46.5, lon: 7.5}\nlinks:\n  - {name: v, freq_mhz: 5800, tx_power_dbm: 14}\n",
+                  encoding="utf-8")
+    assert server.pilot_outside_area(ch, 46.501, 7.501) == ""               # Switzerland still works
+    assert server.pilot_outside_area(ch, 34.05, -118.24) != ""              # but not on the other side of the world
+    assert server.pilot_outside_area(ch, 95, 7.5) == "not a position on Earth"
+
+
 def test_set_pilot_keeps_comments():
     p = _TMP / "loc.yaml"
     p.write_text("name: t   # my field\ncenter: {lat: 46.5, lon: 7.5}\npilot:\n  lat: 46.0   # old\n  lon: 7.0\n"
