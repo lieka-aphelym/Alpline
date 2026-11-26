@@ -7,7 +7,8 @@
 
 The result (scenes/<name>/buildings.json) is drawn by the viewer as clean extruded blocks on the
 bare-ground terrain, instead of the blurry "blobs" a surface model gives at a few metres per cell.
-The signal analysis keeps using the surface model, which also contains trees.
+The signal analysis walks over the scene's terrain with these blocks standing on it (`burn`): on a bare-ground scene
+they are the only thing in a city that hides the drone; on a surface-model scene the roofs are mostly there already.
 """
 from __future__ import annotations
 
@@ -195,6 +196,19 @@ def build_buildings(grid: Grid, dtm: np.ndarray, dsm, cache: Path, refresh=False
             out.append(dict(p=np.round(xy, 2).tolist(), b=round(ground, 2), t=round(top, 2), src=src,
                             k=tags.get("building", "yes"), name=tags.get("name")))
     return out, n_dsm
+
+
+def burn(dem: np.ndarray, grid: Grid, items) -> np.ndarray:
+    """A copy of `dem` raised to each building's roof inside its footprint: the heights the radio signal meets.
+    Where the terrain is already higher (a surface model that has the roofs), it is kept."""
+    out = np.array(dem, dtype=np.float32, copy=True)
+    for b in items:
+        xy = np.asarray(b["p"], dtype=np.float64)
+        if len(xy) < 3:
+            continue
+        r, c = _cells(xy, grid)
+        out[r, c] = np.maximum(out[r, c], np.float32(b["t"]))
+    return out
 
 
 def write_scene_buildings(out_dir: Path, grid: Grid, dtm: np.ndarray, dsm, cache: Path, refresh=False, dtm_grid=None,

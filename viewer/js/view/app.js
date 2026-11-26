@@ -117,6 +117,13 @@ function demHeight(x, y) {  // bilinear on the loaded (overview) DEM, local coor
   return lerp(top, bot, fr);
 }
 
+// What the radio signal meets: the ground and the 3D buildings standing on it, drawn or not (the build's shadow maps
+// do the same, see signal_terrain in fpv3d/scene.py). Used by the live line-of-sight checks of the simulator and Fly.
+function signalHeight(x, y) {
+  const h = demHeight(x, y), roof = S.bld?.roofAt?.(x, y);
+  return roof != null && roof > h ? roof : h;
+}
+
 // Overview terrain: from the local server, already decimated (a 0.5 m scene can be > 1 GB);
 // without the server (static hosting) the whole file is downloaded and decimated here.
 const API = '/api';
@@ -888,7 +895,7 @@ function simGround(wx, wz, wy, prevY) {
 }
 
 const SIM = initSim({
-  THREE, scene3, camera, renderer, S, toWorld, demHeight, setExaggeration, simGround,
+  THREE, scene3, camera, renderer, S, toWorld, demHeight, signalHeight, setExaggeration, simGround,
   detailSize: () => S.detail?.sizeM,
   markerUpdate: (o) => S.droneMarker?.update(o),
   ensureDrone: () => { if (!S.drone) buildDrone(); },
@@ -1125,7 +1132,7 @@ async function loadScene(name) {
     S.prof.show(true);
   }
   try {
-    S.live = initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved: (file) => refreshTracks(file),
+    S.live = initLive({ S, scene3, camera, controls, toWorld, demHeight, signalHeight, onSaved: (file) => refreshTracks(file),
       onStart: () => { if (S.playing) togglePlay(); } });
   } catch (e) { console.warn('live', e); }
   try { initBlackbox({ S, $, onAdded: (file) => refreshTracks(file) }); } catch (e) { console.warn('blackbox', e); }

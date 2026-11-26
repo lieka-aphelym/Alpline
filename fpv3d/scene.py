@@ -288,12 +288,42 @@ def pilot_position(cfg: LocationConfig, terrain: Terrain, tracks):
         src = "map centre"
     x, y = terrain.grid.to_local(float(e), float(n))
     ground = float(terrain.height(x, y))
+    extra = {}
+    if terrain.ground is not terrain.dem:
+        # a point inside a building's footprint: nobody flies from inside a block, and from there every wall around
+        # would hide the drone. Stand on its roof instead (the marker shows it there) and say so.
+        g = terrain.grid
+        r = int(np.clip((g.max_n - g.min_n - y) / g.res, 0, g.rows - 1))
+        c = int(np.clip(x / g.res, 0, g.cols - 1))
+        top = float(terrain.dem[r, c])
+        if top > ground + 2:
+            log(f"[pilot] the point is inside a building {top - ground:.0f} m high: the pilot stands on its roof")
+            extra = dict(on_roof_m=round(top - ground, 1), street=ground)
+            ground = top
     z = ground + cfg.pilot_antenna_height_m
     log(f"[pilot] from {src}: E{float(e):.0f} N{float(n):.0f}, ground {ground:.0f} m, antenna {z:.0f} m")
-    return dict(x=float(x), y=float(y), z=float(z), ground=ground, e=float(e), n=float(n), source=src)
+    return dict(x=float(x), y=float(y), z=float(z), ground=ground, e=float(e), n=float(n), source=src, **extra)
 
 
 # ---------------------------------------------------------------- LOS overlays
+
+def signal_terrain(out: Path, grid: Grid, dem, bmeta) -> Terrain:
+    """The terrain the signal analysis walks over: the scene's heights with its 3D buildings standing on them. Without
+    this a bare-ground city is flat for the radio, and a drone between tall blocks looks in sight. Heights above
+    ground stay measured from the scene's own terrain. `bmeta` is the scene's "buildings" entry."""
+    items = []
+    if bmeta and bmeta.get("file") and bmeta.get("count"):
+        try:
+            items = json.loads((out / bmeta["file"]).read_text(encoding="utf-8")).get("items") or []
+        except (OSError, ValueError) as ex:
+            log(f"[buildings] cannot read {bmeta['file']} ({ex}) - the signal ignores the buildings this time")
+    if not items:
+        return Terrain(dem, grid)
+    t0 = time.time()
+    blocked = bldmod.burn(dem, grid, items)
+    log(f"[buildings] {len(items)} buildings stand in the way of the signal ({time.time() - t0:.1f}s)")
+    return Terrain(blocked, grid, ground=dem)
+
 
 def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
     link = cfg.links[cfg.analysis.primary_link]
@@ -307,7 +337,10 @@ def build_los_layers(cfg: LocationConfig, terrain: Terrain, pilot, out: Path):
         memo = json.loads(memo_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         memo = {}
-    base_key = hashlib.sha1(terrain.dem.tobytes()).hexdigest()[:16] + json.dumps(
+    heights = hashlib.sha1(np.ascontiguousarray(terrain.dem))          # what blocks the signal (buildings included)
+    if terrain.ground is not terrain.dem:
+        heights.update(np.ascontiguousarray(terrain.ground))           # and the ground the drone height is counted from
+    base_key = heights.hexdigest()[:16] + json.dumps(
         [round(pilot["x"], 2), round(pilot["y"], 2), round(pilot["z"], 2), lgrid.res,
          None if lmask is None else hashlib.sha1(np.packbits(lmask).tobytes()).hexdigest()[:12],
          vars(link), cfg.analysis.k_factor, cfg.analysis.fresnel_clearance], sort_keys=True, default=str)
@@ -622,16 +655,21 @@ def build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), ski
         raise SystemExit(str(ex)) from None
 
 
+def _first_track(cfg: LocationConfig, log_paths):
+    """The first log, when the location has no pilot point of its own (its first fix is then the pilot)."""
+    if cfg.pilot is None and log_paths:
+        try:
+            return [logmod.read_log(log_paths[0])]
+        except Exception:
+            pass
+    return []
+
+
 def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), skip_ortho=False,
            reuse_terrain=False, refresh=False):
     out = scenes_dir / cfg.name
     log_paths = list(cfg.logs) + [str(p) for p in extra_logs]
-    tracks_for_pilot = []
-    if cfg.pilot is None and log_paths:
-        try:
-            tracks_for_pilot = [logmod.read_log(log_paths[0])]
-        except Exception:
-            pass
+    tracks_for_pilot = _first_track(cfg, log_paths)
 
     if reuse_terrain and (out / "scene.json").exists():
         old, grid, dem = load_terrain(out)
@@ -640,9 +678,9 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
         log("[terrain] reusing existing terrain")
     else:
         grid, dem, has_ortho, tsources, osources = build_terrain(cfg, out, cache, skip_ortho, refresh)
-    terrain = Terrain(dem, grid)
-    pilot = pilot_position(cfg, terrain, tracks_for_pilot)
     extras = build_extras(cfg, out, cache, grid, dem, refresh)
+    terrain = signal_terrain(out, grid, dem, extras.get("buildings"))
+    pilot = pilot_position(cfg, terrain, tracks_for_pilot)
     progress.emit("phase", id="surround", label="Surroundings (coarse)")
     extras["surround"] = build_surround(cfg, out, cache, grid, dem, refresh)
     extras["detail"] = detail_ortho(cfg, cache, grid, pilot, refresh)
@@ -687,7 +725,7 @@ def _build(cfg: LocationConfig, scenes_dir: Path, cache: Path, extra_logs=(), sk
 def add_logs(cfg: LocationConfig, scenes_dir: Path, log_paths, overrides=None):
     out = scenes_dir / cfg.name
     meta, grid, dem = load_terrain(out)
-    terrain = Terrain(dem, grid)
+    terrain = signal_terrain(out, grid, dem, meta.get("buildings"))
     pilot = meta["pilot"]
     meta["tracks"] = add_tracks(cfg, terrain, pilot, out, log_paths, meta.get("tracks", []), overrides)
     write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
@@ -695,11 +733,18 @@ def add_logs(cfg: LocationConfig, scenes_dir: Path, log_paths, overrides=None):
 
 
 def refresh_buildings(cfg: LocationConfig, scenes_dir: Path, cache: Path, refresh=False):
-    """(Re)make only the 3D buildings (and the bare ground they stand on) of an existing scene."""
+    """(Re)make only the 3D buildings (and the bare ground they stand on) of an existing scene. The buildings stand in
+    the way of the signal, so the shadow maps and the flights' line of sight are worked out again with them."""
     out = scenes_dir / cfg.name
     meta, grid, dem = load_terrain(out)
     extras = build_extras(cfg, out, cache, grid, dem, refresh)
     meta.update(extras)
+    terrain = signal_terrain(out, grid, dem, extras.get("buildings"))
+    log_paths = list(cfg.logs)
+    pilot = meta["pilot"] = pilot_position(cfg, terrain, _first_track(cfg, log_paths))   # a roof may have come in
+    meta["los_layers"], meta["shadow3d"] = build_los_layers(cfg, terrain, pilot, out)
+    redo, keep = previous_tracks(cfg, out, log_paths)
+    meta["tracks"] = add_tracks(cfg, terrain, pilot, out, log_paths + redo, keep)
     write_atomic((out / "scene.json"), json.dumps(meta, indent=1))
     b = extras.get("buildings")
     return b

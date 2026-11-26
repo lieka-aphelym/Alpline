@@ -10,10 +10,16 @@ EARTH_R = 6_371_000.0
 
 
 class Terrain:
-    """DEM + grid with bilinear height sampling in local coordinates (x east, y north)."""
+    """Heights on a grid, with bilinear sampling of the ground in local coordinates (x east, y north).
 
-    def __init__(self, dem: np.ndarray, grid: Grid):
+    `dem` is what the signal meets on its way (it may have the 3D buildings standing on it); `ground` (default: the
+    same) is what the pilot stands on and what "metres above ground" is measured from. They differ on a bare-ground
+    scene with buildings: a drone 30 m above a street is 30 m above the street, not above the roofs, yet a block
+    between it and the pilot hides it."""
+
+    def __init__(self, dem: np.ndarray, grid: Grid, ground: np.ndarray = None):
         self.dem = dem.astype(np.float32)
+        self.ground = self.dem if ground is None else ground.astype(np.float32)
         self.grid = grid
         self._height_n = grid.max_n - grid.min_n
 
@@ -27,7 +33,7 @@ class Terrain:
         r0 = r.astype(np.int64)
         fc = (c - c0).astype(np.float32)
         fr = (r - r0).astype(np.float32)
-        d = self.dem
+        d = self.ground
         h00 = d[r0, c0]
         h01 = d[r0, c0 + 1]
         h10 = d[r0 + 1, c0]
