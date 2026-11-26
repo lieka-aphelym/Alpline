@@ -24,6 +24,16 @@ What changed in each release of Alpline. Newest first.
   with the current step written under it), instead of nothing for the few seconds a cold start takes. The launcher's
   window then opens with a short start-up screen: the photo of the place you selected last, with a line that fills
   as the launcher gets ready. It goes by itself within three seconds, or at a click or a key.
+- **The launcher in two looks, and a home page.** *Settings → look*: **game** shows your places as pictures, with
+  a new home page where the selected place's aerial photo fills the window, its numbers over it, a big *FLY IN 3D*
+  button and your other places as photo cards; **terminal** is one amber colour and everything on keys, with the
+  places as a list and the selected one drawn as a relief of its real heights in big amber blocks. The side rail is
+  gone: the pages are tabs along the top (game) or function keys along the bottom (terminal), **F1** to **F7** in
+  both. Every page follows the look: in the game look large titles, the drone page as a big card with *DOWNLOAD
+  BLACKBOX* and *FLY LIVE IN 3D*, the settings as large rows with a picture of each look; in the terminal look boxed
+  headings, actions on keys (**B**, **L**, **P** on the drone page) and the settings as a config screen (**↑ ↓**
+  choose, **← →** change, **Enter** applies). The map is still there, on its own page. Switching the look restarts
+  the launcher.
 
 ## 1.2.0 (November 2026)
 

@@ -17,12 +17,14 @@ from .checks import ChecksPage
 from .common import APP, flight_stats, load_settings
 from .drone import DronePage
 from .files import FilesPage
+from .chrome import build_chrome, set_badge, set_tab
+from .home import Home
 from .mapview import SwissMap
 from .phone import PhonePage
 from .server import ServerMixin
 from .settings import SettingsPage
-from .style import ACC, BAD, BG, BG2, BG3, FG, FG2, MONO, MONO_S, OK, RULE, S, SANS, WARN
-from .widgets import Btn, LogoAnim, PAGES, Pill, Tip, rail_icon
+from .style import ACC, BAD, BG, BG2, BG3, FG, FG2, MONO, MONO_B, OK, RULE, S, SANS, TERMINAL, WARN
+from .widgets import Btn, PAGES
 
 
 def restore_geometry(root, cfg):
@@ -66,77 +68,21 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         self.style()
         self.mode = tk.StringVar(value=self.cfg.get("mode", "full"))
 
-        # the window: rail | (header / page). Everything sits in fixed slots; only the page area grows.
-        root.columnconfigure(1, weight=1)
-        root.rowconfigure(0, weight=1)
-        self.rail = tk.Frame(root, bg=BG, width=S(68))
-        self.rail.grid(row=0, column=0, sticky="ns"); self.rail.grid_propagate(False)
-        tk.Frame(root, bg=RULE, width=1).grid(row=0, column=0, sticky="nse")
-        body = tk.Frame(root, bg=BG)
-        body.grid(row=0, column=1, sticky="nsew")
-        body.columnconfigure(0, weight=1); body.rowconfigure(2, weight=1)
-
-        # ---- header
-        top = tk.Frame(body, bg=BG, height=S(52))
-        top.grid(row=0, column=0, sticky="ew"); top.pack_propagate(False)
-        tk.Frame(body, bg=RULE, height=1).grid(row=1, column=0, sticky="ew")
-        self.logo = LogoAnim(root, top, S(28))
-        if self.logo.label:
-            self.logo.label.pack_configure(padx=(S(14), S(8)))
-        tk.Label(top, text=APP_NAME.upper(), font=("Consolas", 15, "bold"), fg=FG, bg=BG).pack(side="left",
-                 padx=(0 if self.logo.label else S(14), 0))
-        tk.Label(top, text=f"by {BY}", font=MONO_S, fg=FG2, bg=BG).pack(side="left", padx=(S(6), 0), pady=(S(5), 0))
-        b = self.button(top, "[locations map]", lambda: self.open("/viewer/map.html"))
-        b.pack(side="right", padx=(S(6), S(14)))
-        Tip(b, f"The map page in {APP_NAME}: search places, create and build locations, drone zones.")
-        b = self.button(top, "[3d viewer]", lambda: self.open_location(self.map.current()) if self.map.current()
-                        and self.map.current().get("built") else self.open("/viewer/"), primary=True)
-        b.pack(side="right")
-        Tip(b, "Open the selected location in 3D (Enter or double-click does the same).")
-        self.stop_btn = self.button(top, "[stop]", self.stop, small=True)
-        self.stop_btn.pack(side="right", padx=(S(4), S(14)))
-        Tip(self.stop_btn, "Stop the local server (closing this window does it too).")
-        self.server_pill = Pill(top, 22, lambda: "The local server shows the 3D viewer and the map pages. It starts when "
-                                                 "you open one and stops with this window.")
-        self.server_pill.pack(side="right")
-        self.net_pill = Pill(top, 7, lambda: "Internet is used for the map background, new downloads and place search. "
-                                             "Built locations open in 3D without it.")
-        self.net_pill.pack(side="right", padx=(0, S(8)))
-        self.net_pill.set("…", None)
-
-        # ---- pages (stacked in one cell, raised one at a time)
-        stage = tk.Frame(body, bg=BG)
-        stage.grid(row=2, column=0, sticky="nsew")
-        stage.rowconfigure(0, weight=1); stage.columnconfigure(0, weight=1)
+        # the window: the look's frame (chrome.py) around the pages. Everything sits in fixed slots; only the page
+        # area grows.
+        stage = build_chrome(self, root)
         self.pages = {}
         for key, *_ in PAGES:
             f = tk.Frame(stage, bg=BG)
             f.grid(row=0, column=0, sticky="nsew")
             self.pages[key] = f
         self.map = SwissMap(self, self.pages["map"])
+        self.home = Home(self, self.pages["home"])
         self.build_drone_page(self.pages["drone"])
         self.build_phone_page(self.pages["phone"])
         self.build_disk_page(self.pages["disk"])
         self.build_checks_page(self.pages["checks"])
         self.build_settings_page(self.pages["settings"])
-
-        # ---- rail
-        self.rail_items = {}
-        tk.Frame(self.rail, bg=BG, height=S(8)).pack()
-        for key, label, tip in PAGES:
-            if key == "checks":
-                tk.Frame(self.rail, bg=BG).pack(fill="y", expand=True)       # disk + settings at the bottom
-            it = tk.Frame(self.rail, bg=BG, cursor="hand2")
-            it.pack(fill="x", pady=S(2))
-            bar = tk.Frame(it, bg=BG, width=S(3)); bar.pack(side="left", fill="y")
-            inner = tk.Frame(it, bg=BG); inner.pack(side="left", fill="x", expand=True, pady=S(6))
-            cv = tk.Canvas(inner, width=S(24), height=S(20), bg=BG, highlightthickness=0); cv.pack()
-            lab = tk.Label(inner, text=label, font=MONO_S, fg=FG2, bg=BG); lab.pack()
-            for w in (it, inner, cv, lab):
-                w.bind("<Button-1>", lambda e, k=key: self.show_page(k))
-            Tip(it, tip)
-            self.rail_items[key] = dict(frame=it, bar=bar, inner=inner, cv=cv, lab=lab, badge=None)
-        tk.Frame(self.rail, bg=BG, height=S(8)).pack()
 
         # ---- toast: messages float over the bottom right corner, nothing else moves
         self.toast = tk.Label(root, font=SANS, fg=ACC, bg=BG, padx=S(10), pady=S(6), highlightthickness=1,
@@ -154,10 +100,14 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         root.bind("<Up>", lambda e: self.move_selection(-1, e))
         root.bind("<Down>", lambda e: self.move_selection(1, e))
         root.bind("<Return>", lambda e: self.on_return(e))
+        root.bind("<Left>", lambda e: self.move_selection(-1, e, sideways=True))
+        root.bind("<Right>", lambda e: self.move_selection(1, e, sideways=True))
+        for i, (key, *_) in enumerate(PAGES):                 # F1 home, F2 map ... (shown in the terminal look)
+            root.bind(f"<F{i + 1}>", lambda e, k=key: self.show_page(k))
         root.bind("<Escape>", lambda e: self.select(None) if self.cfg.get("page") == "map"
                   and not isinstance(e.widget, (tk.Entry, tk.Text)) else None)
 
-        self.show_page(self.cfg.get("page", "map") if self.cfg.get("page") in self.pages else "map")
+        self.show_page(self.cfg.get("page", "home") if self.cfg.get("page") in self.pages else "home")
         self.set_mode(self.mode.get(), save=False)
         self.check_offline()
         self.start_device_watch()
@@ -185,9 +135,14 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         st.map("L.Vertical.TScrollbar", background=[("active", RULE), ("!active", BG3)])
 
     def section(self, title, parent):
-        f = tk.Frame(parent, bg=BG); f.pack(fill="x", pady=(0, 6))
-        lab = tk.Label(f, text=title, font=("Consolas", 9, "bold"), fg=FG, bg=BG); lab.pack(side="left")
-        tk.Frame(f, bg=RULE, height=1).pack(side="left", fill="x", expand=True, padx=(8, 0), pady=(2, 0))
+        """A section's heading: "┤ TITLE ├" and a rule in the terminal look, a word in bold over a rule in the game look."""
+        f = tk.Frame(parent, bg=BG); f.pack(fill="x", pady=(0, S(6)))
+        if TERMINAL:
+            lab = tk.Label(f, text=f"┤ {title.upper()} ├", font=MONO_B, fg=ACC, bg=BG)
+        else:
+            lab = tk.Label(f, text=title[:1].upper() + title[1:].lower(), font=("Segoe UI", 12, "bold"), fg=FG, bg=BG)
+        lab.pack(side="left")
+        tk.Frame(f, bg=RULE, height=1).pack(side="left", fill="x", expand=True, padx=(S(8), 0), pady=(S(2), 0))
         return lab
 
     def button(self, parent, text, cmd, primary=False, small=False, danger=False):
@@ -204,6 +159,7 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         self.map.table.fill(locs)
         self.map.draw()
         self.map.card.show(self.map.current())
+        self.home.refresh()
         built = [l for l in locs if l.get("built")]
         self.map.list_foot.set(f"{len(built)}/{len(locs)} built" + (" · ready offline" if built and len(built) == len(locs)
                                                                     else " · built ones work offline" if built else ""))
@@ -233,6 +189,7 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         self.map.draw()
         self.map.table.select(name)
         self.map.card.show(self.map.current())
+        self.home.refresh()
         self.show_devices()
 
     def open_location(self, l):
@@ -242,27 +199,19 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
     # ------------------------------------------------------------ pages
     def show_page(self, key):
         self.pages[key].tkraise()
-        for k, it in self.rail_items.items():
-            on = k == key
-            bg = BG3 if on else BG
-            for w in (it["frame"], it["inner"], it["cv"], it["lab"]):
-                w.configure(bg=bg)
-            it["bar"].configure(bg=ACC if on else bg)
-            it["lab"].configure(fg=ACC if on else FG2)
-            rail_icon(it["cv"], k, ACC if on else FG2)
+        set_tab(self, key)
+        for k in self.tabs:
             self.draw_badge(k)
         self.cfg["page"] = key
         if key == "disk":
             self.measure_disk()
         if key == "phone":
             self.refresh_status()
+        if key == "settings" and not TERMINAL:
+            self.paint_look_tile()
 
     def draw_badge(self, key):
-        """A dot on a rail icon: drone / radio plugged in, phone sharing on."""
-        it = self.rail_items.get(key)
-        if not it:
-            return
-        it["cv"].delete("badge")
+        """A dot by a page's name: drone / radio plugged in, phone sharing on, checks to look at."""
         col = None
         if key == "drone":
             kinds = {d.get("kind") for d in self.devices.values()}
@@ -273,20 +222,23 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
             col = BAD                              # the last check found a problem
         elif key == "checks" and getattr(self, "libs_diff", None):
             col = WARN                              # libraries to update
-        if col:
-            r = S(3.5)
-            x, y = S(21), S(3.5)
-            it["cv"].create_oval(x - r, y - r, x + r, y + r, fill=col, outline=BG, width=S(1.5), tags="badge")
+        set_badge(self, key, col)
 
-    def page_frame(self, parent, title, intro=None):
-        """Common page layout: a column of fixed width on the left, with a title and an optional intro."""
+    def page_frame(self, parent, title, intro=None, width=660):
+        """Common page layout: a column of fixed width on the left, with the page's title and an optional intro.
+        Game look: the title large, like the home page's name. Terminal look: the title in a "┤ TITLE ├" heading."""
         outer = tk.Frame(parent, bg=BG)
-        outer.pack(fill="both", expand=True, padx=S(24), pady=S(18))
-        col = tk.Frame(outer, bg=BG, width=S(660))
+        outer.pack(fill="both", expand=True, padx=S(28 if not TERMINAL else 20), pady=S(20 if not TERMINAL else 14))
+        col = tk.Frame(outer, bg=BG, width=S(width))
         col.pack(side="left", fill="y"); col.pack_propagate(False)
-        self.section(title, col)
+        if TERMINAL:
+            self.section(title, col)
+        else:
+            tk.Label(col, text=title[:1].upper() + title[1:].lower(), font=("Segoe UI", 26, "bold"), fg=FG, bg=BG,
+                     anchor="w").pack(fill="x", pady=(0, S(4)))
         if intro:
-            tk.Label(col, text=intro, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w", wraplength=S(640)).pack(fill="x", pady=(0, S(12)))
+            tk.Label(col, text=intro, font=SANS, fg=FG2, bg=BG, justify="left", anchor="w",
+                     wraplength=S(width - 20)).pack(fill="x", pady=(0, S(14)))
         return col
 
     def say(self, text, kind="info"):
@@ -318,12 +270,26 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         self._last_refresh = time.monotonic()
         self.check_offline(quiet=True)
 
-    def move_selection(self, step, e):
-        if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text)) or self.cfg.get("page") != "map":
+    def move_selection(self, step, e, sideways=False):
+        """Up / Down choose a place on the map page and on the home page; Left / Right too on the game look's home
+        page, where the places are a row of cards."""
+        if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text)):
             return
-        self.map.table.step(step)
+        page = self.cfg.get("page")
+        if page == "home":
+            self.home.choose(step)
+        elif page == "map" and not sideways:
+            self.map.table.step(step)
+        elif page == "settings" and TERMINAL:
+            (self.settings_change if sideways else self.settings_move)(step)
 
     def on_return(self, e):
-        if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text, tk.Button)) or self.cfg.get("page") != "map":
+        if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text, tk.Button)):
             return
-        self.open_location(self.map.current())
+        page = self.cfg.get("page")
+        if page == "home":
+            self.home.fly()
+        elif page == "map":
+            self.open_location(self.map.current())
+        elif page == "settings" and TERMINAL:
+            self.settings_enter()

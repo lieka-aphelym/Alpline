@@ -54,11 +54,20 @@ Alpline/
 
 ## Start it: the launcher
 
-Double-click **`Alpline.bat`** in the project folder (or start the installed app). The window has a rail of pages on
-the left and a header that stays the same on every page:
+Double-click **`Alpline.bat`** in the project folder (or start the installed app). The pages are tabs along the top
+(game look) or a bar of function keys along the bottom (terminal look), with the same status and buttons on every page:
 
 - **Header:** *online / offline*, the server (*server full :8000*, or *off*), *[stop]*, *[3d viewer]* (opens the
   selected location) and *[locations map]*. Opening something starts the local server; closing the window stops it.
+- **Two looks** (*settings → look*, the launcher restarts in the new one): **game**, the places as pictures, and
+  **terminal**, one amber colour and everything on keys. Same pages, keys and actions in both. **F1** to **F7** open
+  the pages in their order.
+- **home** (the first page): the selected location, big. In the game look its aerial photo fills the page with its
+  name, size, video range, share in sight at 30 m and flights, a **FLY IN 3D** button, and the other locations as photo
+  cards along the bottom (click = select, double-click = open). In the terminal look the locations are a list, the
+  selected one is drawn as a relief of its real heights in big amber blocks (shaded from the north-west, the pilot at
+  **X**), and its numbers are plain lines.
+  **↑ ↓** (and **← →** in the game look) choose, **Enter** opens, **M** shows it on the map.
 - **map:** a dark map of Switzerland and its neighbours (swisstopo's grey map), with relief shading inside Switzerland,
   everything outside the border dimmed, and the FOCA drone zones as red outlines (tick box to hide them). Drag to
   move, mouse wheel or *+ / −* to zoom, *fit* frames all your locations (it opens that way), *CH* shows the whole
@@ -72,7 +81,7 @@ the left and a header that stays the same on every page:
   kept in `cache/launcher/` and shows offline; *[update map]* downloads the map again (latest zones) and the detailed
   tiles about 10 km around each location, so the map is sharp at the field without internet (new locations get theirs
   automatically when online).
-- **drone:** finds a Betaflight drone and the radio on USB by itself (a dot on the rail icon). After a download it asks
+- **drone:** finds a Betaflight drone and the radio on USB by itself (a dot by its tab, a * after its key). After a download it asks
   which battery pack you flew; *[battery packs]* opens the packs page (see [Battery analysis](docs/battery.md)). *[download blackbox]*
   copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
   selected location on the fly tab.
