@@ -10,6 +10,11 @@ The code is in launcher/, one file per page (app.py puts them together). Package
 import sys
 from pathlib import Path
 
+try:                    # the installed app's first picture (launcher/startup.py): say what it waits for meanwhile
+    import pyi_splash
+    pyi_splash.update_text("loading")
+except ImportError:     # run from the source: there is none
+    pass
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fpv3d import paths  # noqa: E402, F401  (tests reach paths and Launcher through this file)
 from launcher.app import Launcher  # noqa: E402, F401

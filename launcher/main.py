@@ -13,8 +13,9 @@ from fpv3d.brand import APP_ID
 from fpv3d.brand import APP_NAME
 
 from . import style
-from .app import Launcher
-from .common import open_file
+from .app import Launcher, restore_geometry
+from .common import load_settings, open_file, unexpected
+from .startup import StartScreen, splash_close
 
 
 def sharp_on_windows():
@@ -100,16 +101,37 @@ def leave(code=0):
 
 
 def main():
+    # The installed app's first picture (startup.py) has covered the start until here. It goes now, just before the
+    # window opens: past the next line Windows would redraw it at the screen's real resolution, a small square.
+    splash_close()
     sharp_on_windows()
     root = tk.Tk()
+    root.withdraw()                                         # shown once there is something to show (below)
     if not paths.data_chosen():
-        root.withdraw()
         first_start_folder(root)
         sys.exit(0)
     paths.ensure_data()
     style.UI = max(1.0, root.winfo_fpixels("1i") / 96)      # 1.25, 1.5 ... on scaled displays
     root.tk.call("tk", "scaling", style.UI * 96 / 72)        # fonts in points follow the same factor
+    start = None
+    cfg = load_settings()
+    if cfg.get("start_screen", True):
+        try:                                                # the start-up screen, shown while the launcher is built
+            root.configure(bg=style.BG)
+            restore_geometry(root, cfg)
+            start = StartScreen(root, cfg)
+            root.update_idletasks()
+            start.paint()                                   # photo and all, before the window appears: never empty
+        except Exception as ex:                             # noqa: BLE001  (never let it stop the launcher)
+            unexpected(ex)
+    root.deiconify()
+    root.update()
     app = Launcher(root)
     catch_errors(root, app)
+    if start:
+        try:
+            start.attach(app).run()
+        except Exception as ex:                             # noqa: BLE001
+            unexpected(ex)
     root.mainloop()
     leave()
