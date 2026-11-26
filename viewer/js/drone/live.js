@@ -14,7 +14,7 @@ const $ = (id) => document.getElementById(id);
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const fmtDist = (m) => (m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`);
 
-export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSaved, onStart }) {
+export function initLive({ S, scene3, camera, controls, toWorld, demHeight, signalHeight = demHeight, onSaved, onStart }) {
   const W = createWarner({ S, demHeight, ceil: (x, y) => liveCeil(x, y),
     el: { box: $('warnBox'), title: $('warnTitle'), text: $('warnText'), detail: $('warnDetail'), dial: $('warnDial'), hand: $('warnHand') } });
   const st = { fixes: [], pilot: null, pilotManual: false, pilotLocked: false, rel: false, on: false, seq: 0, poll: null, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [], fps: 0 };
@@ -30,7 +30,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
   const PILOT_SRC = { location: "the location's pilot point", takeoff: 'the take-off point', phone: 'your phone\'s position', map: 'the point picked on the map' };
   function pilot() { return st.pilot || { x: P0.x, y: P0.y, z: P0.z, source: 'location' }; }
   function setLivePilot(x, y, source, n = 0) {
-    st.pilot = { x, y, z: demHeight(x, y) + ANT, source, n };
+    st.pilot = { x, y, z: signalHeight(x, y) + ANT, source, n };   // on the roof when the point is inside a building
     showPilot();
   }
   const median = (a) => { const b = [...a].sort((p, q) => p - q); return b[b.length >> 1]; };
@@ -57,7 +57,7 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, onSa
     for (let i = 1; i < n; i++) {
       const t = i / n, d = t * D;
       if (d < 10) continue;                       // the ground right under the pilot's antenna
-      const h = demHeight(p.x + (x - p.x) * t, p.y + (y - p.y) * t) + d * (D - d) / kR2 + 3;   // +3 m: the browser's blended heights shave ridges a little
+      const h = signalHeight(p.x + (x - p.x) * t, p.y + (y - p.y) * t) + d * (D - d) / kR2 + 3;   // +3 m: the browser's blended heights shave ridges a little
       need = Math.max(need, p.z + (h - p.z) / t);
     }
     return Math.max(0, need - g);

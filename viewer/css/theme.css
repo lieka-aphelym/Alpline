@@ -232,7 +232,9 @@ h1 svg.logo .lg-ch { display: none; }
 #loading { z-index: 50; display: flex !important; flex-direction: column; align-items: center; justify-content: center; gap: 0;
   background: var(--t-bg, var(--bg)); transition: opacity .45s ease; }
 #loading.out { opacity: 0; pointer-events: none; }
-#loading .spScene { width: min(520px, 86vw); height: auto; display: block; margin: 0 0 22px; }
+#loading .spScene { width: min(520px, 86vw); height: auto; display: none; margin: 0 0 22px; }
+/* the drawn Alps only for a place without a photo (splash.js); otherwise the photo's frame comes at once */
+#loading.drawn .spScene { display: block; }
 .spScene .spR1 { fill: var(--sp-r1); } .spScene .spR2 { fill: var(--sp-r2); } .spScene .spR3 { fill: var(--sp-r3); }
 .spScene .spPilot { fill: var(--t-acc); }
 .spScene .spLine { fill: none; stroke: var(--t-acc); stroke-width: 1.6; stroke-dasharray: 1; stroke-dashoffset: 1;

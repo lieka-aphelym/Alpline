@@ -17,6 +17,7 @@ POST /api/restore               restore it  body: {"folder"}
 POST /api/rename                rename a location or a log  body: {"kind": "location"|"log", "scene", "old", "new", "title"}
 GET  /api/terrain?scene=&which=surface|dtm&step=&c0=&r0=&cols=&rows=   terrain window (float32)
 GET  /api/ortho?scene=&x0=&y0=&x1=&y1=&px=   sharp aerial photo crop (jpeg)
+GET  /api/preview?scene=&px=480  small copy of the whole aerial photo, for the loading screen (jpeg)
 GET  /api/jobs/<id>?since=N     progress of a background build (log lines + progress events from N)
 POST /api/jobs/<id>/cancel      stop a running build
 POST /api/zones {scene}         download the current drone no-fly zones for one scene
@@ -477,12 +478,17 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     return self._json(place_height(cache, lat, lon))
                 if u.path == "/api/search":
                     return self._json(place_search(q.get("q", ""), world=q.get("world") == "1"))
-                if u.path in ("/api/terrain", "/api/ortho"):
+                if u.path in ("/api/terrain", "/api/ortho", "/api/preview"):
                     from . import viewdata
                     scene = q.get("scene", "")
                     sd = scenes_dir / scene
                     if not re.match(r"^[\w-]+$", scene) or not (sd / "scene.json").exists():
                         return self._json(dict(error="unknown scene"), 404)
+                    if u.path == "/api/preview":
+                        jpg = viewdata.photo_preview(sd, min(max(int(q.get("px", 480)), 64), 1024))
+                        if jpg is None:
+                            return self._json(dict(error="no photo"), 404)
+                        return self._bin(jpg, "image/jpeg")
                     if u.path == "/api/terrain":
                         win, g = viewdata.terrain_window(sd, q.get("which", "surface"), int(q.get("step", 1)),
                                                          int(q.get("c0", 0)), int(q.get("r0", 0)),
