@@ -34,9 +34,13 @@ import { fmtTime, fmtDist, lerp, computeKinematics, trackStats } from './trackma
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-// "showcase" quality (Map > Advanced, remembered per browser): a finer overview and a larger sharp close-up, for
-// a strong graphics card. Never on a phone or in Lite.
-const SHOWCASE = !PHONE && !LITE && (() => { try { return localStorage.getItem('fpv3d:quality') === 'showcase'; } catch { return false; } })();
+// "showcase" quality (Map > Advanced): a finer overview and a larger sharp close-up, for a strong graphics card. Never
+// on a phone or in Lite. It lasts while this window stays open (sessionStorage survives the reload the choice needs)
+// and every new window starts on "normal": the owner wanted normal as the default. Until then the choice was kept
+// for good in localStorage; that old copy is dropped here.
+const SHOWCASE = !PHONE && !LITE && (() => {
+  try { localStorage.removeItem('fpv3d:quality'); return sessionStorage.getItem('fpv3d:quality') === 'showcase'; } catch { return false; }
+})();
 const SCENES = '../scenes/';
 const MAX_LINKS = 4;
 const TERRAIN_FS = terrainFS(MAX_LINKS);
@@ -707,7 +711,7 @@ function initGroundUi() {
   $('qualityRow').classList.toggle('hidden', PHONE || LITE || !(SHOWCASE || S.detail?.enabled));
   $('quality').value = SHOWCASE ? 'showcase' : 'normal';
   $('quality').onchange = () => {
-    try { localStorage.setItem('fpv3d:quality', $('quality').value); } catch { /* private mode */ }
+    try { sessionStorage.setItem('fpv3d:quality', $('quality').value); } catch { /* private mode */ }
     location.reload();                     // the meshes are sized when the view loads
   };
   $('detailOn').onchange = () => S.detail.set($('detailOn').checked);

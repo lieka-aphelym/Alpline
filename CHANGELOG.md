@@ -34,6 +34,11 @@ What changed in each release of Alpline. Newest first.
   headings, actions on keys (**B**, **L**, **P** on the drone page) and the settings as a config screen (**↑ ↓**
   choose, **← →** change, **Enter** applies). The map is still there, on its own page. Switching the look restarts
   the launcher.
+- **The pilot point can be moved anywhere in the world.** During a live flight, *use my take-off point* refused any
+  place outside Switzerland (a leftover from before Alpline went worldwide). It now works everywhere, as long as the
+  point is inside the location's area (it says how far outside it is otherwise).
+- **The 3D view opens on the normal quality again.** *Showcase* lasts while the window stays open and every new
+  window starts on *normal*; a showcase choice remembered by an older version is forgotten.
 
 ## 1.2.0 (November 2026)
 
