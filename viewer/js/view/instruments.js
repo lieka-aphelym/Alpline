@@ -37,8 +37,9 @@ export function initInstruments({ S }) {
 
   // the pilot: local x / y are metres from the grid's south-west corner
   const e = m.grid.min_e + p.x, n = m.grid.min_n + p.y, [plat, plon] = toWGS(e, n, crs);
-  $('iGround').textContent = `${groupDigits(p.ground ?? p.z)} m`;
-  $('iPilotDeg').textContent = fmtLatLon(plat, plon);
+  // a pilot point inside a building's footprint stands on its roof (fpv3d/scene.py, pilot_position): say so
+  $('iGround').textContent = `${groupDigits(p.street ?? p.ground ?? p.z)} m`;
+  $('iPilotDeg').textContent = fmtLatLon(plat, plon) + (p.on_roof_m ? ` · on a roof ${Math.round(p.on_roof_m)} m up` : '');
   $('iPilot').innerHTML = `<small>Pilot, ${gridName(crs)}</small><span>E ${groupDigits(e)}</span><span>N ${groupDigits(n)}</span>`;
   $('iData').innerHTML = dataLines(m).map(([k, v]) => `<span><small>${k}</small> ${v}</span>`).join('');
   const info = S.info || {};

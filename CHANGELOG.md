@@ -4,6 +4,18 @@ What changed in each release of Alpline. Newest first.
 
 ## Unreleased
 
+- **Buildings now block the signal.** The 3D buildings used to be drawn only: on a bare-ground scene (France, the
+  United States, Switzerland with `surface: dtm`) a drone between tall blocks looked in sight. The signal shadows,
+  the 3D blind-spot volumes, "in sight", the flights' line of sight and the live checks of the simulator and Fly
+  now count them, while heights above ground are still measured from the street. A pilot point that falls inside a
+  building now stands on its roof, and the instruments say so. In a dense city this is much more pessimistic than
+  before, and still a simplification: building heights come from OpenStreetMap (or a default of about 8 m), and
+  reflections off walls, which often keep a weak link around a corner, are not modelled. **Rebuild a location** to
+  get it (the tiles and buildings already downloaded are reused).
+- **No more flash of the old loading screen.** Opening a location showed the drawn Alps for a moment before the
+  place's photo: they stayed while the viewer started, and until the whole photo (up to 10 MB and more) was
+  downloaded and decoded. Now nothing is drawn until the location is read; then the photo's frame comes, filled
+  almost at once with a small copy from the local server. The drawn Alps are kept for a place without a photo.
 - **The logo's heart is now a yellow triangle, point down.** The flower has three blades, and the old four-sided
   square could not sit evenly among them: it covered the top blade and looked pushed up. The triangle keeps the same
   gap to all three. The icon, the logos, the launcher's animation and the installer icon are all redrawn from the
