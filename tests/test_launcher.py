@@ -222,3 +222,87 @@ if __name__ == "__main__":
             except Exception as ex:                         # noqa: BLE001
                 fails += 1; print(f"  FAIL  {name}: {ex!r}")
     sys.exit(1 if fails else 0)
+
+
+# ------------------------------------------------------------ start-up screen
+def test_start_screen_picks_a_place_with_a_photo():
+    """The game look shows the place selected last time, else the first built one that has a photo."""
+    from PIL import Image
+    from fpv3d import paths
+    from launcher.startup import last_place
+    data = Path(tempfile.mkdtemp(prefix="alpline_start_"))
+    scenes = data / "scenes"
+    for name, photo in (("001_a", False), ("002_b", True), ("003_c", True)):
+        (scenes / name).mkdir(parents=True)
+        (scenes / name / "scene.json").write_text(json.dumps(dict(name=name, title=name.upper())), encoding="utf-8")
+        if photo:
+            Image.effect_noise((200, 100), 60).convert("RGB").save(scenes / name / "ortho.jpg", quality=95)
+    (scenes / "index.json").write_text(json.dumps([dict(name=n, title=n) for n in ("001_a", "002_b", "003_c")]), encoding="utf-8")
+    old = paths.DATA
+    try:
+        paths.DATA = data
+        assert last_place("003_c") == ("003_C", scenes / "003_c" / "ortho.jpg")
+        assert last_place("001_a")[0] == "002_B"                     # selected one has no photo: first with one
+        assert last_place("gone")[0] == "002_B"
+        paths.DATA = data / "nothing"
+        assert last_place(None) is None
+    finally:
+        paths.DATA = old
+
+
+START = r"""
+import json, os, runpy, sys, time, tkinter as tk
+out = {}
+try:
+    g = runpy.run_path(os.path.join(sys.argv[1], "launcher.pyw"), run_name="launcher_test")
+    from launcher.startup import StartScreen, MAX_S
+    root = tk.Tk(); g["paths"].ensure_data()
+    app = g["Launcher"](root)
+    app.start_device_watch = lambda: None
+    root.geometry("980x600+0+0")
+    screens = {}
+    for look in ("game", "terminal"):
+        app.cfg["look"] = look
+        screens[look] = StartScreen(root, app.cfg).attach(app)
+        screens[look].run()
+    clicked = StartScreen(root, app.cfg).attach(app)
+    def check():
+        try:
+            root.update()
+            out["shown"] = all(s.frame.winfo_exists() and not s.done for s in screens.values())
+            clicked.frame.event_generate("<Button-1>", x=5, y=5); root.update()
+            out["click_closes"] = clicked.done and not clicked.frame.winfo_exists()
+            root.after(int(MAX_S * 1000) + 600, finish)
+        except Exception as ex:
+            import traceback
+            out["error"] = repr(ex) + " " + traceback.format_exc()[-600:]; root.destroy()
+    def finish():
+        out["gone_in_time"] = all(s.done for s in screens.values())
+        out["steps"] = screens["terminal"].steps
+        root.destroy()
+    root.after(300, check)
+    root.mainloop()
+except Exception as ex:
+    out["error"] = repr(ex)
+print("RESULT " + json.dumps(out))
+from launcher.main import leave
+leave()
+"""
+
+
+def test_start_screen_shows_and_goes():
+    """Both looks of the start-up screen open over the window and go by themselves within MAX_S, or at a click."""
+    if os.environ.get("ALPLINE_NO_WINDOW_TEST") or not _can_show_windows():
+        print("  (no screen / Tk here, or run from the launcher: skipped)")
+        return
+    data = Path(tempfile.mkdtemp(prefix="alpline_start_"))
+    script = data / "start_check.py"
+    script.write_text(textwrap.dedent(START), encoding="utf-8")
+    r = subprocess.run([sys.executable, str(script), str(ROOT)], env=dict(os.environ, ALPLINE_DATA=str(data)),
+                       capture_output=True, text=True, timeout=120)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("RESULT ")), None)
+    assert line, f"no result:\n{r.stdout[-800:]}\n{r.stderr[-800:]}"
+    res = json.loads(line[7:])
+    assert "error" not in res, res
+    assert res["shown"] and res["click_closes"] and res["gone_in_time"], res
+    assert res["steps"][0].startswith("places") and res["steps"][-1] == "ready", res["steps"]

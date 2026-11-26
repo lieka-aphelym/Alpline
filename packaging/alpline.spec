@@ -22,7 +22,13 @@ cli = Analysis([os.path.join(SPECPATH, "cli_entry.py")], pathex=[ROOT], datas=ra
                + collect_submodules("orangebox"),          # blackbox download
                excludes=["matplotlib", "pytest", "tkinter", "webview", "clr", "pythonnet"])
 
-gui_exe = EXE(PYZ(gui.pure), gui.scripts, [], exclude_binaries=True, name="Alpline", console=False, icon=ICON)
+# the picture shown the moment Alpline.exe starts, before Python runs (a cold start takes a few seconds); the
+# launcher writes its current step at text_pos and closes it once its window is drawn (launcher/startup.py).
+# The picture is made by tools/make_brand.py; text_pos is SPLASH_TEXT there.
+splash = Splash(os.path.join(ROOT, "viewer", "brand", "launch-splash.png"), binaries=gui.binaries, datas=gui.datas,
+                text_pos=(24, 274), text_size=10, text_font="Consolas", text_color="#a9b4c2", minify_script=True,
+                always_on_top=False)
+gui_exe = EXE(PYZ(gui.pure), gui.scripts, splash, [], exclude_binaries=True, name="Alpline", console=False, icon=ICON)
 cli_exe = EXE(PYZ(cli.pure), cli.scripts, [("u", None, "OPTION")], exclude_binaries=True, name="alpline-cli",
               console=True, icon=ICON)
-COLLECT(gui_exe, gui.binaries, gui.datas, cli_exe, cli.binaries, cli.datas, name="Alpline")
+COLLECT(gui_exe, gui.binaries, gui.datas, splash.binaries, cli_exe, cli.binaries, cli.datas, name="Alpline")

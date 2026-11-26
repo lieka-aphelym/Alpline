@@ -8,7 +8,9 @@ chevrons between them (the signal) and a triangle heart, point down. Below about
 get a little wider, so the flower still reads at 16 px.
 
 Writes into viewer/brand/: logo-dark.svg, logo-light.svg, icon.svg (red square), icon-dark.svg (black square),
-logo-dark-<n>.png, icon-<n>.png, icon-maskable-512.png, icon.ico; and the flower used by the pages (the FLOWER line
+logo-dark-<n>.png, icon-<n>.png, icon-maskable-512.png, icon.ico, launch-splash.png (the picture the installed app
+shows the moment it is started, see packaging/alpline.spec), flower.txt (the flower in characters, for the
+launcher's terminal look); and the flower used by the pages (the FLOWER line
 in viewer/js/core/theme.js, coloured by the theme and animated by viewer/css/theme.css).
 """
 import io
@@ -16,6 +18,7 @@ import math
 import re
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -104,6 +107,46 @@ def rasterise(jobs):
         b.close()
 
 
+SPLASH_W, SPLASH_H = 560, 300
+SPLASH_TEXT = (24, 274)          # where the start-up step is written on it (packaging/alpline.spec, text_pos)
+
+
+def launch_splash():
+    """The first picture: plain enough to lead into both looks of the launcher (game and terminal). The bottom
+    line is left empty: PyInstaller writes the current start-up step there."""
+    mark = svg(WHITE, YELLOW).replace("<svg ", '<svg width="84" height="84" ', 1)
+    row = "position:absolute;left:0;right:0;text-align:center"
+    return f"""<html><body style="margin:0;background:#07090c">
+<div style="position:relative;width:{SPLASH_W - 2}px;height:{SPLASH_H - 2}px;border:1px solid #2a313c;font-family:Consolas,monospace">
+<div style="{row};top:44px;display:flex;justify-content:center">{mark}</div>
+<div style="{row};top:146px;color:#f2f5f8;font-weight:700;font-size:26px;letter-spacing:.2em">ALPLINE</div>
+<div style="{row};top:182px;color:#7d8796;font-size:12px">by lieka</div>
+<div style="position:absolute;left:24px;right:24px;top:236px;height:1px;background:#2a313c"></div>
+</div></body></html>"""
+
+
+def flower_ascii(w=34, h=17, ramp=" .:-=+*#%@"):
+    """The flower in characters (a cell is about twice as high as wide), heart a little lighter than the petals."""
+    from PIL import ImageDraw
+    big, _, r = geometry()
+    im = Image.new("L", (w * 8, h * 16), 0)
+    d = ImageDraw.Draw(im)
+    sx, sy = w * 8 / 64, h * 16 / 64
+
+    def pts(path):
+        return [(float(x) * sx, float(y) * sy) for x, y in (q.split() for q in path.replace("M", "").replace(" Z", "").split(" L"))]
+    for path in big:
+        d.polygon(pts(path), fill=255)
+    d.polygon(pts(re.search(r'd="([^"]+)"', heart(r, "x")).group(1)), fill=150)
+    a = (np.asarray(im.resize((w, h), Image.BOX)) / 255).tolist()
+    lines = ["".join(ramp[min(len(ramp) - 1, int(v * (len(ramp) - .01)))] for v in row).rstrip() for row in a]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines) + "\n"
+
+
 def main():
     files = {
         "logo-dark.svg": svg(WHITE, YELLOW),
@@ -118,12 +161,21 @@ def main():
     # maskable: launchers crop to a circle or a rounded square, so the flower keeps inside the middle 80 %
     jobs.append((svg(WHITE, YELLOW, RED, scale=0.72), 512, BRAND / "icon-maskable-512.png"))
     rasterise(jobs)
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        b = p.chromium.launch()
+        pg = b.new_page(viewport={"width": SPLASH_W, "height": SPLASH_H}, device_scale_factor=1)
+        pg.set_content(launch_splash())
+        pg.wait_for_timeout(200)
+        (BRAND / "launch-splash.png").write_bytes(pg.screenshot())
+        b.close()
+    (BRAND / "flower.txt").write_text(flower_ascii(), encoding="utf-8", newline="\n")
     # the Windows icon: the small sizes from their own drawings (not scaled down from 256)
     ico_src = {n: Image.open(io.BytesIO((BRAND / f"icon-{n}.png").read_bytes())).convert("RGBA") for n in (16, 32, 48, 64, 128, 256)}
     ico_src[256].save(BRAND / "icon.ico", sizes=[(n, n) for n in sorted(ico_src)],
                       append_images=[ico_src[n] for n in sorted(ico_src) if n != 256])
     write_flower_into_theme_js()
-    print("written:", ", ".join(sorted(files)), "+", len(jobs), "png, icon.ico, theme.js FLOWER")
+    print("written:", ", ".join(sorted(files)), "+", len(jobs), "png, icon.ico, launch-splash.png, flower.txt, theme.js FLOWER")
 
 
 if __name__ == "__main__":

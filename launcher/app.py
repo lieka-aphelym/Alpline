@@ -25,6 +25,18 @@ from .style import ACC, BAD, BG, BG2, BG3, FG, FG2, MONO, MONO_S, OK, RULE, S, S
 from .widgets import Btn, LogoAnim, PAGES, Pill, Tip, rail_icon
 
 
+def restore_geometry(root, cfg):
+    """Size: resizable, remembered, never smaller than the layout needs. Also used before the launcher is built, so
+    the start-up screen opens where the launcher will be (startup.py)."""
+    root.minsize(S(980), S(600))
+    g = cfg.get("geometry")
+    if g and re.match(r"^\d+x\d+[+-]-?\d+[+-]-?\d+$", g):
+        w, h = map(int, g.split("+")[0].split("x"))
+        root.geometry(g if w <= root.winfo_screenwidth() and h <= root.winfo_screenheight() else f"{S(1120)}x{S(700)}")
+    else:
+        root.geometry(f"{S(1120)}x{S(700)}")
+
+
 class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, FilesPage):
     """The launcher window: header, rail of pages and the pages. Each page lives in its own file (the classes
     above); this file holds what they share: the frame, the widgets, selecting a location, the keys."""
@@ -133,13 +145,7 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
         self._toast_job = None
 
         # ---- size: resizable, remembered, never smaller than the layout needs
-        root.minsize(S(980), S(600))
-        g = self.cfg.get("geometry")
-        if g and re.match(r"^\d+x\d+[+-]-?\d+[+-]-?\d+$", g):
-            w, h = map(int, g.split("+")[0].split("x"))
-            root.geometry(g if w <= root.winfo_screenwidth() and h <= root.winfo_screenheight() else f"{S(1120)}x{S(700)}")
-        else:
-            root.geometry(f"{S(1120)}x{S(700)}")
+        restore_geometry(root, self.cfg)
 
         # ---- keys + refresh when the window comes back to the front (replaces [check])
         root.bind("<Control-f>", lambda e: self.focus_filter())

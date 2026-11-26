@@ -20,6 +20,10 @@ What changed in each release of Alpline. Newest first.
   square could not sit evenly among them: it covered the top blade and looked pushed up. The triangle keeps the same
   gap to all three. The icon, the logos, the launcher's animation and the installer icon are all redrawn from the
   same geometry.
+- **A start-up screen.** The installed app now shows a picture the moment it is started (the flower and the name,
+  with the current step written under it), instead of nothing for the few seconds a cold start takes. The launcher's
+  window then opens with a short start-up screen: the photo of the place you selected last, with a line that fills
+  as the launcher gets ready. It goes by itself within three seconds, or at a click or a key.
 
 ## 1.2.0 (November 2026)
 
