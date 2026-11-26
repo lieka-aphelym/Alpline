@@ -176,7 +176,7 @@ export function initSim(app) {
     for (let i = 1; i < n; i++) {
       const t = i / n; if (t <= skip || t >= 1 - skip) continue;
       const d1 = hd * t, d2 = hd - d1;
-      const ground = app.demHeight(p.x + dx * t, p.y + dy * t) + d1 * d2 / (2 * k);
+      const ground = (app.signalHeight || app.demHeight)(p.x + dx * t, p.y + dy * t) + d1 * d2 / (2 * k);   // with the buildings
       const gap = p.z + dz * t - ground;
       if (gap < minGap) minGap = gap;
       links.forEach((l, j) => { const r1 = Math.sqrt(Math.max(l.lam * d1 * d2 / Math.max(hd, 1e-3), 1e-6)); const f = gap / r1; if (f < minF[j]) minF[j] = f; });
