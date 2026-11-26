@@ -2,7 +2,13 @@
 
 What changed in each release of Alpline. Newest first.
 
-## Unreleased
+## 1.3.0 (November 2026)
+
+The launcher has a new face, in two looks to choose from (pictures, or amber and keys) with a home page for your
+selected place, and a start-up screen; the logo's heart is now a triangle. On the map, buildings now block the
+signal. **Rebuild a location** to get the buildings in its signal shadows (no new download); everything else works
+at once. Moving the pilot point during a live flight now works outside Switzerland, and the 3D view opens on the
+normal quality again.
 
 - **Buildings now block the signal.** The 3D buildings used to be drawn only: on a bare-ground scene (France, the
   United States, Switzerland with `surface: dtm`) a drone between tall blocks looked in sight. The signal shadows,
