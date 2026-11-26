@@ -204,7 +204,7 @@ body:has(#timeline.moved) #profile { bottom: 14px; }
 
 /* ---------------------------------------------------------------- logo animation
    The logo is an edelweiss that is also a propeller: three petal-blades, three small chevrons between them (the
-   signal) and a diamond heart. Spin-up once when a page opens (the propeller spools up, the heart comes in and each
+   signal) and a triangle heart. Spin-up once when a page opens (the propeller spools up, the heart comes in and each
    chevron travels out to its place: one signal sent). While something loads or builds (html.alp-busy, set by alpBusy()
    in theme.js; always on the loading screen): steady spin and the chevrons light up one after the other. */
 svg.logo .lg-sw, svg.logo .lg-hub, .spPop { transform-origin: 32px 32px; }

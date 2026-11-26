@@ -2,6 +2,13 @@
 
 What changed in each release of Alpline. Newest first.
 
+## Unreleased
+
+- **The logo's heart is now a yellow triangle, point down.** The flower has three blades, and the old four-sided
+  square could not sit evenly among them: it covered the top blade and looked pushed up. The triangle keeps the same
+  gap to all three. The icon, the logos, the launcher's animation and the installer icon are all redrawn from the
+  same geometry.
+
 ## 1.2.0 (November 2026)
 
 France and the United States now get their national terrain and aerial photos, the viewer has a calmer, more
