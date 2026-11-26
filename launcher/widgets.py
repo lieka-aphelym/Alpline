@@ -177,41 +177,14 @@ class Pill(tk.Frame):
             self.dot.create_oval(c - r, c - r, c + r, c + r, outline=FG2)
 
 
-# rail pages: key, label, tooltip
-PAGES = (("map", "map", "Your locations on the map"),
+# the pages: key, label, tooltip (in this order in the header or the key bar, F1 to F7: chrome.py)
+PAGES = (("home", "home", "The chosen place, big: fly it in 3D (F1)"),
+         ("map", "map", "Your locations on the map"),
          ("drone", "drone", "Drone and radio on USB: download the blackbox, start a live flight"),
          ("phone", "phone", f"Open {APP_NAME} on your phone (same Wi-Fi or the phone's hotspot)"),
          ("checks", "checks", f"Run {APP_NAME}'s own tests on this computer"),
          ("disk", "files", "Your files: sizes, clean-up / start fresh, backup and restore"),
          ("settings", "settings", "Full / Lite, where pages open, desktop shortcut, your files"))
-
-
-def rail_icon(cv, key, col):
-    """Small line icons for the rail (drawn, so they stay sharp at any screen scaling)."""
-    cv.delete("all")
-    w = lambda *a: [S(v) for v in a]
-    lw = max(1, S(1.6))
-    if key == "map":
-        cv.create_line(*w(3, 5, 9, 3, 15, 5, 21, 3, 21, 15, 15, 17, 9, 15, 3, 17, 3, 5), fill=col, width=lw)
-        cv.create_line(*w(9, 3, 9, 15), fill=col, width=lw); cv.create_line(*w(15, 5, 15, 17), fill=col, width=lw)
-    elif key == "drone":
-        cv.create_line(*w(6, 4, 18, 16), fill=col, width=lw); cv.create_line(*w(18, 4, 6, 16), fill=col, width=lw)
-        for x, y in ((5, 3), (19, 3), (5, 17), (19, 17)):
-            cv.create_oval(*w(x - 3, y - 2, x + 3, y + 2), outline=col, width=lw)
-        cv.create_rectangle(*w(10, 8, 14, 12), outline=col, width=lw)
-    elif key == "phone":
-        cv.create_rectangle(*w(7, 1, 17, 19), outline=col, width=lw); cv.create_line(*w(10, 16, 14, 16), fill=col, width=lw)
-    elif key == "checks":
-        cv.create_rectangle(*w(4, 2, 20, 18), outline=col, width=lw)
-        cv.create_line(*w(7, 10, 11, 14, 17, 6), fill=col, width=max(1, S(2)))
-    elif key == "disk":
-        for y in (3, 8, 13):
-            cv.create_rectangle(*w(4, y, 20, y + 4), outline=col, width=lw)
-        cv.create_line(*w(16, 5, 17, 5), fill=col, width=lw)
-    elif key == "settings":
-        for y, x in ((4, 15), (10, 8), (16, 13)):
-            cv.create_line(*w(3, y, 21, y), fill=col, width=lw)
-            cv.create_rectangle(*w(x - 2, y - 2, x + 2, y + 2), fill=BG, outline=col, width=lw)
 
 
 class LogoAnim:

@@ -56,8 +56,9 @@ def last_place(selected: str | None):
     return None
 
 
-def _photo(f, w: int, h: int):
-    """The photo cut to fill w x h, darkened, darker still on the left where the name is written."""
+def photo_fill(f, w: int, h: int, light: float = .55, left_shade: float = .8):
+    """A place's photo cut to fill w x h, darkened to `light`, and darker still towards the left (where a name is
+    written) by `left_shade` (0: not at all). Used by the start-up screen and the game look's home page."""
     from PIL import Image, ImageTk  # noqa: PLC0415
     im = Image.open(f)
     im.draft("RGB", (w, h))                                     # a 10 MB photo reads in a few tens of ms at this size
@@ -66,10 +67,13 @@ def _photo(f, w: int, h: int):
     im = im.resize((max(1, round(im.width * k)), max(1, round(im.height * k))), Image.BILINEAR)
     left, top = (im.width - w) // 2, (im.height - h) // 2
     im = im.crop((left, top, left + w, top + h))
-    shade = Image.linear_gradient("L").rotate(90).resize((w, h))          # 255 on the left .. 0 on the right
     dark = Image.new("RGB", (w, h), (7, 9, 12))
-    im = Image.composite(dark, Image.blend(dark, im, .55), shade.point(lambda v: int(v * .8)))
+    im = Image.blend(dark, im, light)
+    if left_shade:
+        shade = Image.linear_gradient("L").rotate(90).resize((w, h))      # 255 on the left .. 0 on the right
+        im = Image.composite(dark, im, shade.point(lambda v: int(v * left_shade)))
     return ImageTk.PhotoImage(im)
+
 
 
 class StartScreen:
@@ -123,7 +127,7 @@ class StartScreen:
         cv.delete("all")
         if self.place and (self.img is None or (self.img.width(), self.img.height()) != (w, h)):
             try:
-                self.img = _photo(self.place[1], w, h)
+                self.img = photo_fill(self.place[1], w, h)
             except Exception:                                    # noqa: BLE001  (a damaged photo: no picture)
                 self.place, self.img = None, None
         if self.img:

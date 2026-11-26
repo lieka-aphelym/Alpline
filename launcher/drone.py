@@ -13,7 +13,7 @@ from fpv3d import paths
 from fpv3d.brand import APP_NAME
 
 from .common import APP, ROOT, unexpected
-from .style import ACC, BAD, BG, BG2, FG, FG2, MONO_B, MONO_S, OK, RULE, S, SANS
+from .style import ACC, BAD, BG, BG2, FG, FG2, MONO, MONO_B, MONO_S, OK, RULE, S, SANS, TERMINAL
 from .widgets import FitLabel, Tip
 
 
@@ -21,52 +21,117 @@ class DronePage:
     """Mixed into Launcher (launcher/app.py): methods only, they share its self."""
 
     # ------------------------------------------------------------ drone page (USB)
+    BB_INTRO = (f"Plug the drone in with its USB cable (no battery needed). {APP_NAME} finds a Betaflight flight controller "
+                "by itself and can copy its blackbox: every flight with GPS is added to the location where it took off. "
+                "Close Betaflight Configurator first (it holds the port).")
+
     def build_drone_page(self, parent):
-        col = self.page_frame(parent, "DRONE ON USB",
-                              f"Plug the drone in with its USB cable (no battery needed). {APP_NAME} finds a Betaflight flight "
-                              "controller by itself and can copy its blackbox: every flight with GPS is added to the location "
-                              "where it took off. Close Betaflight Configurator first (it holds the port).")
-        self.drone_lab = FitLabel(col, font=MONO_B, fg=FG2, bg=BG)
-        self.drone_lab.pack(fill="x")
-        self.drone_info = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
-        self.drone_info.pack(fill="x", pady=(S(2), S(8)))
-        row = tk.Frame(col, bg=BG); row.pack(fill="x")
-        self.bb_btn = self.button(row, "[download blackbox]", self.download_blackbox, primary=True)
-        self.bb_btn.pack(side="left")
-        self.bb_here = tk.BooleanVar(value=False)
-        self.bb_here_cb = tk.Checkbutton(row, variable=self.bb_here, font=SANS, fg=FG, bg=BG, selectcolor=BG2,
-                                         activebackground=BG, activeforeground=FG, bd=0, highlightthickness=0)
-        self.bb_here_cb.pack(side="left", padx=(S(12), 0))
-        Tip(self.bb_here_cb, "Off: each flight goes to the location whose map contains its take-off point.")
-        box = tk.Frame(col, bg=RULE, padx=1, pady=1); box.pack(fill="x", pady=(S(10), 0))
-        self.bb_log = tk.Text(box, height=9, font=MONO_S, fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
-                              padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
-        self.bb_log.pack(fill="x")
+        """The same parts in both looks (the code below only fills them in): what is on USB, the download and its
+        log, the radio for live flight, the battery packs. Game look: a big card for the drone with its two actions,
+        the radio and the packs beside it (H4 of the design canvas). Terminal look: boxes of lines, actions on keys."""
+        self.bb_labels = ("[downloading…]", "[download blackbox]") if TERMINAL else ("DOWNLOADING…", "↓  DOWNLOAD BLACKBOX")
+        (self._drone_terminal if TERMINAL else self._drone_game)(parent)
         self.bb_log.tag_configure("ok", foreground=OK)
         self.bb_log.tag_configure("bad", foreground=BAD)
         self.bb_log.insert("end", "The download's progress shows here.")
         self.bb_log.configure(state="disabled")
+        self.show_packs()
+        self.show_devices()
 
-        tk.Frame(col, bg=BG, height=S(18)).pack()
+    def _bb_checkbox(self, parent):
+        self.bb_here = tk.BooleanVar(value=False)
+        bg = parent.cget("bg")
+        self.bb_here_cb = tk.Checkbutton(parent, variable=self.bb_here, font=SANS, fg=FG, bg=bg, selectcolor=BG2,
+                                         activebackground=bg, activeforeground=FG, bd=0, highlightthickness=0, anchor="w")
+        Tip(self.bb_here_cb, "Off: each flight goes to the location whose map contains its take-off point.")
+        return self.bb_here_cb
+
+    def _bb_logbox(self, parent, height):
+        box = tk.Frame(parent, bg=RULE, padx=1, pady=1)
+        self.bb_log = tk.Text(box, height=height, font=MONO_S, fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
+                              padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
+        self.bb_log.pack(fill="both", expand=True)
+        return box
+
+    def _drone_game(self, parent):
+        outer = tk.Frame(parent, bg=BG)
+        outer.pack(fill="both", expand=True, padx=S(28), pady=S(20))
+        tk.Label(outer, text="Drone", font=("Segoe UI", 26, "bold"), fg=FG, bg=BG, anchor="w").pack(fill="x")
+        tk.Label(outer, text=self.BB_INTRO, font=SANS, fg=FG2, bg=BG, anchor="w", justify="left",
+                 wraplength=S(900)).pack(fill="x", pady=(S(2), S(16)))
+        grid = tk.Frame(outer, bg=BG)
+        grid.pack(fill="both", expand=True)
+        grid.columnconfigure(0, weight=3, uniform="c")
+        grid.columnconfigure(1, weight=2, uniform="c")
+        grid.rowconfigure(1, weight=1)
+
+        def card(r, c, title=None):
+            f = tk.Frame(grid, bg=BG2, highlightthickness=1, highlightbackground=RULE, padx=S(20), pady=S(16))
+            f.grid(row=r, column=c, sticky="nsew", padx=(0, S(16)) if c == 0 else 0, pady=(0, S(16)))
+            if title:
+                tk.Label(f, text=title, font=("Consolas", 9, "bold"), fg=FG2, bg=BG2, anchor="w").pack(fill="x", pady=(0, S(6)))
+            return f
+        d = card(0, 0)
+        self.drone_lab = FitLabel(d, font=("Consolas", 11, "bold"), fg=FG2, bg=BG2)
+        self.drone_lab.pack(fill="x")
+        self.drone_info = FitLabel(d, font=("Segoe UI", 15, "bold"), fg=FG, bg=BG2)
+        self.drone_info.pack(fill="x", pady=(S(6), S(10)))
+        self._bb_checkbox(d).pack(fill="x", pady=(0, S(14)))
+        row = tk.Frame(d, bg=BG2)
+        row.pack(fill="x")
+        self.bb_btn = self.button(row, self.bb_labels[1], self.download_blackbox, primary=True)
+        self.bb_btn.configure(font=("Consolas", 12, "bold"), padx=S(18), pady=S(8))
+        self.bb_btn.pack(side="left")
+        self.live_btn = self.button(row, "●  FLY LIVE IN 3D", self.open_live)
+        self.live_btn.configure(font=("Consolas", 12, "bold"), padx=S(18), pady=S(8))
+        self.live_btn.pack(side="left", padx=(S(10), 0))
+        Tip(self.live_btn, "Opens the selected location on the fly tab: pick the radio's port there and connect.")
+        r = card(0, 1, "RADIO ON USB")
+        self.radio_lab = FitLabel(r, font=("Consolas", 11, "bold"), fg=FG2, bg=BG2)
+        self.radio_lab.pack(fill="x")
+        self.radio_info = FitLabel(r, font=SANS, fg=FG2, bg=BG2)
+        self.radio_info.pack(fill="x", pady=(S(4), 0))
+        lg = tk.Frame(grid, bg=BG)
+        lg.grid(row=1, column=0, sticky="nsew", padx=(0, S(16)))
+        tk.Label(lg, text="LAST DOWNLOAD", font=("Consolas", 9, "bold"), fg=FG2, bg=BG, anchor="w").pack(fill="x", pady=(0, S(6)))
+        self._bb_logbox(lg, 8).pack(fill="both", expand=True)
+        b = card(1, 1, "BATTERY PACKS")
+        self.packs_lab = FitLabel(b, font=SANS, fg=FG, bg=BG2)
+        self.packs_lab.pack(fill="x", pady=(0, S(10)))
+        btn = self.button(b, "[battery packs]", lambda: self.open("/viewer/packs.html"))
+        btn.pack(anchor="w")
+        Tip(btn, "Every pack's health over time, how long it lasts at your flying, the flights without a pack, the charger check.")
+
+    def _drone_terminal(self, parent):
+        col = self.page_frame(parent, "DRONE ON USB", self.BB_INTRO, width=760)
+        self.drone_lab = FitLabel(col, font=MONO_B, fg=FG2, bg=BG)
+        self.drone_lab.pack(fill="x")
+        self.drone_info = FitLabel(col, font=MONO, fg=FG2, bg=BG)
+        self.drone_info.pack(fill="x", pady=(S(2), S(6)))
+        self._bb_checkbox(col).pack(fill="x")
+        keys = tk.Frame(col, bg=BG)
+        keys.pack(fill="x", pady=(S(8), S(6)))
+        self.bb_btn = self.button(keys, self.bb_labels[1], self.download_blackbox, primary=True)
+        self.bb_btn.pack(side="left")
+        tk.Label(keys, text="  [b]      [l] live flight in 3d    [p] battery packs", font=MONO, fg=ACC, bg=BG).pack(side="left")
+        self._bb_logbox(col, 8).pack(fill="x", pady=(0, S(14)))
         self.section("RADIO ON USB", col)
         self.radio_lab = FitLabel(col, font=MONO_B, fg=FG2, bg=BG)
         self.radio_lab.pack(fill="x")
-        self.radio_info = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
-        self.radio_info.pack(fill="x", pady=(S(2), S(8)))
-        row = tk.Frame(col, bg=BG); row.pack(fill="x")
-        self.live_btn = self.button(row, "[live flight in 3d]", self.open_live)
-        self.live_btn.pack(side="left")
-        Tip(self.live_btn, "Opens the selected location on the fly tab: pick the radio's port there and connect.")
-        tk.Frame(col, bg=BG, height=S(18)).pack()
+        self.radio_info = FitLabel(col, font=MONO, fg=FG2, bg=BG)
+        self.radio_info.pack(fill="x", pady=(S(2), S(6)))
+        self.live_btn = self.button(col, "[live flight in 3d]", self.open_live)
+        self.live_btn.pack(anchor="w", pady=(0, S(14)))
         self.section("BATTERY PACKS", col)
-        self.packs_lab = FitLabel(col, font=SANS, fg=FG2, bg=BG)
-        self.packs_lab.pack(fill="x", pady=(0, S(6)))
-        row = tk.Frame(col, bg=BG); row.pack(fill="x")
-        b = self.button(row, "[battery packs]", lambda: self.open("/viewer/packs.html"))
-        b.pack(side="left")
-        Tip(b, "Every pack's health over time, how long it lasts at your flying, the flights without a pack, the charger check.")
-        self.show_packs()
-        self.show_devices()
+        self.packs_lab = FitLabel(col, font=MONO, fg=FG2, bg=BG)
+        self.packs_lab.pack(fill="x")
+
+        def key(e, act):
+            if self.cfg.get("page") == "drone" and not isinstance(e.widget, (tk.Entry, tk.Text)):
+                act()
+        self.root.bind("<KeyPress-b>", lambda e: key(e, self.bb_btn.invoke), add="+")
+        self.root.bind("<KeyPress-l>", lambda e: key(e, self.live_btn.invoke), add="+")
+        self.root.bind("<KeyPress-p>", lambda e: key(e, lambda: self.open("/viewer/packs.html")), add="+")
 
     def show_packs(self):
         """The line under BATTERY PACKS; read in the background (it grows with every flight)."""
@@ -148,7 +213,7 @@ class DronePage:
                                 if busy else "plug it in: it shows here within a few seconds")
         running = self.bb_proc is not None
         self.bb_btn.configure(state="normal" if drones and not running else "disabled",
-                              text="[downloading…]" if running else "[download blackbox]")
+                              text=self.bb_labels[0] if running else self.bb_labels[1])
         cur = self.map.current() if hasattr(self, "map") else None
         self.bb_here_cb.configure(text=f"add every flight to {cur.get('title') or cur['name']}" if cur
                                   else "add every flight to the selected location",

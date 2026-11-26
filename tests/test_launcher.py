@@ -157,7 +157,7 @@ try:
             app.map.info.set("hover text " * 30)
             app._devices_changed({"COM7": dict(kind="drone", port="COM7", board="FLWO", firmware="Betaflight 4.5.1 " * 4,
                                                flash_total=2 ** 24, flash_used=2 ** 20)})
-            for p in ("drone", "phone", "disk", "settings", "map"):
+            for p in ("home", "drone", "phone", "disk", "settings", "map"):
                 app.show_page(p); root.update()
             out["size_kept"] = (root.winfo_width(), root.winfo_height()) == (W0, H0)
             app.select(None); root.update()
@@ -187,6 +187,15 @@ def _can_show_windows():
 
 
 def test_window_layout_stays_put():
+    _layout_check("game")
+
+
+def test_window_layout_stays_put_terminal_look():
+    """The same checks in the terminal look (other fonts in places, the home page as a list)."""
+    _layout_check("terminal")
+
+
+def _layout_check(look):
     if os.environ.get("ALPLINE_NO_WINDOW_TEST"):
         print("  (left out when run from the launcher: it opens a second launcher window. python -m pytest runs it: skipped)")
         return
@@ -199,7 +208,7 @@ def test_window_layout_stays_put():
         (data / "locations" / f"00{i}_loc.yaml").write_text(
             f"name: 00{i}_loc\ntitle: \"Location {i} with a rather long name\"\ncenter: {{lat: {la}, lon: {lo}}}\n"
             "links:\n  - {name: v, freq_mhz: 5800, tx_power_dbm: 14}\n", encoding="utf-8")
-    env = dict(os.environ, ALPLINE_DATA=str(data))
+    env = dict(os.environ, ALPLINE_DATA=str(data), ALPLINE_LOOK=look)
     script = data / "layout_check.py"
     script.write_text(textwrap.dedent(LAYOUT), encoding="utf-8")
     r = subprocess.run([sys.executable, str(script), str(ROOT)], env=env, capture_output=True, text=True, timeout=120)
@@ -306,3 +315,35 @@ def test_start_screen_shows_and_goes():
     assert "error" not in res, res
     assert res["shown"] and res["click_closes"] and res["gone_in_time"], res
     assert res["steps"][0].startswith("places") and res["steps"][-1] == "ready", res["steps"]
+
+
+# ------------------------------------------------------------ home page (no screen needed)
+def test_home_page_reads_a_scene():
+    """The home page's numbers and the terminal look's relief come from the scene's own files."""
+    import numpy as np
+    from fpv3d import paths
+    from launcher.home import LEVELS, relief, scene_facts
+    data = Path(tempfile.mkdtemp(prefix="alpline_home_"))
+    sd = data / "scenes" / "001_hill"
+    sd.mkdir(parents=True)
+    rows, cols = 50, 100                                    # 1000 x 500 m at 10 m, a hill in the east
+    yy, xx = np.mgrid[0:rows, 0:cols]
+    (1000 + 300 * np.exp(-((xx - 80) ** 2 + (yy - 25) ** 2) / 200)).astype("<f4").tofile(sd / "terrain.f32")
+    (sd / "scene.json").write_text(json.dumps(dict(
+        grid=dict(min_e=0, min_n=0, max_e=1000, max_n=500, res=10, rows=rows, cols=cols), terrain="terrain.f32",
+        pilot=dict(x=100, y=250, ground=1000.4), links=[dict(range_m=2100)], ortho="ortho.jpg",
+        los_layers=[dict(agl=10, blocked=.7), dict(agl=30, blocked=.4)], buildings=dict(count=12))), encoding="utf-8")
+    old = paths.DATA
+    try:
+        paths.DATA = data
+        f = scene_facts("001_hill")
+        assert (f["width_km"], f["height_km"], f["res"], f["buildings"]) == (1.0, .5, 10, 12)
+        assert abs(f["seen30"] - .6) < 1e-9 and f["range_km"] == 2.1 and round(f["ground"]) == 1000
+        levels, at = relief("001_hill", 40)
+        assert levels.shape == (20, 40) and 0 <= levels.min() and levels.max() <= LEVELS - 1   # square cells
+        assert levels[10, 30] > levels[10, 34]                  # the hill's west face, lit from the west, is brighter
+        assert levels[10, 2] == levels[10, 6]                   # flat ground: one even shade
+        assert at == (4, 10)                                    # the pilot, 10 % from the west, mid-height
+        assert scene_facts("nothing") == {} and relief("nothing", 40) is None
+    finally:
+        paths.DATA = old
