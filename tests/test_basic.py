@@ -49,6 +49,54 @@ def test_los_blocked_by_wall():
     assert c[1] > 0          # high drone: clear
 
 
+def test_buildings_block_the_signal_but_not_the_ground():
+    """A bare-ground street with a 40 m block in it: the block hides a low drone, yet "30 m above ground" is still
+    counted from the street, and the pilot stands on the street."""
+    import json
+    import tempfile
+    from fpv3d import buildings
+    from fpv3d.los import los_ceilings
+    from fpv3d.scene import signal_terrain
+    grid = Grid(0, 0, 400, 200, 2)
+    dem = np.full(grid.shape, 10, np.float32)
+    block = dict(p=[[190, 60], [210, 60], [210, 140], [190, 140]], b=10, t=50)     # 20 x 80 m, 40 m high
+    blocked = buildings.burn(dem, grid, [block])
+    r, c = int((200 - 100) / 2), int(200 / 2)                                     # the block's middle cell
+    assert blocked[r, c] == 50 and blocked[r, 10] == 10 and dem[r, c] == 10        # dem itself left alone
+    high = dem.copy(); high[r, c] = 80
+    assert buildings.burn(high, grid, [block])[r, c] == 80                         # a higher surface model wins
+
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d)
+        (out / "buildings.json").write_text(json.dumps(dict(items=[block])))
+        t = signal_terrain(out, grid, dem, dict(file="buildings.json", count=1))
+        assert float(t.height(200, 100)) == 10                                     # ground under the block
+        off = signal_terrain(out, grid, dem, dict(count=0, disabled=True))        # buildings turned off: ignored
+        assert off.ground is off.dem
+        plain = signal_terrain(out, grid, dem, None)
+        assert plain.ground is plain.dem                                           # no buildings: as before
+    src = (50, 100, 12)                                                            # pilot west of the block, 2 m up
+    c30, _, _ = path_clearance(t, src, [350], [100], [40], 5800)                   # drone east of it, 30 m up
+    assert c30[0] < 0
+    c30_plain, _, _ = path_clearance(plain, src, [350], [100], [40], 5800)
+    assert c30_plain[0] > 0                                                        # bare ground alone: in sight
+    lgrid = grid.with_resolution(10)
+    ceil, ground = los_ceilings(t, src, lgrid, 5800, 4 / 3, 0.6, 100.0)
+    row, col = int((200 - 100) / 10), int(350 / 10)
+    assert np.allclose(ground, 10)                                                 # heights from the street
+    assert 75 < ceil["los"][row, col] < 95        # the block's near roof edge seen from the pilot: about 85 m up
+    assert ceil["los"][row, 10] == 0                                               # same side as the pilot: clear
+
+    # a pilot point inside the block stands on its roof, and says so
+    from types import SimpleNamespace
+    from fpv3d.scene import pilot_position
+    cfg = SimpleNamespace(pilot=True, pilot_en=lambda: (200, 100), pilot_antenna_height_m=1.8)
+    p = pilot_position(cfg, t, [])
+    assert p["ground"] == 50 and abs(p["z"] - 51.8) < 1e-6 and p["on_roof_m"] == 40 and p["street"] == 10
+    cfg.pilot_en = lambda: (50, 100)
+    assert "on_roof_m" not in pilot_position(cfg, t, []) and pilot_position(cfg, plain, [])["ground"] == 10
+
+
 def test_range():
     l = Link("v", 5800, 27, 2, 8, -90, 3, 10)
     r = radio.max_range_m(l)
