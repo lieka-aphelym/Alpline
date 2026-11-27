@@ -2,6 +2,12 @@
 
 What changed in each release of Alpline. Newest first.
 
+## Unreleased
+
+- **No more empty moment at start-up.** The installed app's first picture now stays until the launcher's window is
+  on screen; between the two there used to be half a second to a second and a half with nothing, and the picture
+  sometimes shrank to a small square just before it went. The window's title is right from the start too.
+
 ## 1.3.0 (November 2026)
 
 The launcher has a new face, in two looks to choose from (pictures, or amber and keys) with a home page for your

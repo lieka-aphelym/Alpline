@@ -275,10 +275,11 @@ try:
         screens[look] = StartScreen(root, app.cfg).attach(app)
         screens[look].run()
     clicked = StartScreen(root, app.cfg).attach(app)
+    # shown: checked at once; by the time the loop below runs they may have done their steps and gone already
+    out["shown"] = all(s.frame.winfo_exists() and not s.done and s.frame.winfo_manager() == "place" for s in screens.values())
     def check():
         try:
             root.update()
-            out["shown"] = all(s.frame.winfo_exists() and not s.done for s in screens.values())
             clicked.frame.event_generate("<Button-1>", x=5, y=5); root.update()
             out["click_closes"] = clicked.done and not clicked.frame.winfo_exists()
             root.after(int(MAX_S * 1000) + 600, finish)

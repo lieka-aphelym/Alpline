@@ -4,7 +4,8 @@
    (PyInstaller's splash screen, see packaging/alpline.spec), with the current step written under it. On a cold
    start that takes about 2.4 s on the owner's PC (0.75 s once Windows has the files in memory, 26 Nov 2026).
    launcher.pyw writes "loading" on it, splash_close() closes it; run from the source there is none.
-   It closes just before the window opens (main.py says why).
+   It closes once the window is on screen, showing step 2 (main.py; on Windows older than 10 1607 it must close
+   just before, see sharp_on_windows).
 2. The launcher's window opens at once showing a start-up screen, and the launcher is built behind it (a second or
    more). The screen is in the launcher's look (settings key "look"): "game" shows the last place's photo with its
    name (splash S19 of the design canvas), "terminal" the flower in characters and the start-up lines in amber

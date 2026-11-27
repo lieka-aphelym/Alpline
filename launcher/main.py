@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fpv3d import paths
 from fpv3d.brand import APP_ID
-from fpv3d.brand import APP_NAME
+from fpv3d.brand import APP_NAME, BY
 
 from . import style
 from .app import Launcher, restore_geometry
@@ -18,18 +18,29 @@ from .common import load_settings, open_file, unexpected
 from .startup import StartScreen, splash_close
 
 
-def sharp_on_windows():
+def sharp_on_windows(thread_only=False) -> bool:
     """Tell Windows this window draws itself at the real screen resolution. Without it, on a display scaled to
     125 % / 150 %, Windows stretches a 100 % picture of the window: that is the blurry, 'hazy' look.
     Also give the launcher its own app id: started from the source folder the program is pythonw.exe, and Windows
-    would otherwise show (and group under) Python's icon in the taskbar instead of the window's Alpline icon."""
+    would otherwise show (and group under) Python's icon in the taskbar instead of the window's Alpline icon.
+
+    thread_only: for this thread only (Windows 10 1607 and later), which is the one Tk draws every window on. The
+    installed app's first picture runs on a thread of its own and keeps its old setting, so it can stay up until the
+    window is shown; set for the whole program, Windows redraws that picture as a small square. True when done."""
     if os.name != "nt":
-        return
+        return False
     import ctypes
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except Exception:
         pass
+    if thread_only:
+        try:
+            f = ctypes.windll.user32.SetThreadDpiAwarenessContext
+            f.restype, f.argtypes = ctypes.c_void_p, [ctypes.c_void_p]
+            return bool(f(ctypes.c_void_p(-4)))               # per-monitor v2; NULL when refused
+        except Exception:                                     # noqa: BLE001  (older Windows: no such call)
+            return False
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)       # per-monitor (Windows 8.1+)
     except Exception:
@@ -101,13 +112,17 @@ def leave(code=0):
 
 
 def main():
-    # The installed app's first picture (startup.py) has covered the start until here. It goes now, just before the
-    # window opens: past the next line Windows would redraw it at the screen's real resolution, a small square.
-    splash_close()
-    sharp_on_windows()
+    # The installed app's first picture (startup.py) has covered the start until here. It stays until the window is
+    # on screen, so nothing is empty in between (half a second: Tk, then the place's photo). Where the sharp setting
+    # cannot be kept to this thread it must go first: Windows would redraw it as a small square (sharp_on_windows).
+    if not sharp_on_windows(thread_only=True):
+        splash_close()
+        sharp_on_windows()
     root = tk.Tk()
     root.withdraw()                                         # shown once there is something to show (below)
+    root.title(f"{APP_NAME} by {BY}")                       # not "tk" in the taskbar while the launcher is built
     if not paths.data_chosen():
+        splash_close()                                      # the folder question must not sit under it
         first_start_folder(root)
         sys.exit(0)
     paths.ensure_data()
@@ -126,6 +141,7 @@ def main():
             unexpected(ex)
     root.deiconify()
     root.update()
+    splash_close()                                          # the window shows the start-up screen now
     app = Launcher(root)
     catch_errors(root, app)
     if start:
