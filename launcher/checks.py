@@ -13,7 +13,7 @@ from fpv3d import paths
 from fpv3d.brand import APP_NAME
 
 from .common import APP, python_exe, unexpected
-from .style import ACC, BAD, BG, BG2, FG, FG2, MONO_B, MONO_S, OK, RULE, S, SANS
+from .style import ACC, BAD, BG, BG2, FG, FG2, GREY, MONO, MONO_B, MONO_S, OK, RULE, S, SANS, TERMINAL
 from .widgets import FitLabel, Tip
 
 
@@ -33,39 +33,17 @@ class ChecksPage:
                     ("sim", "Training flight", "flight model: hover, battery, top speed, propwash, walls"),
                     ("launcher", "Launcher", "USB detection, map groups and zoom"))
 
+    CHECKS_INTRO = (f"{APP_NAME}'s own tests on this computer, in about 20 seconds. Your places and flights are not "
+                    "touched: the tests work in a temporary folder with fake map services.")
+
+    CHECK_LABELS = ("[run quick check]", "[running…]") if TERMINAL else ("▶  RUN QUICK CHECK", "RUNNING…")
+
     def build_checks_page(self, parent):
-        col = self.page_frame(parent, "CHECKS",
-                              f"Runs {APP_NAME}'s own tests on this computer, about 20 seconds. Your locations and flights are "
-                              "not touched: the tests work in a temporary folder with a fake swisstopo service.")
-        self.libs_row = tk.Frame(col, bg=BG2, padx=S(8), pady=S(6), highlightthickness=1, highlightbackground=ACC)
-        self.libs_lab = tk.Label(self.libs_row, text="", font=SANS, fg=FG, bg=BG2, justify="left", anchor="w", wraplength=S(460))
-        self.libs_lab.pack(side="left", fill="x", expand=True)
-        self.libs_btn = self.button(self.libs_row, "[update libraries]", self.update_libraries, primary=True)
-        self.libs_btn.pack(side="right")
-        self.libs_diff = []
-        self.check_top = row = tk.Frame(col, bg=BG); row.pack(fill="x")
-        self.check_btn = self.button(row, "[run quick check]", self.run_checks, primary=True)
-        self.check_btn.pack(side="left")
-        self.copy_btn = self.button(row, "[copy report]", self.copy_check_report)
-        self.copy_btn.pack(side="left", padx=(S(8), 0))
-        Tip(self.copy_btn, "Copy the results, to paste them in a message when something fails.")
-        self.check_status = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
-        self.check_status.pack(fill="x", pady=(S(8), S(4)))
-        self.check_bar = tk.Canvas(col, height=S(6), bg=BG2, highlightthickness=0)
-        self.check_bar.pack(fill="x", pady=(0, S(10)))
-        grid = tk.Frame(col, bg=BG); grid.pack(fill="x")
-        grid.columnconfigure(1, weight=1)
-        self.check_rows = {}
-        for i, (key, label, desc) in enumerate(self.CHECK_GROUPS):
-            tk.Label(grid, text=label, font=MONO_B, fg=FG, bg=BG, width=17, anchor="w").grid(row=i, column=0, sticky="w", pady=S(2))
-            d = FitLabel(grid, font=SANS, fg=FG2, bg=BG); d.set(desc); d.grid(row=i, column=1, sticky="ew", padx=(0, S(8)))
-            res = tk.Label(grid, text="–", font=("Consolas", 10), fg=FG2, bg=BG, width=13, anchor="e")
-            res.grid(row=i, column=2, sticky="e")
-            self.check_rows[key] = res
-        box = tk.Frame(col, bg=RULE, padx=1, pady=1); box.pack(fill="x", pady=(S(12), 0))
-        self.check_log = tk.Text(box, height=9, font=MONO_S, fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
-                                 padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
-        self.check_log.pack(fill="x")
+        """The same parts in both looks: the run button, a bar, one result per group of tests, the log of what failed.
+        Game look: a big button and a card per group that turns green as its results come in (H4 of the design
+        canvas, checks A). Terminal look: a line per group with a dotted leader and [ ok 46 ], R runs, C copies."""
+        self.check_cards = {}
+        (self._checks_terminal if TERMINAL else self._checks_game)(parent)
         self.check_log.tag_configure("bad", foreground=BAD)
         self.check_log.tag_configure("skip", foreground=ACC)
         self.check_log.tag_configure("ok", foreground=OK)
@@ -77,6 +55,118 @@ class ChecksPage:
             self.check_status.set("the checks come with the source folder (PyCharm / Alpline.bat), not with the installed app")
         else:
             self.show_last_check()
+
+    def _libs_row(self, parent):
+        """The notice "libraries to update" (source folder only), shown above the run button when needed."""
+        self.libs_row = tk.Frame(parent, bg=BG2, padx=S(8), pady=S(6), highlightthickness=1, highlightbackground=ACC)
+        self.libs_lab = tk.Label(self.libs_row, text="", font=SANS, fg=FG, bg=BG2, justify="left", anchor="w", wraplength=S(460))
+        self.libs_lab.pack(side="left", fill="x", expand=True)
+        self.libs_btn = self.button(self.libs_row, "[update libraries]", self.update_libraries, primary=True)
+        self.libs_btn.pack(side="right")
+        self.libs_diff = []
+
+    def _check_logbox(self, parent, height):
+        box = tk.Frame(parent, bg=RULE, padx=1, pady=1)
+        self.check_log = tk.Text(box, height=height, font=MONO_S, fg=FG2, bg=BG2, bd=0, relief="flat", wrap="word",
+                                 padx=S(8), pady=S(6), highlightthickness=0, cursor="arrow")
+        self.check_log.pack(fill="both", expand=True)
+        return box
+
+    # ---- game look
+    def _checks_game(self, parent):
+        outer = tk.Frame(parent, bg=BG)
+        outer.pack(fill="both", expand=True, padx=S(28), pady=S(20))
+        tk.Label(outer, text="Checks", font=("Segoe UI", 26, "bold"), fg=FG, bg=BG, anchor="w").pack(fill="x")
+        tk.Label(outer, text=self.CHECKS_INTRO, font=SANS, fg=FG2, bg=BG, anchor="w", justify="left",
+                 wraplength=S(900)).pack(fill="x", pady=(S(2), S(14)))
+        self._libs_row(outer)
+        self.check_top = row = tk.Frame(outer, bg=BG)
+        row.pack(fill="x")
+        self.check_btn = self.button(row, self.CHECK_LABELS[0], self.run_checks, primary=True)
+        self.check_btn.configure(font=("Consolas", 12, "bold"), padx=S(18), pady=S(8))
+        self.check_btn.pack(side="left")
+        self.copy_btn = self.button(row, "COPY REPORT", self.copy_check_report)
+        self.copy_btn.configure(font=("Consolas", 12, "bold"), padx=S(18), pady=S(8))
+        self.copy_btn.pack(side="left", padx=(S(10), S(24)))
+        Tip(self.copy_btn, "Copy the results, to paste them in a message when something fails.")
+        prog = tk.Frame(row, bg=BG)
+        prog.pack(side="left", fill="x", expand=True)
+        self.check_status = FitLabel(prog, font=MONO_S, fg=FG2, bg=BG)
+        self.check_status.pack(fill="x")
+        self.check_bar = tk.Canvas(prog, height=S(8), bg=BG2, highlightthickness=0)
+        self.check_bar.pack(fill="x", pady=(S(6), 0))
+        grid = tk.Frame(outer, bg=BG)
+        grid.pack(fill="x", pady=(S(16), S(12)))
+        self.check_rows = {}
+        for i, (key, label, desc) in enumerate(self.CHECK_GROUPS):
+            grid.columnconfigure(i % 4, weight=1, uniform="g")
+            card = tk.Frame(grid, bg=BG2)
+            card.grid(row=i // 4, column=i % 4, sticky="nsew", padx=(0, S(10)), pady=(0, S(10)))
+            top = tk.Frame(card, bg=RULE, height=S(2))
+            top.pack(fill="x")
+            inner = tk.Frame(card, bg=BG2, padx=S(12), pady=S(8))
+            inner.pack(fill="both", expand=True)
+            head = tk.Frame(inner, bg=BG2)
+            head.pack(fill="x")
+            tk.Label(head, text=label, font=("Segoe UI", 11, "bold"), fg=FG, bg=BG2, anchor="w").pack(side="left")
+            res = tk.Label(head, text="–", font=MONO_B, fg=FG2, bg=BG2)
+            res.pack(side="right")
+            d = tk.Label(inner, text=desc, font=("Segoe UI", 9), fg=FG2, bg=BG2, anchor="w", justify="left", wraplength=S(200))
+            d.pack(fill="x", pady=(S(4), 0))
+            self.check_rows[key] = res
+            self.check_cards[key] = top
+        self._check_logbox(outer, 5).pack(fill="both", expand=True)
+
+    # ---- terminal look
+    def _checks_terminal(self, parent):
+        col = self.page_frame(parent, "CHECKS", self.CHECKS_INTRO, width=900)
+        self._libs_row(col)
+        self.check_top = tk.Frame(col, bg=BG)
+        self.check_top.pack(fill="x")
+        self.check_btn = self.button(self.check_top, self.CHECK_LABELS[0], self.run_checks, primary=True)
+        self.check_btn.pack(side="left")
+        tk.Label(self.check_top, text="  [r]      [c] copy report", font=MONO, fg=ACC, bg=BG).pack(side="left")
+        self.check_bar = tk.Label(col, text="", font=MONO, fg=FG, bg=BG, anchor="w")
+        self.check_bar.pack(fill="x", pady=(S(10), 0))
+        self.check_status = FitLabel(col, font=MONO_S, fg=FG2, bg=BG)
+        self.check_status.pack(fill="x", pady=(0, S(8)))
+        grid = tk.Frame(col, bg=BG)
+        grid.pack(fill="x")
+        grid.columnconfigure(1, weight=1)
+        self.check_rows = {}
+        for i, (key, label, desc) in enumerate(self.CHECK_GROUPS):
+            tk.Label(grid, text=f"{label} {'.' * (17 - len(label))}", font=MONO, fg=FG, bg=BG, anchor="w").grid(row=i, column=0, sticky="w")
+            d = FitLabel(grid, font=MONO, fg=FG2, bg=BG)
+            d.set(desc)
+            d.grid(row=i, column=1, sticky="ew", padx=(S(8), S(8)))
+            res = tk.Label(grid, text="[    –    ]", font=MONO, fg=GREY, bg=BG, anchor="e")
+            res.grid(row=i, column=2, sticky="e")
+            self.check_rows[key] = res
+        tk.Frame(col, bg=BG, height=S(12)).pack(fill="x")
+        self.section("LOG", col)
+        self._check_logbox(col, 7).pack(fill="both", expand=True)
+
+        def key(e, act):
+            if self.cfg.get("page") == "checks" and not isinstance(e.widget, (tk.Entry, tk.Text)):
+                act()
+        self.root.bind("<KeyPress-r>", lambda e: key(e, self.check_btn.invoke), add="+")
+        self.root.bind("<KeyPress-c>", lambda e: key(e, self.copy_check_report), add="+")
+
+    def set_group(self, key, state, n_ok=0, n_bad=0, n_skip=0):
+        """One group's result: state "wait" (not run), "run" (results coming in), "ok" or "bad"."""
+        lab = self.check_rows.get(key)
+        if not lab:
+            return
+        if TERMINAL:
+            text = {"wait": "[    –    ]", "run": f"[ .. {n_ok + n_bad:>3} ]"}.get(state) or (
+                f"[ {n_bad:>2} fail ]" if n_bad else f"[ ok {n_ok:>3} ]")
+            lab.configure(text=text, fg=BAD if n_bad else (ACC if state != "wait" else GREY))
+            return
+        color = {"wait": FG2, "run": ACC}.get(state) or (BAD if n_bad else OK)
+        text = {"wait": "–", "run": f"… {n_ok + n_bad}"}.get(state) or (
+            f"✗ {n_bad} failed" if n_bad else f"✓ {n_ok}" + (f" · {n_skip} skip" if n_skip else ""))
+        lab.configure(text=text, fg=color)
+        self.check_cards[key].configure(bg={"wait": RULE, "run": ACC}.get(state) or (BAD if n_bad else OK))
 
     # ------------------------------------------------------------ libraries (requirements.txt)
     def check_libraries(self):
@@ -149,6 +239,11 @@ class ChecksPage:
 
     def draw_check_bar(self, done, total, bad):
         c = self.check_bar
+        if TERMINAL:                                       # a line of # and -, like the rest of the screen
+            n = round(50 * done / total) if total else 0
+            c.configure(text=f"run   [{'#' * n}{'-' * (50 - n)}]  {done}/{total}" if total > 1 else "",
+                        fg=BAD if bad else FG)
+            return
         c.delete("all")
         w = c.winfo_width() or S(600)
         if total:
@@ -158,10 +253,10 @@ class ChecksPage:
         if self.check_proc is not None:
             return
         self.check_results = []
-        for r in self.check_rows.values():
-            r.configure(text="…", fg=FG2)
+        for k in self.check_rows:
+            self.set_group(k, "wait")
         self.check_write("", clear=True)
-        self.check_btn.configure(state="disabled", text="[running…]")
+        self.check_btn.configure(state="disabled", text=self.CHECK_LABELS[1])
         self.check_status.set("running…", fg=FG2)
         self.draw_check_bar(0, 1, False)
         self.logo.busy(True)
@@ -197,10 +292,10 @@ class ChecksPage:
         mine = [r for r in self.check_results if r["group"] == group]
         nbad = sum(r["state"] == "fail" for r in mine)
         nok = sum(r["state"] == "ok" for r in mine)
-        lab = self.check_rows.get(group)
-        if lab:
-            lab.configure(text=f"{nbad} failed" if nbad else f"{nok} ok" + (f", {len(mine) - nok} skip" if len(mine) > nok else ""),
-                          fg=BAD if nbad else OK)
+        prev = self.check_results[-2]["group"] if len(self.check_results) > 1 else None
+        if prev and prev != group:                        # the groups run one after the other
+            self._group_done(prev)
+        self.set_group(group, "run", nok, nbad)
         nice = name[5:].replace("_", " ") if name.startswith("test_") else name
         if state == "fail":
             self.check_write(f"✗ {group} · {nice}\n", "bad")
@@ -209,11 +304,18 @@ class ChecksPage:
             self.check_write(f"– {group} · {nice}: {self.check_results[-1]['msg']}\n", "skip")
         self.draw_check_bar(len(self.check_results), max(total, 1), any(r["state"] == "fail" for r in self.check_results))
 
+    def _group_done(self, key):
+        mine = [r for r in self.check_results if r["group"] == key]
+        n_ok, n_bad, n_skip = (sum(r["state"] == s for r in mine) for s in ("ok", "fail", "skip"))
+        self.set_group(key, "bad" if n_bad else "ok", n_ok, n_bad, n_skip)
+
     def _checks_done(self, summary, seconds):
         self.check_proc = None
         self.logo.busy(False)
-        self.check_btn.configure(state="normal", text="[run quick check]")
+        self.check_btn.configure(state="normal", text=self.CHECK_LABELS[0])
         res = self.check_results
+        for key in {r["group"] for r in res}:
+            self._group_done(key)
         ok, bad, skip = (sum(r["state"] == s for r in res) for s in ("ok", "fail", "skip"))
         if not res:
             self.check_write("the checks did not run (is the project's .venv complete? pip install -r requirements.txt)\n", "bad")

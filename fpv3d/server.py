@@ -409,6 +409,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             if PIN_TRIES.get(ip, (0, 0))[1] > time.time():      # too many wrong PINs: wait a minute
                 return self._refuse(429, "Too many wrong PINs: wait a minute.")
             if pin and hmac.compare_digest((q.get("k") or [""])[0], pin):   # right PIN in the link: remember it
+                phone_event(ip, "PIN ok")
                 rest = urllib.parse.urlencode({k: v[0] for k, v in q.items() if k != "k"})
                 self.send_response(302)
                 # the cookie holds a token made from the PIN, not the PIN; page scripts can't read it (HttpOnly)
@@ -419,6 +420,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return True
             wrong = bool(q.get("k"))
             if wrong:
+                phone_event(ip, "wrong PIN")
                 n = PIN_TRIES.get(ip, (0, 0))[0] + 1
                 PIN_TRIES[ip] = (0, time.time() + 60) if n >= 10 else (n, 0)
             body = (f"<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>{APP_NAME}</title>"
@@ -446,6 +448,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                 return
             if not self._local() and (u.path.endswith("/") or u.path.endswith(".html")):
                 sys.stderr.write(f"[phone] {self.client_address[0]} opened {u.path}\n")   # shows it reached the PC
+                phone_event(self.client_address[0], f"opened {u.path}")
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             try:
                 if u.path == "/api/share":       # addresses a phone can use (launcher "share on my network")
@@ -453,7 +456,8 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                         return self._json(dict(shared=False, urls=[]))
                     scheme, p = ("https", SHARE["https_port"]) if SHARE["https_port"] else ("http", SHARE["port"])
                     return self._json(dict(shared=True, https=bool(SHARE["https_port"]), pin=SHARE["pin"] if self._local() else None,
-                                           urls=[f"{scheme}://{ip}:{p}/viewer/" for ip in lan_addresses()]))
+                                           urls=[f"{scheme}://{ip}:{p}/viewer/" for ip in lan_addresses()],
+                                           phones=list(PHONE_LOG) if self._local() else []))
                 if u.path == "/api/ca.crt":      # the private CA to install once on the phone (public, no PIN)
                     from .tlscert import CA_CRT
                     if not CA_CRT.exists():
@@ -914,6 +918,13 @@ GZIP_TYPES = (".json", ".bin", ".f32", ".js", ".css", ".html", ".svg", ".geojson
 GZ_CACHE: dict = {}             # (file, mtime, size) -> compressed bytes, for the phone
 GZ_LOCK = threading.Lock()
 PIN_TRIES: dict = {}            # phone address -> (wrong PINs in a row, locked until)
+PHONE_LOG: list = []            # what other devices did lately, newest last: shown on the launcher's phone page
+
+
+def phone_event(ip: str, what: str) -> None:
+    """One line of the phone log (this run only, the last 40): a PIN typed, a page opened. No content, no cookie."""
+    PHONE_LOG.append(dict(t=time.strftime("%H:%M:%S"), ip=str(ip), what=what[:80]))
+    del PHONE_LOG[:-40]
 
 
 SHARE = {"on": False, "pin": None, "port": None, "https_port": None}   # set by serve(lan=True)

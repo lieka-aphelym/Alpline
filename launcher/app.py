@@ -282,6 +282,8 @@ class Launcher(ServerMixin, PhonePage, DronePage, SettingsPage, ChecksPage, File
             self.map.table.step(step)
         elif page == "settings" and TERMINAL:
             (self.settings_change if sideways else self.settings_move)(step)
+        elif page == "disk" and TERMINAL:
+            (self.disk_fold if sideways else self.disk_move)(step)
 
     def on_return(self, e):
         if isinstance(e.widget, (tk.Entry, ttk.Treeview, tk.Text, tk.Button)):

@@ -12,7 +12,7 @@ from fpv3d import paths
 from fpv3d.brand import APP_NAME
 
 from .common import LOG, ROOT, lan_addresses, port_free
-from .style import ACC, BG2, BG3, FG, OK
+from .style import OK
 
 
 class ServerMixin:
@@ -125,21 +125,13 @@ class ServerMixin:
         if not hasattr(self, "server_pill"):
             return
         on = bool(self.cfg.get("share"))
-        self.share_btn.configure(bg=ACC if on else BG2, fg="#000" if on else FG, activebackground=ACC if on else BG3,
-                                 text="[share on my network: on]" if on else "[share on my network: off]")
         sharing = self.server_alive() and self.running_share
         if sharing:
             ip = (lan_addresses() or ["?"])[0]
-            https = self.share_info().get("https")
-            self.set_entry("addr", f"{'https' if https else 'http'}://{ip}:{self.port + (443 if https else 0)}")
-            self.set_entry("pin", self.pin())
-            self.set_entry("state", "shared · the phone can connect")
+            https = bool(self.share_info().get("https"))
+            self.show_phone(on, True, f"{'https' if https else 'http'}://{ip}:{self.port + (443 if https else 0)}", self.pin(), https)
         else:
-            self.set_entry("addr", "–")
-            self.set_entry("pin", self.pin() if on else "–")
-            self.set_entry("state", "starts sharing when the server starts" if on else "this computer only")
-        self.qr_btn.configure(state="normal" if sharing else "disabled")
-        self.draw_badge("phone")
+            self.show_phone(on, False, None, self.pin() if on else None, False)
         if self.server_alive():
             note = "" if self.running_mode == self.mode.get() else f" →{self.mode.get()}"
             self.server_pill.set(f"server {self.running_mode} :{self.port}{note}", OK)

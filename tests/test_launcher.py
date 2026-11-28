@@ -275,10 +275,11 @@ try:
         screens[look] = StartScreen(root, app.cfg).attach(app)
         screens[look].run()
     clicked = StartScreen(root, app.cfg).attach(app)
+    # shown: checked at once; by the time the loop below runs they may have done their steps and gone already
+    out["shown"] = all(s.frame.winfo_exists() and not s.done and s.frame.winfo_manager() == "place" for s in screens.values())
     def check():
         try:
             root.update()
-            out["shown"] = all(s.frame.winfo_exists() and not s.done for s in screens.values())
             clicked.frame.event_generate("<Button-1>", x=5, y=5); root.update()
             out["click_closes"] = clicked.done and not clicked.frame.winfo_exists()
             root.after(int(MAX_S * 1000) + 600, finish)
@@ -318,6 +319,31 @@ def test_start_screen_shows_and_goes():
 
 
 # ------------------------------------------------------------ home page (no screen needed)
+def test_qr_code_matches_the_pages():
+    """The phone page draws its QR code itself (launcher/qr.py, a port of viewer/vendor/qrcode.js): it must be the
+    same code, module for module, as the one share.html shows, from a one-letter text to the largest version."""
+    import shutil
+    from launcher.qr import qr_matrix
+    texts = ["https://192.168.1.24:8443/viewer/?k=482913", "a", "http://10.0.0.5:8000/viewer/", "x" * 60,
+             "https://192.168.178.123:8462/viewer/share.html?k=000001&scene=007_rochers_de_naye", "y" * 150, "z" * 210]
+    m = qr_matrix(texts[0])
+    assert len(m) == 29 and all(len(r) == 29 for r in m)               # version 3: 29 x 29
+    for r0, c0 in ((0, 0), (0, 22), (22, 0)):                            # the three finder squares
+        assert all(m[r0][c0 + i] and m[r0 + 6][c0 + i] and m[r0 + i][c0] and m[r0 + i][c0 + 6] for i in range(7))
+        assert m[r0 + 3][c0 + 3] and not m[r0 + 1][c0 + 1]
+    if not shutil.which("node"):
+        print("  (Node not here: compared with the pages' library on CI only)")
+        return
+    js = ("const q=require(process.argv[1]);const t=JSON.parse(process.argv[2]);console.log(JSON.stringify(t.map(s=>{"
+          "const c=q(0,'M');c.addData(s);c.make();const n=c.getModuleCount();"
+          "return Array.from({length:n},(_,r)=>Array.from({length:n},(_,k)=>c.isDark(r,k)?1:0).join(''))})))")
+    r = subprocess.run(["node", "-e", js, str(ROOT / "viewer" / "vendor" / "qrcode.js"), json.dumps(texts)],
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    for t, ref in zip(texts, json.loads(r.stdout)):
+        assert ["".join("1" if x else "0" for x in row) for row in qr_matrix(t)] == ref, len(t)
+
+
 def test_home_page_reads_a_scene():
     """The home page's numbers and the terminal look's relief come from the scene's own files."""
     import numpy as np
