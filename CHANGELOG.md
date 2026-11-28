@@ -2,6 +2,12 @@
 
 What changed in each release of Alpline. Newest first.
 
+## Unreleased
+
+- **Follow a live flight on several screens.** With the radio on the computer, your phone (or a spotter's) can show
+  the same flight at the same time: *[follow this flight]* in *[fly]*. Connecting on a second screen no longer cuts
+  the flight of the first.
+
 ## 1.3.0 (November 2026)
 
 The launcher has a new face, in two looks to choose from (pictures, or amber and keys) with a home page for your

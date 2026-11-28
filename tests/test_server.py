@@ -305,6 +305,34 @@ def test_place_height_abroad():
     assert [(w["source"], w["crs"]) for w in inv] == [("copernicus", "EPSG:32632")] and len(inv[0]["lod"]["dtm"]["10"]) == 4
 
 
+def test_live_flight_can_be_followed_from_another_screen():
+    """A flight is live (the radio on the computer): a phone follows it without cutting it. Starting a second link is
+    refused while the first runs, and the screens that ask for the state are counted."""
+    import time
+    from fpv3d.live import LINK
+    sd = _TMP / "scenes" / "097_live"
+    sd.mkdir(parents=True, exist_ok=True)
+    (sd / "scene.json").write_text(json.dumps({"name": "097_live", "tracks": []}), encoding="utf-8")
+    done = threading.Event()
+    old = LINK.thread, dict(LINK.state), dict(LINK.screens)
+    try:
+        LINK.thread = threading.Thread(target=done.wait, daemon=True)        # a link that runs until the test ends
+        LINK.thread.start()
+        LINK.state.update(status="live", source="serial", scene="097_live", port="COM9", started=time.time(), stopped=False)
+        st, j = jreq("POST", "/api/live/start", {"scene": "097_live", "source": "serial", "port": "COM3"})
+        assert st == 409 and j["running"] and j["scene"] == "097_live", (st, j)
+        assert LINK.state["port"] == "COM9"                                  # the running flight is untouched
+        for screen in ("pc", "phone", "phone"):
+            st, j = jreq("GET", f"/api/live/state?since=0&screen={screen}")
+        assert st == 200 and j["running"] and j["screens"] == 2 and j["age"] >= 0 and not j["stopped"], j
+        assert jreq("GET", "/api/live/state?since=0")[1]["screens"] == 2      # asking without an id is not watching
+    finally:
+        done.set()
+        LINK.thread.join(timeout=2)
+        LINK.thread, LINK.state, LINK.screens = old[0], old[1], old[2]
+    assert not jreq("GET", "/api/live/state?since=0")[1]["running"]
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):

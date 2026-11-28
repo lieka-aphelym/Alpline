@@ -286,6 +286,8 @@
     <div id="lvHero" class="lvHero" data-state="off" role="status"><span id="liveDrone"></span>
       <div><b id="liveLinkTxt">not connected</b><span id="liveStatus">pick the radio and connect</span></div></div>
     <div id="liveConnectBox">
+      <div id="liveRunning" class="lvRunning hidden" role="status"><div id="liveRunningTxt" class="small"></div>
+        <button id="liveFollowRun" class="primary lvWide">[follow this flight]</button></div>
       <label class="lvLbl" for="liveSrc">Source</label>
       <select id="liveSrc">
         <option value="serial">My radio (USB cable)</option>
@@ -318,7 +320,7 @@
       <div class="row btns"><button id="lvPilotMe" title="Use this device's GPS (the phone at the field)">[my position]</button><button id="lvPilotPick" title="Then click the ground where you stand">[pick on the map]</button><button id="lvPilotLoc">[location's point]</button></div>
       <button id="lvPilotSave" class="hidden" title="Rebuilds the coloured shadow maps from here: do it at home, it takes a while">[save as this location's pilot]</button>
       <div id="livePilotText" class="small"></div></div>
-    <div id="liveConnBar" class="lvConn hidden"><span id="liveConnTxt"></span><button id="liveDisconnect" class="danger">[disconnect]</button></div>
+    <div id="liveConnBar" class="lvConn hidden"><span id="liveConnTxt"></span><span class="row btns"><button id="liveEndAll" class="danger hidden" title="Stops the radio link for every screen">[end the flight]</button><button id="liveDisconnect" class="danger">[disconnect]</button></span></div>
 
     <details class="lvFold"><summary>Warnings <em id="warnSum"></em></summary>
     <label class="row">Alerts <select id="warnMode">

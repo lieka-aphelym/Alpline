@@ -9,8 +9,8 @@ POST /api/refresh-all           update every scene in the background  body: {"mo
 POST /api/build                 build a scene in the background  body: {"name": "...", "resolution": 5}
 POST /api/client-error          a page's error, added to logs/errors.txt  body: {"page", "message", "stack"}
 POST /api/simtrack              save a simulator training flight as a track  body: {"scene", "name", "csv"}
-GET  /api/live/ports | /api/live/state?since=N        live telemetry (radio USB serial)
-POST /api/live/start {scene, source: serial|replay, port | track, speed} · /api/live/stop {save}
+GET  /api/live/ports | /api/live/state?since=N&screen=<page id>   live telemetry (radio USB serial), any number of screens
+POST /api/live/start {scene, source: serial|replay, port | track, speed, replace?} (409 while a link runs) · /api/live/stop {save}
 POST /api/blackbox {scene?}     download the blackbox from a Betaflight drone on USB, add its flights (background job)
 POST /api/delete                delete a location (moved to deleted/)  body: {"name"}
 POST /api/restore               restore it  body: {"folder"}
@@ -524,7 +524,7 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
                     return self._bin(jpg, "image/jpeg")
                 if u.path == "/api/live/state":
                     from .live import LINK
-                    return self._json(LINK.snapshot(int(q.get("since", 0) or 0)))
+                    return self._json(LINK.snapshot(int(q.get("since", 0) or 0), q.get("screen")))
                 if u.path == "/api/live/ports":
                     from .live import list_ports
                     try:
@@ -675,6 +675,9 @@ def make_handler(scenes_dir: Path, cache_dir: Path):
             scene = b.get("scene", "")
             if not re.match(r"^[\w-]+$", scene) or not (scenes_dir / scene / "scene.json").exists():
                 return self._json(dict(error="unknown scene"), 400)
+            if LINK.running and not b.get("replace"):     # another screen is flying: follow it, never cut it
+                return self._json(dict(error="a flight is already live on another screen", running=True,
+                                       scene=LINK.state.get("scene")), 409)
             if b.get("source") == "replay":
                 tf = scenes_dir / scene / str(b.get("track", ""))
                 if ".." in str(b.get("track", "")) or not tf.exists():

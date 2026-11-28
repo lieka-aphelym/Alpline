@@ -363,8 +363,11 @@ svg.drn.l-hover .dr { animation: drn-hover 2.4s ease-in-out infinite; }
   display: flex; flex-direction: column; gap: 4px; }
 .lvLost > b { color: var(--bad); font: 700 13px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
 html[data-theme="dark"] .lvLost > b, html:not([data-theme]) .lvLost > b { color: #ff4d5e; }
-.lvConn { display: flex; align-items: center; justify-content: space-between; gap: 8px; font: 13px var(--mono); color: var(--t-fg2);
+.lvConn { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font: 13px var(--mono); color: var(--t-fg2);
   border-top: 1px solid var(--t-rule); padding: 6px 0 2px; margin-bottom: 4px; }
+/* a flight another screen started: offered to follow, above the connection form */
+.lvRunning { background: color-mix(in srgb, var(--ok) 12%, var(--t-bg)); border-left: 3px solid var(--ok); padding: 8px;
+  margin: 0 0 8px; display: flex; flex-direction: column; gap: 6px; }
 details.lvFold { border-top: 1px dashed var(--t-rule); padding: 6px 0 2px; }
 details.lvFold > summary { cursor: pointer; font: 13px var(--mono); list-style: none; }
 details.lvFold > summary::before { content: "▸ "; color: var(--t-fg2); }

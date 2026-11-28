@@ -234,24 +234,70 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, sign
     try {
       const r = await fetch('/api/live/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const j = await r.json();
+      if (r.status === 409 && j.running) {        // another screen is already flying: restarting would cut it
+        checkRunning();
+        throw new Error('A flight is already live on another screen: follow it above, or end it there first.');
+      }
       if (!r.ok || j.error) throw new Error(j.error || r.status);
     } catch (e) {
       $('liveMsg').textContent = e.message; $('liveMsg').className = 'small err';
       D.loop(null); D.off(true); linkTxt('not connected'); hero('off'); $('liveStatus').textContent = 'pick the radio and connect'; return;
     }
+    begin({ follow: false, label: srcSel.value === 'serial' ? `${$('livePort').value} · radio` : 'replay' });
+  }
+
+  // ------------------------------------------------------------ follow a flight another screen started
+  // One radio, one link on the server; any number of screens can show it: the computer the radio is plugged into, the
+  // pilot's phone, a spotter's phone. Following only reads the link, so it never cuts the flight of the other screen.
+  // A page that is not flying asks every few seconds whether a flight is live, and offers to follow it.
+  const SCREEN = Math.random().toString(36).slice(2, 10);      // this page, among the screens showing the flight
+  const linkLabel = (j) => (j.source === 'serial' ? `${j.port || 'radio'} · radio` : 'replay');
+  async function checkRunning() {
+    if (st.on || document.hidden) return;
+    let j;
+    try { j = await (await fetch('/api/live/state?since=1000000000')).json(); } catch { return; }
+    if (st.on) return;
+    const box = $('liveRunning'), here = j.scene === S.meta.name;
+    box.classList.toggle('hidden', !j.running);
+    $('liveConnect').classList.toggle('hidden', !!j.running);
+    if (!j.running) return;
+    $('liveFollowRun').classList.toggle('hidden', !here);
+    $('liveRunningTxt').innerHTML = here
+      ? `<b>A flight is live here</b> (${esc(linkLabel(j))}), started on another screen. Follow it to see the drone and hear the warnings on this one.`
+      : `<b>A flight is live in ${esc(j.scene || 'another location')}.</b> <a href="?scene=${encodeURIComponent(j.scene || '')}">Open it</a> to follow it.`;
+  }
+  async function follow() {
+    W.unlock();                                 // a click is needed before the browser plays sound
+    let j;
+    try { j = await (await fetch(`/api/live/state?since=1000000000&screen=${SCREEN}`)).json(); } catch { return; }
+    if (!j.running || j.scene !== S.meta.name) { checkRunning(); return; }
+    $('liveMsg').textContent = ''; $('liveMsg').className = 'small';
+    D.off(false); D.flying(false); D.loop('scan'); linkTxt('connecting…'); hero('warn');
+    begin({ follow: true, label: `following · ${linkLabel(j)}`, started: j.started, openFor: j.age });
+  }
+  $('liveFollowRun').onclick = follow;
+  $('liveEndAll').onclick = () => disconnect({ end: true });
+  setInterval(checkRunning, 3000);
+  checkRunning();
+
+  function begin({ follow: following, label, started = null, openFor = 0 }) {
+    st.follow = following; st.started = started; st.connLabel = label;
+    $('liveRunning').classList.add('hidden'); $('liveConnect').classList.remove('hidden');
+    $('liveEndAll').classList.toggle('hidden', !following);
+    $('liveDisconnect').textContent = following ? '[stop following]' : '[disconnect]';
     W.bat.reset(); batApply();
     st.reconn = false;
-    Object.assign(st, { armedShown: false, flying: false, seenGround: false, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null,
+    Object.assign(st, { armedShown: false, flying: false, seenGround: false, takeoffT: null, lastAt: 0, estAt: 0, gpsEvery: null, frameEvery: null,
       fixes: [], pilotLocked: false, rel: false, relBase: null, calibs: [] });
     if (!st.pilotManual) st.pilot = null;
     showPilot();
     Object.assign(st, { on: true, busy: false, endedShown: false, seq: 0, calib: null, calibN: 0, calibSum: 0, last: null, prev: null, lost: false, trail: [] });
     tGeo.setDrawRange(0, 0); lostPin.visible = false; if (zoneMesh) zoneMesh.visible = false; $('liveLost').classList.add('hidden');
     MK.setVisible(false);
-    st.t0 = performance.now(); st.flyT0 = null;
+    st.t0 = performance.now() - (openFor || 0) * 1000; st.flyT0 = null;      // following: the time since the link opened
     $('liveConnectBox').classList.add('hidden'); $('liveTiles').classList.remove('hidden', 'dim'); $('liveConnBar').classList.remove('hidden');
-    $('liveConnTxt').textContent = (srcSel.value === 'serial' ? `${$('livePort').value} · radio` : 'replay')
-      + ($('liveSave').checked ? ' · recording' : '');
+    st.connLabel = label + (!following && $('liveSave').checked ? ' · recording' : '');
+    $('liveConnTxt').textContent = st.connLabel;
     ['lvHeight', 'lvDist', 'lvSpeed', 'lvBatt', 'lvClimb', 'lvTime'].forEach((id) => { $(id).textContent = '–'; });
     document.body.classList.add('live-on');
     onStart?.();
@@ -287,14 +333,23 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, sign
       st.hiddenAt = null;
     }
   });
-  async function disconnect() {
-    clearInterval(st.poll); clearInterval(st.tickTimer); st.on = false;
+  // end = stop the link on the server too. A follower only stops watching ([stop following]), unless it asks to end
+  // the flight for everyone ([end the flight]). `why` = the other screen ended or restarted it: just say so.
+  async function disconnect({ end = !st.follow, why = '' } = {}) {
+    const wasFollowing = st.follow;
+    clearInterval(st.poll); clearInterval(st.tickTimer); st.on = false; st.follow = false;
     keepAwake(false); $('liveSilent').classList.add('hidden');
     $('liveConnectBox').classList.remove('hidden'); $('liveTiles').classList.add('hidden'); $('liveConnBar').classList.add('hidden');
     hero('off'); $('liveStatus').textContent = 'pick the radio and connect';
     document.body.classList.remove('live-on');
     W.stop(); pred.visible = false; MK.setVisible(false);
     D.loop(null); D.flying(false); D.off(true); linkTxt('not connected'); $('liveHint').classList.add('hidden');
+    if (why || !end) {
+      $('liveMsg').textContent = why || (wasFollowing ? 'Stopped following: the flight goes on on the other screen.' : '');
+      $('liveMsg').className = 'small muted';
+      checkRunning();
+      return;
+    }
     try {
       const r = await fetch('/api/live/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ save: $('liveSave').checked }) });
       const j = await r.json();
@@ -314,10 +369,20 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, sign
   }
   async function pollOnce() {
     let j;
-    try { j = await (await fetch(`/api/live/state?since=${st.seq}`)).json(); } catch { return; }
+    try { j = await (await fetch(`/api/live/state?since=${st.seq}&screen=${SCREEN}`)).json(); } catch { return; }
     if (!st.on) return;
+    // another screen ended the flight, or started a new one: this page stops showing it (and offers to follow the new one)
+    st.started ??= j.started;
+    if (j.started !== st.started) { disconnect({ why: 'The flight was restarted on another screen.' }); return; }
+    if (j.stopped) { disconnect({ why: 'The flight was ended on another screen.' }); return; }
+    $('liveConnTxt').textContent = st.connLabel + (j.screens > 1 ? ` · ${j.screens} screens` : '');
     j.samples = j.samples.filter((s) => s.seq > st.seq);
-    if (j.status === 'error') { $('liveMsg').textContent = j.error; $('liveMsg').className = 'small err'; disconnect(); return; }
+    if (j.status === 'error') {
+      if (st.follow) disconnect({ why: j.error });           // the other screen's link failed: nothing to stop here
+      else disconnect();
+      $('liveMsg').textContent = j.error; $('liveMsg').className = 'small err';
+      return;
+    }
     if (j.samples.length && $('liveMsg').textContent === 'connecting…') $('liveMsg').textContent = '';
     if (!st.armedShown && (j.samples.length || (j.frame_age != null && j.frame_age < 2.5))) {   // first data: the quad arms
       st.armedShown = true; D.play('arm', () => D.loop('ping')); D.loop('ping'); linkTxt('link'); hero('ok');
@@ -386,11 +451,13 @@ export function initLive({ S, scene3, camera, controls, toWorld, demHeight, sign
     st.prev = st.last; st.last = cur;
     if (newest) { st.lastAt = performance.now(); st.estAt = 0; mk.estimated = false; }
     if (cur.agl < 3 && spd < 1) st.seenGround = true;      // every sample: a batch may hold the takeoff
+    else if (st.takeoffT == null && st.seenGround && cur.agl > 5 && spd > 2) st.takeoffT = s.t;   // seconds into the link
     if (newest) {
       D.link(s.lq);
       linkTxt(s.lq != null ? `link · LQ ${Math.round(s.lq)} %` : 'link');
       if (!st.flying && cur.agl > 5 && spd > 2) {          // take-off, only if we saw it on the ground (else: connected mid-air)
-        st.flying = true; st.flyT0 ??= performance.now();
+        // a screen that follows gets the flight so far in one go: the clock starts at the real take-off, not now
+        st.flying = true; st.flyT0 ??= st.follow ? st.t0 + (st.takeoffT ?? 0) * 1000 : performance.now();
         if (!st.pilotManual && st.pilot) { st.pilotLocked = true; showPilot(); }   // the take-off point stays put now
         if (st.seenGround) D.play('takeoff', () => D.loop('ping')); else D.flying(true);
       }

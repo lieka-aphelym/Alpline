@@ -10,6 +10,13 @@ The *Live flight* section of the *[fly]* tab shows the drone live on the 3D map 
 3. Plug the radio in USB and choose **USB Serial (VCP)** when it asks.
 4. In the viewer, open *[fly]*, click *[refresh]*, pick the port and click *[connect]*. Connect while the drone is still on the ground: its GPS altitude is then calibrated against the terrain. You can also type an altitude correction yourself.
 
+**On several screens at once.** The radio is plugged into one computer, but any page of the same server can show
+the flight: the computer, your phone, a spotter's phone. Open the location on the other screen, in *[fly]*: it says
+*A flight is live here* and offers **[follow this flight]**. Each screen has its own camera and its own warnings
+(sounds included), and the bar at the bottom says how many screens show the flight. **[stop following]** only
+stops this screen; **[end the flight]** stops the radio link for everyone, and saves it if *Save the flight when
+disconnecting* is ticked on that screen. While a flight is live, *[connect]* on another screen is refused: it would cut the first one.
+
 **What you get**
 - **Live drone:** the drone (same marker as in replay, faded while its position is estimated) moves on the map with a trail coloured by LQ, a dashed line shows where it will be in a few seconds, and you see LQ, RSSI, SNR, TX power, battery, flight mode, height above ground, speed, distance and satellites.
 - **Warnings (voice + beeps, through the laptop speaker or an earbud):** the path of the next seconds (*Look ahead*, 5 s by default) is checked against the 3D shadows of the scene, i.e. the height below which there is no line of sight to the pilot:
