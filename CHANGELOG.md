@@ -7,6 +7,15 @@ What changed in each release of Alpline. Newest first.
 - **No more empty moment at start-up.** The installed app's first picture now stays until the launcher's window is
   on screen; between the two there used to be half a second to a second and a half with nothing, and the picture
   sometimes shrank to a small square just before it went. The window's title is right from the start too.
+- **The phone, checks and files pages in the launcher's two looks.** They had only taken the look's titles; now each
+  is drawn for it (designs on the canvas: phone A for game, phone B for terminal, checks A, files B).
+  - **Phone:** a big *share* switch, the address and the PIN large, and the QR code on the page itself (it used to
+    open in the browser), with the access check as a list that says what is fine. In the terminal look the QR code is
+    amber and a live log shows what the phones do: PIN typed, wrong PIN, page opened.
+  - **Checks:** one big *run* button; each group of tests is a card (game) or a line `Basics ...... [ ok 46 ]`
+    (terminal) that fills in as its results come. **R** runs, **C** copies the report.
+  - **Files:** in the game look the space is a map of blocks, big for big, and a click ticks one; in the terminal
+    look it is a tree like `du`, with the scenes place by place. The backups are listed by date.
 
 ## 1.3.0 (November 2026)
 

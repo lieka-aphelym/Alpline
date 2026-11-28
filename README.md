@@ -85,14 +85,20 @@ Double-click **`Alpline.bat`** in the project folder (or start the installed app
   which battery pack you flew; *[battery packs]* opens the packs page (see [Battery analysis](docs/battery.md)). *[download blackbox]*
   copies the drone's log and adds its flights (see *Blackbox from the drone* below); *[live flight in 3d]* opens the
   selected location on the fly tab.
-- **phone:** share on your network, the address and PIN, *[qr code]*, *[check access]* (details below).
+- **phone:** sharing on or off, the address and the PIN, a QR code that carries both, and the access check as a list
+  (firewall, private network, rules blocking Python). In the terminal look the QR code is amber and a live log shows
+  what the phones do (PIN typed, page opened); **S** shares, **A** checks, **Q** shows a big QR code, **C** copies the
+  address (details below).
 - **checks:** when a library pinned in `requirements.txt` changed (after an update of Alpline), a notice lists what
-  differs and *[update libraries]* installs it: no command line. *[run quick check]* runs Alpline's own tests (about 20 s, in a temporary folder: your locations are not
-  touched), with a line per group (security, robustness, journeys…), what went wrong for a failure, and *[copy
-  report]* to paste the results in a message. A red dot on the icon means the last check found a problem. From the
+  differs and *[update libraries]* installs it: no command line. *Run quick check* (**R** in the terminal look) runs
+  Alpline's own tests (about 20 s, in a temporary folder: your locations are not touched), with a card (game) or a
+  line (terminal) per group that fills in as its results come, what went wrong for a failure, and *copy report*
+  (**C**) to paste the results in a message. A red dot on the icon means the last check found a problem. From the
   source folder only (the installed app has no tests).
-- **files:** how much space each kind of file takes, with free space on the disk (see *Your files: clean-up, start
-  fresh, backup* below). **settings:** Full / Lite, where pages open (Alpline window or your browser), desktop
+- **files:** how much space each kind of file takes, with free space on the disk: in the game look a map of blocks,
+  big for big (click one to tick it), in the terminal look a tree like `du`, the scenes opened place by place with
+  **→** (**space** ticks, **D** deletes, **T** cleans unused tiles, **B** backs up, **R** restores). The backups are
+  listed by date (see *Your files: clean-up, start fresh, backup* below). **settings:** Full / Lite, where pages open (Alpline window or your browser), desktop
   shortcut, your files folder, version.
 
 The window can be resized (the map grows, everything else keeps its size) and remembers its size and page. Long names
@@ -100,7 +106,7 @@ are cut with "…" (hover for the whole text). Messages appear for a few seconds
 filter, **↑ ↓** move in the list, **Enter** open, **Esc** clear the filter. The locations reload when the window comes
 back to the front.
 
-**On your phone (Android or any phone with Chrome):** the **phone** page, then *[share on my network]*. The page shows the address (e.g. `http://192.168.1.20:8000`) and the PIN; **[qr code]** shows a QR code to scan. Phone and computer must be on the same Wi-Fi; at the field, turn on the phone's hotspot and connect the laptop to it. The first time, allow Python on *private networks* when Windows asks. On the phone the panel becomes a sheet at the bottom with the tabs along its top (*[hide]* folds it), buttons are bigger, and *Add to Home screen* in Chrome gives it an icon. The phone can look, fly the simulator, follow live telemetry (radio on the laptop) and build; deleting and renaming only work on the computer. The phone needs the 6-digit **PIN** once (it is in the QR link); without it other devices on the network get nothing. When the *cryptography* library is installed (the launcher offers it), the phone uses a secure page, `https://<PC address>:8443`: install the PC's certificate once on the phone (the QR page links it and explains the Android steps) so Chrome trusts it, which lets the phone keep its screen on during a live flight. The firewall rule made by the launcher covers ports 8000-8019 and 8443-8462. From a terminal: `python -m fpv3d serve --lan`.
+**On your phone (Android or any phone with Chrome):** the **phone** page, then switch *share on my network* on. The page shows the address (e.g. `http://192.168.1.20:8000`), the PIN and a QR code to scan (click it for a bigger one). Phone and computer must be on the same Wi-Fi; at the field, turn on the phone's hotspot and connect the laptop to it. The first time, allow Python on *private networks* when Windows asks. On the phone the panel becomes a sheet at the bottom with the tabs along its top (*[hide]* folds it), buttons are bigger, and *Add to Home screen* in Chrome gives it an icon. The phone can look, fly the simulator, follow live telemetry (radio on the laptop) and build; deleting and renaming only work on the computer. The phone needs the 6-digit **PIN** once (it is in the QR link); without it other devices on the network get nothing. When the *cryptography* library is installed (the launcher offers it), the phone uses a secure page, `https://<PC address>:8443`: install the PC's certificate once on the phone (the QR page links it and explains the Android steps) so Chrome trusts it, which lets the phone keep its screen on during a live flight. The firewall rule made by the launcher covers ports 8000-8019 and 8443-8462. From a terminal: `python -m fpv3d serve --lan`.
 
 Logs count as **sim** when they come from the training flight (`<location>_sim_<date>` or `logs/sim/`), everything else counts as **real**.
 

@@ -156,6 +156,20 @@ def test_one_build_per_location():
         pass
 
 
+def test_phone_log_keeps_the_last_lines():
+    """What other devices did (a PIN typed, a page opened) is kept for the launcher's phone page: the last 40 only."""
+    old = list(server.PHONE_LOG)
+    try:
+        server.PHONE_LOG.clear()
+        for i in range(45):
+            server.phone_event("192.168.1.31", f"opened /viewer/{i}")
+        assert len(server.PHONE_LOG) == 40
+        assert server.PHONE_LOG[0]["what"] == "opened /viewer/5" and server.PHONE_LOG[-1]["what"] == "opened /viewer/44"
+        assert set(server.PHONE_LOG[-1]) == {"t", "ip", "what"}
+    finally:
+        server.PHONE_LOG[:] = old
+
+
 def test_pilot_point_anywhere_inside_its_area():
     """Moving the pilot point works anywhere in the world (it was a box around Switzerland), inside the area only."""
     la = _TMP / "pilot_la.yaml"
