@@ -43,11 +43,12 @@ class LiveLink:
         self.lock = threading.Lock()
         self.thread = None
         self.stop_ev = threading.Event()
+        self.screens = {}          # page id -> when it last asked: how many screens show the flight
         self.reset()
 
     def reset(self):
         self.state = dict(status="idle", source=None, scene=None, error=None, frames=0, bad=0, gps_count=0,
-                          started=None, csv=None, bytes=0, port=None, reconnecting=False, reconnects=0)
+                          started=None, csv=None, bytes=0, port=None, reconnecting=False, reconnects=0, stopped=False)
         self.opened = None         # when the port opened: "nothing for N s" needs to know how long we waited
         self.latest = {}
         self.samples = []          # one per GPS frame (merged with the latest other values)
@@ -78,6 +79,7 @@ class LiveLink:
             self.thread.join(timeout=3)
         self.thread = None
         with self.lock:
+            self.state["stopped"] = True       # someone pressed stop (a replay that was cut also reads "ended")
             if self.state["status"] in ("connecting", "live"):
                 self.state["status"] = "stopped"
 
@@ -251,10 +253,26 @@ class LiveLink:
             self.state.update(status="error", error=msg)
 
     # ------------------------------------------------------------ data out
-    def snapshot(self, since: int = 0):
+    @property
+    def running(self) -> bool:
+        return bool(self.thread and self.thread.is_alive())
+
+    SCREEN_S = 3.0            # a page that has not asked for this long no longer counts as watching
+
+    def snapshot(self, since: int = 0, screen: str = None):
+        """The link's state and the GPS samples after `since`. `screen` is the asking page's id: the pages that asked
+        in the last few seconds are the screens showing the flight (the computer, a phone, a spotter's phone)."""
         now = time.monotonic()
         with self.lock:
+            if screen:
+                self.screens[screen[:40]] = now
+            for k in [k for k, t in self.screens.items() if now - t > self.SCREEN_S]:
+                del self.screens[k]
             st = dict(self.state)
+            st["running"] = self.running
+            st["screens"] = len(self.screens)
+            # how long the link has run, from this computer's clock: a phone's clock may be off by minutes
+            st["age"] = None if st["started"] is None else round(time.time() - st["started"], 1)
             st["frame_age"] = None if self.last_frame is None else round(now - self.last_frame, 2)
             st["gps_age"] = None if self.last_gps is None else round(now - self.last_gps, 2)
             st["latest"] = dict(self.latest)
